@@ -804,10 +804,19 @@ STDMETHODIMP CTextService::OnChange(REFGUID rguid)
 
 void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
 {
-    if (!pContext || m_romajiBuffer.empty() || !m_hwndMsg) return;
+    if (!pContext || !m_hwndMsg) return;
 
-    auto r = romaji::Convert(m_romajiBuffer);
-    std::wstring reading = r.hira + romaji::FinalizeTrailingN(r.remaining);
+    // Normal path: derive the reading from the romaji typed so far.
+    // Reconvert path: the caller pre-loads m_lastReading with the host's
+    // selected morpheme reading and clears m_romajiBuffer, so we fall
+    // back to m_lastReading when the buffer is empty.
+    std::wstring reading;
+    if (!m_romajiBuffer.empty())
+    {
+        auto r = romaji::Convert(m_romajiBuffer);
+        reading = r.hira + romaji::FinalizeTrailingN(r.remaining);
+    }
+    if (reading.empty()) reading = m_lastReading;
     if (reading.empty()) return;
 
     // Local symbol dictionary first: instant, no LLM round-trip. If we get
@@ -1586,6 +1595,7 @@ void CTextService::CommitConvertedIfAny(ITfContext* pContext)
     m_compositionConverted = FALSE;
     m_lastReading.clear();
     m_fkeyConvertedText.clear();
+    m_nonconvertCycle = 0;
     if (m_pCandWnd) m_pCandWnd->Hide();
 }
 
@@ -1639,6 +1649,284 @@ void CTextService::RepaintBunsetsu(ITfContext* pContext)
         m_pCandWnd->ShowAt(pt);
     }
     m_compositionConverted = TRUE;
+}
+
+void CTextService::CycleNonconvertForm(ITfContext* pContext)
+{
+    if (!m_pComposition || !pContext) return;
+
+    // Resolve the current romaji buffer to a canonical hiragana form
+    // (same FinalizeTrailingN treatment the F-key path uses, so a lone
+    // trailing "n" becomes ん instead of disappearing on the cycle).
+    auto r = romaji::Convert(m_romajiBuffer);
+    std::wstring hira = r.hira + romaji::FinalizeTrailingN(r.remaining);
+    if (hira.empty() && m_romajiBuffer.empty()) return;
+
+    // Cycle: 0 = hiragana, 1 = 全角カナ, 2 = 半角カナ, 3 = ローマ字.
+    m_nonconvertCycle = (m_nonconvertCycle + 1) % 4;
+    std::wstring text;
+    switch (m_nonconvertCycle)
+    {
+    case 0: text = hira; break;
+    case 1: text = ToFullKatakana(hira); break;
+    case 2: text = ToHalfKatakana(ToFullKatakana(hira)); break;
+    case 3: text = m_romajiBuffer; break;
+    }
+
+    if (m_pCandWnd) m_pCandWnd->Hide();
+    if (!text.empty()) RequestEditSession(pContext, EditAction::Update, text);
+    m_compositionConverted = TRUE;
+    m_fkeyConvertedText    = text;
+    m_lastReading          = hira;
+}
+
+void CTextService::TryReconvertFromSelection(ITfContext* pContext)
+{
+    if (!pContext) return;
+
+    auto* mecab = MecabAnalyzer::GetGlobal();
+
+    // Pull the host's current selection text via a read-only edit session.
+    // Without a selection (or with a zero-width caret) there's nothing to
+    // re-convert, so we bail out quietly.
+    struct GetSelText : ITfEditSession
+    {
+        LONG m_cRef = 1;
+        ITfContext* m_ctx;
+        std::wstring* m_out;
+        GetSelText(ITfContext* c, std::wstring* o) : m_ctx(c), m_out(o) { if (m_ctx) m_ctx->AddRef(); }
+        ~GetSelText() { if (m_ctx) m_ctx->Release(); }
+        STDMETHODIMP QueryInterface(REFIID riid, void** pp) override {
+            if (!pp) return E_INVALIDARG;
+            *pp = nullptr;
+            if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfEditSession)) {
+                *pp = static_cast<ITfEditSession*>(this); AddRef(); return S_OK;
+            }
+            return E_NOINTERFACE;
+        }
+        STDMETHODIMP_(ULONG) AddRef() override { return InterlockedIncrement(&m_cRef); }
+        STDMETHODIMP_(ULONG) Release() override {
+            LONG c = InterlockedDecrement(&m_cRef);
+            if (c == 0) delete this;
+            return c;
+        }
+        STDMETHODIMP DoEditSession(TfEditCookie ec) override {
+            TF_SELECTION sel = {};
+            ULONG fetched = 0;
+            HRESULT hr = m_ctx->GetSelection(ec, TF_DEFAULT_SELECTION, 1, &sel, &fetched);
+            if (FAILED(hr) || fetched == 0 || !sel.range) return hr;
+            // Probe up to 256 chars — anything longer is almost certainly
+            // not a re-convert target (would blow past Ollama timeout too).
+            wchar_t buf[256] = {};
+            ULONG got = 0;
+            sel.range->GetText(ec, 0, buf, 255, &got);
+            if (got > 0) m_out->assign(buf, got);
+            sel.range->Release();
+            return S_OK;
+        }
+    };
+
+    std::wstring selected;
+    GetSelText* sess = new GetSelText(pContext, &selected);
+    HRESULT hrSession = S_OK;
+    pContext->RequestEditSession(m_tfClientId, sess, TF_ES_SYNC | TF_ES_READ, &hrSession);
+    sess->Release();
+
+    // Fallback when the host has no explicit selection (just a caret):
+    // MS-IME's re-convert picks up the morpheme the caret is inside (or
+    // immediately after). We grab text on both sides of the caret, run
+    // MeCab on the combined slice, find the morpheme that contains the
+    // caret offset, and extend the host selection across that morpheme.
+    LONG targetBack    = 0;
+    LONG targetForward = 0;
+    if (selected.empty())
+    {
+        struct GetCaretSlice : ITfEditSession
+        {
+            LONG m_cRef = 1;
+            ITfContext* m_ctx;
+            LONG m_max;
+            std::wstring* m_outPrefix;
+            std::wstring* m_outSuffix;
+            GetCaretSlice(ITfContext* c, LONG max, std::wstring* p, std::wstring* s)
+                : m_ctx(c), m_max(max), m_outPrefix(p), m_outSuffix(s)
+                { if (m_ctx) m_ctx->AddRef(); }
+            ~GetCaretSlice() { if (m_ctx) m_ctx->Release(); }
+            STDMETHODIMP QueryInterface(REFIID riid, void** pp) override {
+                if (!pp) return E_INVALIDARG;
+                *pp = nullptr;
+                if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfEditSession)) {
+                    *pp = static_cast<ITfEditSession*>(this); AddRef(); return S_OK;
+                }
+                return E_NOINTERFACE;
+            }
+            STDMETHODIMP_(ULONG) AddRef() override { return InterlockedIncrement(&m_cRef); }
+            STDMETHODIMP_(ULONG) Release() override {
+                LONG c = InterlockedDecrement(&m_cRef);
+                if (c == 0) delete this;
+                return c;
+            }
+            STDMETHODIMP DoEditSession(TfEditCookie ec) override {
+                TF_SELECTION sel = {};
+                ULONG fetched = 0;
+                HRESULT hr = m_ctx->GetSelection(ec, TF_DEFAULT_SELECTION, 1, &sel, &fetched);
+                if (FAILED(hr) || fetched == 0 || !sel.range) return hr;
+                // Prefix: clone selection range, walk start back m_max.
+                ITfRange* preR = nullptr;
+                sel.range->Clone(&preR);
+                if (preR) {
+                    LONG shifted = 0;
+                    preR->ShiftStart(ec, -m_max, &shifted, nullptr);
+                    wchar_t buf[256] = {};
+                    ULONG got = 0;
+                    preR->GetText(ec, 0, buf, 255, &got);
+                    if (got > 0) m_outPrefix->assign(buf, got);
+                    preR->Release();
+                }
+                // Suffix: clone, walk end forward m_max.
+                ITfRange* sufR = nullptr;
+                sel.range->Clone(&sufR);
+                if (sufR) {
+                    LONG shifted = 0;
+                    sufR->ShiftEnd(ec, m_max, &shifted, nullptr);
+                    wchar_t buf[256] = {};
+                    ULONG got = 0;
+                    sufR->GetText(ec, 0, buf, 255, &got);
+                    if (got > 0) m_outSuffix->assign(buf, got);
+                    sufR->Release();
+                }
+                sel.range->Release();
+                return S_OK;
+            }
+        };
+        std::wstring prefix, suffix;
+        GetCaretSlice* gp = new GetCaretSlice(pContext, 20, &prefix, &suffix);
+        HRESULT hrGp = S_OK;
+        pContext->RequestEditSession(m_tfClientId, gp,
+            TF_ES_SYNC | TF_ES_READ, &hrGp);
+        gp->Release();
+
+        std::wstring combined = prefix + suffix;
+        if (!combined.empty() && mecab && mecab->IsReady())
+        {
+            auto morphemes = mecab->Analyze(combined);
+            size_t caretOffset = prefix.size();
+            size_t cum = 0;
+            for (const auto& m : morphemes)
+            {
+                size_t end = cum + m.surface.size();
+                // Morpheme spans [cum, end). The caret is between chars
+                // at position caretOffset (0-based). Adopt this morpheme
+                // when the caret falls strictly inside, at its end edge,
+                // or — for the first morpheme only — exactly at offset 0.
+                bool inside  = (caretOffset > cum && caretOffset <= end);
+                bool atStart = (cum == 0 && caretOffset == 0);
+                if (inside || atStart)
+                {
+                    selected      = m.surface;
+                    targetBack    = (LONG)(caretOffset - cum);
+                    targetForward = (LONG)(end - caretOffset);
+                    break;
+                }
+                cum = end;
+            }
+        }
+    }
+
+    if (selected.empty())
+    {
+        OutputDebugStringW(L"[GenerativeIME] Reconvert: no selection and caret morpheme lookup failed\n");
+        return;
+    }
+
+    // Caret-fallback case: extend the host selection so it covers the
+    // identified morpheme on both sides of the caret. The composition
+    // then overwrites that range instead of inserting after the caret.
+    if (targetBack > 0 || targetForward > 0)
+    {
+        struct ExtendRange : ITfEditSession
+        {
+            LONG m_cRef = 1;
+            ITfContext* m_ctx;
+            LONG m_back;
+            LONG m_forward;
+            ExtendRange(ITfContext* c, LONG b, LONG f)
+                : m_ctx(c), m_back(b), m_forward(f) { if (m_ctx) m_ctx->AddRef(); }
+            ~ExtendRange() { if (m_ctx) m_ctx->Release(); }
+            STDMETHODIMP QueryInterface(REFIID riid, void** pp) override {
+                if (!pp) return E_INVALIDARG;
+                *pp = nullptr;
+                if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfEditSession)) {
+                    *pp = static_cast<ITfEditSession*>(this); AddRef(); return S_OK;
+                }
+                return E_NOINTERFACE;
+            }
+            STDMETHODIMP_(ULONG) AddRef() override { return InterlockedIncrement(&m_cRef); }
+            STDMETHODIMP_(ULONG) Release() override {
+                LONG c = InterlockedDecrement(&m_cRef);
+                if (c == 0) delete this;
+                return c;
+            }
+            STDMETHODIMP DoEditSession(TfEditCookie ec) override {
+                TF_SELECTION sel = {};
+                ULONG fetched = 0;
+                HRESULT hr = m_ctx->GetSelection(ec, TF_DEFAULT_SELECTION, 1, &sel, &fetched);
+                if (FAILED(hr) || fetched == 0 || !sel.range) return hr;
+                LONG shifted = 0;
+                if (m_back > 0)
+                    sel.range->ShiftStart(ec, -m_back, &shifted, nullptr);
+                if (m_forward > 0)
+                    sel.range->ShiftEnd(ec, m_forward, &shifted, nullptr);
+                m_ctx->SetSelection(ec, 1, &sel);
+                sel.range->Release();
+                return S_OK;
+            }
+        };
+        ExtendRange* ext = new ExtendRange(pContext, targetBack, targetForward);
+        HRESULT hrExt = S_OK;
+        pContext->RequestEditSession(m_tfClientId, ext,
+            TF_ES_SYNC | TF_ES_READWRITE, &hrExt);
+        ext->Release();
+    }
+
+    // Recover the reading. Pure-kana selections are already the reading
+    // we'd want; mixed kanji selections go through MeCab's pronunciation
+    // field. Falls back to the literal selection if MeCab can't parse it.
+    std::wstring reading;
+    if (mecab && mecab->IsReady())
+    {
+        auto morphemes = mecab->Analyze(selected);
+        for (const auto& m : morphemes)
+        {
+            if (!m.pronunciation.empty()) reading += m.pronunciation;
+            else                          reading += m.surface;
+        }
+    }
+    if (reading.empty()) reading = selected;
+
+    wchar_t logbuf[300];
+    swprintf_s(logbuf,
+               L"[GenerativeIME] Reconvert: selection=\"%s\" reading=\"%s\"\n",
+               selected.c_str(), reading.c_str());
+    OutputDebugStringW(logbuf);
+
+    // Replace the host selection with the recovered reading as a fresh
+    // composition. From here the normal Space / candidate flow takes
+    // over; commit will overwrite the selected range with the user's
+    // pick.
+    m_romajiBuffer.clear();
+    m_compositionConverted = FALSE;
+    m_fkeyConvertedText.clear();
+    m_nonconvertCycle = 0;
+    // m_lastReading is the SOURCE that TryOllamaConvertAsync reads from
+    // on the reconvert path (m_romajiBuffer is empty). Set it before
+    // starting the composition.
+    m_lastReading = reading;
+    LeaveBunsetsuMode();
+    if (m_pCandWnd) m_pCandWnd->Hide();
+
+    RequestEditSession(pContext, EditAction::StartAndUpdate, reading);
+    TryOllamaConvertAsync(pContext);
 }
 
 void CTextService::ResizeFocusedBunsetsu(int delta, ITfContext* pContext)
@@ -1951,6 +2239,12 @@ bool CTextService::ShouldEat(WPARAM wParam) const
             return true;
     }
     if (m_pComposition && wParam >= VK_F6 && wParam <= VK_F10) return true;
+    // 変換 / 無変換 keys (Japanese keyboards). 変換 acts as a convert
+    // trigger / re-convert; 無変換 cycles the composition's kana form.
+    // Outside a live composition 変換 still applies when the host has a
+    // selection (re-convert path) — we let the OnKeyDown handler decide,
+    // here we just claim the key so TSF doesn't pass it to the host.
+    if (wParam == VK_CONVERT || wParam == VK_NONCONVERT) return true;
     return false;
 }
 
@@ -2107,6 +2401,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         m_compositionConverted = FALSE;
         m_lastReading.clear();
         m_fkeyConvertedText.clear();
+    m_nonconvertCycle = 0;
         if (m_pCandWnd) m_pCandWnd->Hide();
         *pfEaten = TRUE;
     }
@@ -2116,6 +2411,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         m_romajiBuffer.clear();
         m_compositionConverted = FALSE;
         m_fkeyConvertedText.clear();
+    m_nonconvertCycle = 0;
         LeaveBunsetsuMode();
         if (m_pCandWnd) m_pCandWnd->Hide();
         *pfEaten = TRUE;
@@ -2133,6 +2429,58 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         else if (pic)
         {
             TryOllamaConvertAsync(pic);
+        }
+        *pfEaten = TRUE;
+    }
+    else if (wParam == VK_CONVERT)
+    {
+        // 変換 key. Three behaviors depending on state:
+        //   - Composition + candidate window up → cycle next candidate
+        //     (same as Space).
+        //   - Composition without candidate window → start conversion
+        //     (same as Space).
+        //   - No composition + host has a selection → re-convert the
+        //     selected text (TryReconvertFromSelection).
+        if (m_pComposition)
+        {
+            if (m_pCandWnd && m_pCandWnd->IsVisible())
+            {
+                m_pCandWnd->SelectNext();
+                ApplyCandidateSelection(pic);
+            }
+            else if (pic)
+            {
+                TryOllamaConvertAsync(pic);
+            }
+        }
+        else if (pic)
+        {
+            TryReconvertFromSelection(pic);
+        }
+        *pfEaten = TRUE;
+    }
+    else if (wParam == VK_NONCONVERT && m_pComposition)
+    {
+        // 無変換 key. Two modes depending on whether the candidate window
+        // is up:
+        //   - Window visible (mid-conversion) → cancel back to the bare
+        //     hiragana reading. Drops the kanji choice and dismisses the
+        //     popup; Enter still commits, learning records the reading
+        //     itself as the picked form.
+        //   - No window / pre-conversion → cycle the composition's kana
+        //     form (ひらがな / 全角カナ / 半角カナ / ローマ字).
+        if (m_pCandWnd && m_pCandWnd->IsVisible() && !m_lastReading.empty())
+        {
+            m_pCandWnd->Hide();
+            LeaveBunsetsuMode();
+            if (pic) RequestEditSession(pic, EditAction::Update, m_lastReading);
+            m_compositionConverted = TRUE;
+            m_fkeyConvertedText    = m_lastReading;
+            m_nonconvertCycle      = 0;
+        }
+        else
+        {
+            CycleNonconvertForm(pic);
         }
         *pfEaten = TRUE;
     }

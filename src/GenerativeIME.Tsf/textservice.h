@@ -198,4 +198,17 @@ private:
     // bunsetsu. Regenerates candidates for the affected bunsetsu via
     // bunsetsu::MakeBunsetsuFromReading and repaints.
     void                  ResizeFocusedBunsetsu(int delta, ITfContext* pContext);
+
+    // 変換 key when no composition is live and the host has a selection:
+    // grab the selected text, recover its hiragana reading via MeCab's
+    // pronunciation field, and start a fresh composition + conversion
+    // against that reading. Final commit replaces the original selection.
+    void                  TryReconvertFromSelection(ITfContext* pContext);
+    // 無変換 key while composing: cycle the romaji buffer's rendering
+    // through hiragana → 全角カタカナ → 半角カタカナ → ローマ字 →
+    // (back to hiragana). Same end states as F6-F10 but with one key.
+    void                  CycleNonconvertForm(ITfContext* pContext);
+
+    // Index into the cycle above. Reset on commit / cancel / new composition.
+    int                   m_nonconvertCycle = 0;
 };
