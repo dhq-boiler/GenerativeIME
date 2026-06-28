@@ -48,4 +48,29 @@ namespace bunsetsu
     std::vector<Bunsetsu> SplitMecab(const std::wstring& reading,
                                      const MecabAnalyzer& analyzer,
                                      const SkkDictionary* skk);
+
+    // True iff MeCab's analysis of `reading` looks dubious enough that we
+    // should ask Ollama for a second opinion. Triggers when the split has
+    // 3+ morphemes AND at least one morpheme's lemma uses kanji that almost
+    // always come out wrong in modern writing (顎 / 所為 / 為 / 居る /
+    // 出来る / 御 / etc.) — exactly the cases where UniDic-Lite's
+    // dictionary-perfect lemma is the formally correct but practically
+    // useless answer the user almost certainly didn't want.
+    bool LooksSuspect(const std::wstring& reading,
+                      const MecabAnalyzer& analyzer);
+
+    // When SKK's whole-reading lookup hits for an inflected form, the result
+    // is usually wrong: SKK doesn't index conjugated verbs, so lookups like
+    // "みた" return proper nouns (三田/見田/美田) or okuri-ari leftovers
+    // (見立) instead of the obvious "見た". MeCab DOES know the inflection
+    // (lemma="見る", 連用形), and we can synthesize "見た" from that. This
+    // helper runs MeCab on `reading` and, when the split contains a verb or
+    // adjective, prepends the kanjified combined form to `skkCandidates`
+    // (with dedup). Returns `skkCandidates` unchanged when MeCab declined,
+    // when no morpheme was inflected (pure-noun cases — let SKK win), or
+    // when MeCab couldn't produce a form different from the bare kana.
+    std::vector<std::wstring> MergeMecabVerbForms(
+        const std::wstring& reading,
+        const MecabAnalyzer& analyzer,
+        const std::vector<std::wstring>& skkCandidates);
 }

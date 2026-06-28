@@ -228,11 +228,27 @@ std::vector<MecabMorpheme> MecabAnalyzer::Analyze(const std::wstring& text) cons
         else
             m.lemma = m.surface;
 
+        // Field 6 is 語彙素読み (lemma reading) in katakana. Shift it down
+        // to hiragana so it lines up character-for-character with the
+        // kana-typed surface. KanjifyByReading uses this to find where
+        // the lemma's kanji ends and its kana suffix begins.
+        if (fields.size() > 6 && !fields[6].empty() && fields[6] != L"*")
+        {
+            std::wstring r = fields[6];
+            for (auto& c : r)
+            {
+                if (c >= 0x30A1 && c <= 0x30F6) c -= 0x60;
+            }
+            m.lemmaReading = std::move(r);
+        }
+
         {
             wchar_t buf[400];
             swprintf_s(buf,
-                       L"[GenerativeIME] mecab morpheme: surface=%s pos=%s lemma=%s fields=%zu\n",
-                       m.surface.c_str(), m.pos.c_str(), m.lemma.c_str(), fields.size());
+                       L"[GenerativeIME] mecab morpheme: surface=%s pos=%s lemma=%s reading=%s fields=%zu\n",
+                       m.surface.c_str(), m.pos.c_str(), m.lemma.c_str(),
+                       m.lemmaReading.empty() ? L"(none)" : m.lemmaReading.c_str(),
+                       fields.size());
             OutputDebugStringW(buf);
         }
 

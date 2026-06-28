@@ -13,6 +13,12 @@ struct MecabMorpheme
     std::wstring surface;
     std::wstring lemma;
     std::wstring pos;
+    // The lemma's reading in hiragana (UniDic field 6, kana-cased down to
+    // hiragana). For "見る" this is "みる". We need it to map surface kana
+    // back to kanji for inflected forms — KanjifyByReading aligns
+    // surface against lemmaReading to figure out how much of lemma's
+    // leading kanji applies to the surface.
+    std::wstring lemmaReading;
 };
 
 // Thin wrapper around mecab::Model / mecab::Tagger configured to load the

@@ -7,12 +7,15 @@ GenerativeIME を別マシンで開発再開するための手順。
 - **Windows 10/11 64bit**
 - **Visual Studio 2026 Community v18** (C++ workload + Windows SDK 10.0.28000 以降)
   - 標準パス: `C:\Program Files\Microsoft Visual Studio\18\Community\`
+  - vcxproj の `<PlatformToolset>` は **v145** (cl 14.50.x)。v143 (VS 2022) や v180 ではビルド不可。
 - **Git for Windows** (もしくは PowerShell 経由で `git`)
 - **GitHub CLI (`gh`)** — `gh auth login` 済み (private repo を pull するため)
 - **Python 3.10+** + `pip` (UniDic-Lite 辞書取得用、PATH に通っていること)
-- **Ollama** (`gemma4:12b` モデル pull 済み)
+- **Ollama** (`gemma4:12b` モデル pull 済み) — **必須**
+  - https://ollama.com/download/windows から OllamaSetup.exe
   - `ollama pull gemma4:12b`
   - 推奨: `keep_alive='30m'` で warmup しておく
+  - 未起動時の挙動: 文脈考慮 reorder と #13 fallback が無効化されるだけで、SKK+MeCab パスは動く（候補が変わらないだけ）
 - **Claude Code CLI** (`claude` コマンド) — セッション復元に使う
 
 ## 2. リポジトリの clone
@@ -55,7 +58,24 @@ python -m pip install unidic-lite ipadic mecab-python3
 
 スクリプトが `unidic_lite.DICDIR` を見つけて `third_party/mecab/unidic-lite/` にコピーしてくれる (約 248 MB)。
 
-## 5. Ollama warmup (任意)
+### Python が入っていないマシン向けの代替手順
+
+```powershell
+$url = (Invoke-RestMethod -Uri 'https://pypi.org/pypi/unidic-lite/json').urls |
+        Where-Object { $_.packagetype -eq 'sdist' } | Select-Object -First 1 -ExpandProperty url
+$tgz = 'C:\Git\GenerativeIME\third_party\mecab\unidic-lite.tar.gz'
+Invoke-WebRequest -Uri $url -OutFile $tgz -UseBasicParsing
+$tmp = "$env:TEMP\unidic-extract-$(Get-Random)"
+New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+tar -xzf $tgz -C $tmp
+$src = Get-ChildItem $tmp -Recurse -Directory -Filter dicdir | Select-Object -First 1
+Move-Item -Path $src.FullName -Destination 'C:\Git\GenerativeIME\third_party\mecab\unidic-lite' -Force
+Remove-Item -Recurse -Force $tmp; Remove-Item -Force $tgz
+```
+
+PyPI から sdist (tarball) を直接落として `unidic_lite/dicdir/` を `third_party/mecab/unidic-lite/` に移動する。Python / pip 不要。
+
+## 5. Ollama warmup
 
 ```powershell
 Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate `

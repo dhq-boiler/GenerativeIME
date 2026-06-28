@@ -20,40 +20,80 @@ namespace
         hiraSuffix  = lemma.substr(i);
     }
 
-    // Produces a kanji+hira form for a conjugated verb surface.
-    // 例: ("たべ", "食べる")  -> "食べ"
-    // 例: ("あるく", "歩く")  -> "歩く"
-    // 例: ("もえ", "燃える")  -> "燃え"
-    // 例: ("いっ", "行く")    -> "いっ"  (no usable suffix match, fall back)
+    // Produces a kanji+hira form for an inflected verb / adjective surface
+    // by aligning the lemma against its UniDic reading. This is more reliable
+    // than tail-matching against lemma's hira suffix because it handles
+    // 連用形 (where the kana ending is empty on 一段 verbs): surface "み"
+    // against lemma "見る" / reading "みる" yields "見", which the old
+    // tail-match couldn't do.
     //
-    // Heuristic: the tail of the surface that matches the start of the
-    // lemma's hiragana suffix is the conjugated kana ending; whatever
-    // precedes it stands in for the lemma's kanji stem. This works for
-    // most regular conjugations but bows out on sound-change forms
-    // (promotional 促音便 / イ音便 / ウ音便) where the surface kana
-    // doesn't appear in the basic-form spelling.
-    std::wstring KanjifyVerbSurface(const std::wstring& surface,
-                                    const std::wstring& lemma)
+    // 例:
+    //   ("たべ", "食べる", "たべる")  -> "食べ"
+    //   ("み",   "見る",   "みる")    -> "見"
+    //   ("もえ", "燃える", "もえる")  -> "燃え"
+    //   ("おり", "下りる", "おりる")  -> "下り"
+    //   ("はし", "走る",   "はしる")  -> "走"
+    //
+    // Algorithm: peel matching kana suffix off the END of lemma and
+    // lemmaReading symmetrically — this isolates the kanji prefix in lemma
+    // and the corresponding reading prefix in lemmaReading. Then if surface
+    // starts with that reading prefix, we know the prefix part comes from
+    // the kanji stem, and the remaining surface kana is the inflection.
+    //
+    // Bows out (returns surface unchanged) when:
+    //   - lemmaReading is empty (UniDic gave us nothing)
+    //   - surface doesn't start with the reading prefix (irregular forms
+    //     like 促音便 "いっ" against 行く / いく — surface starts with い
+    //     which IS in the reading prefix, but only partially; the conjugation
+    //     mangled the rest. We handle the partial-prefix case below.)
+    std::wstring KanjifyByReading(const std::wstring& surface,
+                                  const std::wstring& lemma,
+                                  const std::wstring& lemmaReading)
     {
         if (surface.empty() || lemma.empty()) return surface;
-
-        std::wstring kanji, hira;
-        SplitLemma(lemma, kanji, hira);
-        if (kanji.empty()) return surface;       // 全部ひらがなの lemma — nothing to add
-        if (hira.empty())  return kanji;         // 全部漢字の lemma — use it directly
-
-        // Walk match length from longest possible down to 1. The first
-        // length where surface's tail equals hira's head wins.
-        size_t maxMatch = (std::min)(surface.size(), hira.size());
-        for (size_t n = maxMatch; n >= 1; --n)
+        if (lemmaReading.empty())
         {
-            if (surface.compare(surface.size() - n, n, hira, 0, n) == 0)
+            // Fall back to the old tail-match heuristic when MeCab didn't
+            // give us a reading. Same code as the original implementation.
+            std::wstring kanji, hira;
+            SplitLemma(lemma, kanji, hira);
+            if (kanji.empty()) return surface;
+            if (hira.empty())  return kanji;
+            size_t maxMatch = (std::min)(surface.size(), hira.size());
+            for (size_t n = maxMatch; n >= 1; --n)
             {
-                std::wstring suffix = surface.substr(surface.size() - n);
-                return kanji + suffix;
+                if (surface.compare(surface.size() - n, n, hira, 0, n) == 0)
+                    return kanji + surface.substr(surface.size() - n);
             }
+            return surface;
         }
-        return surface;  // no match — keep what the user typed
+
+        // Strip matching kana tails off lemma and lemmaReading in parallel.
+        // For 見る / みる: both end with る — strip one char from each →
+        // lemmaStem = "見", readingStem = "み". For 燃える / もえる: both
+        // end with る → strip one → "燃え" / "もえ"; then both end with え
+        // → strip one → "燃" / "も"; then lemma ends with 燃 (kanji), stop.
+        std::wstring lemmaStem   = lemma;
+        std::wstring readingStem = lemmaReading;
+        while (!lemmaStem.empty() && !readingStem.empty() &&
+               IsHiragana(lemmaStem.back()) &&
+               lemmaStem.back() == readingStem.back())
+        {
+            lemmaStem.pop_back();
+            readingStem.pop_back();
+        }
+        // If we stripped everything, the lemma was pure kana — nothing to do.
+        if (lemmaStem.empty()) return surface;
+
+        // Surface must start with the kanji stem's reading for the alignment
+        // to be meaningful. If it does, the rest of surface is inflection
+        // kana that stays as-is.
+        if (surface.size() >= readingStem.size() &&
+            surface.compare(0, readingStem.size(), readingStem) == 0)
+        {
+            return lemmaStem + surface.substr(readingStem.size());
+        }
+        return surface;
     }
 }
 
@@ -162,7 +202,7 @@ std::vector<Bunsetsu> SplitMecab(const std::wstring& reading,
             // (promotional sounds — "いっ" / "すくっ" / "つっ" etc.) it
             // returns the surface unchanged, so we don't put garbage at
             // the front. The surface remains available as a fallback.
-            std::wstring kanji = KanjifyVerbSurface(m.surface, m.lemma);
+            std::wstring kanji = KanjifyByReading(m.surface, m.lemma, m.lemmaReading);
             if (kanji != m.surface)
             {
                 b.candidates.push_back(kanji);
@@ -219,6 +259,109 @@ std::vector<Bunsetsu> SplitMecab(const std::wstring& reading,
         result.push_back(std::move(b));
     }
     return result;
+}
+
+bool LooksSuspect(const std::wstring& reading,
+                  const MecabAnalyzer& analyzer)
+{
+    auto morphemes = analyzer.Analyze(reading);
+    if (morphemes.empty()) return false;
+
+    // Trigger A: lemma contains a kanji that's nearly always wrong in modern
+    // writing. Fires regardless of morpheme count — "せいで" parses as exactly
+    // 2 morphemes (所為 / で) and we still want to ask the LLM, so we can't
+    // gate this on a 3+ split count.
+    //
+    // Multi-char compounds are checked char-by-char: a hit on "為" catches
+    // both 所為 and 為に; a hit on 何 catches 如何. Expand as we hit new
+    // "MeCab is being too literal" patterns in real usage.
+    static const std::wstring kSuspect =
+        L"顎為居出御様等処時故沢殆凡矢兎宛何嘗只迄謂勿論尤所如";
+
+    for (const auto& m : morphemes)
+    {
+        for (wchar_t c : m.lemma)
+        {
+            if (kSuspect.find(c) != std::wstring::npos) return true;
+        }
+    }
+
+    // Trigger B: input was long but MeCab shredded it into many small pieces.
+    // Compound nouns, katakana loanwords, and proper nouns tend to fragment
+    // this way (UniDic-Lite has no "中学生" so it gives back 中 / 学生 or
+    // even 中 / 学 / 生). The LLM almost always recombines these correctly.
+    if (morphemes.size() >= 5 && reading.size() >= 6) return true;
+
+    return false;
+}
+
+std::vector<std::wstring> MergeMecabVerbForms(
+    const std::wstring& reading,
+    const MecabAnalyzer& analyzer,
+    const std::vector<std::wstring>& skkCandidates)
+{
+    auto morphemes = analyzer.Analyze(reading);
+    if (morphemes.empty()) return skkCandidates;
+
+    // Confirm MeCab analyzed the whole reading. Partial coverage means
+    // something's off (an unknown leading char, encoding mismatch, …) and
+    // we don't want to splice a partial answer into the candidate list.
+    std::wstring covered;
+    for (const auto& m : morphemes) covered += m.surface;
+    if (covered != reading) return skkCandidates;
+
+    // Only intervene when at least one morpheme is inflected. Pure-noun
+    // multi-morpheme inputs ("おべんとう"→お/弁当) and single-noun inputs
+    // ("あめ"→雨) are exactly where SKK's whole-word match shines — its
+    // hand-curated alternates (雨/飴/天) beat MeCab's single guess. We
+    // keep SKK first for those.
+    bool hasInflected = false;
+    for (const auto& m : morphemes)
+    {
+        if (m.pos == L"動詞" || m.pos == L"形容詞") { hasInflected = true; break; }
+    }
+    if (!hasInflected) return skkCandidates;
+
+    // Compose the combined top form using the same per-morpheme rules
+    // SplitMecab uses (verbs go through KanjifyByReading; nouns &
+    // adjectives use lemma; particles / auxiliaries stay as their kana
+    // surface). Keep this in lockstep with SplitMecab's verb / particle
+    // branches so the two paths agree on what "MeCab's top answer" means.
+    std::wstring mecabTop;
+    for (const auto& m : morphemes)
+    {
+        const bool isParticle =
+            m.pos == L"助詞" || m.pos == L"助動詞" || m.pos == L"記号";
+        if (isParticle)
+        {
+            mecabTop += m.surface;
+        }
+        else if (m.pos == L"動詞")
+        {
+            mecabTop += KanjifyByReading(m.surface, m.lemma, m.lemmaReading);
+        }
+        else
+        {
+            mecabTop += (m.lemma.empty() ? m.surface : m.lemma);
+        }
+    }
+
+    // If MeCab produced nothing but the raw kana (KanjifyByReading bowed
+    // out on every verb, lemma was empty everywhere) there's nothing to
+    // prepend — let SKK win.
+    if (mecabTop == reading) return skkCandidates;
+
+    std::vector<std::wstring> merged;
+    merged.reserve(1 + skkCandidates.size());
+    merged.push_back(mecabTop);
+    for (const auto& c : skkCandidates)
+    {
+        if (std::find(merged.begin(), merged.end(), c) == merged.end())
+        {
+            merged.push_back(c);
+        }
+    }
+    return merged;
 }
 
 } // namespace bunsetsu

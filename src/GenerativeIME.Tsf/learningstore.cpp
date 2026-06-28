@@ -99,15 +99,17 @@ std::vector<std::wstring> LearningStore::Reorder(
         if (!found && c == fav) { found = true; continue; }
         out.push_back(c);
     }
-    if (found)
+    if (!found)
     {
-        out.insert(out.begin(), fav);
+        // Favorite isn't in the current candidate set — most likely a newer
+        // analyzer (MergeMecabVerbForms / Ollama fallback) has produced a
+        // different top candidate than the one the user picked under the
+        // old behavior. Returning a "ghost" fav would force the stale pick
+        // back to the top forever, defeating every improvement we make to
+        // the converter. Better to let the new candidates speak for
+        // themselves.
+        return candidates;
     }
-    else
-    {
-        // Favorite wasn't in this candidate set; prepend it anyway so the
-        // user still gets their previous choice without re-typing.
-        out.insert(out.begin(), fav);
-    }
+    out.insert(out.begin(), fav);
     return out;
 }
