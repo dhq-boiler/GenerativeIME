@@ -61,6 +61,15 @@ HRESULT SkkDictionary::Load(const std::wstring& path)
     std::ifstream f(path, std::ios::binary);
     if (!f.is_open()) return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
 
+    // Defer okuri-ari stem entries (other than the i-adjective synthesis)
+    // until we've finished the okuri-nashi section. SKK lists okuri-ari
+    // FIRST in the file, so merging eagerly would put e.g. "見立" (from the
+    // verb stem "みたt") in front of the okuri-nashi "みた /三田/見田/美田/"
+    // — and our IME lookup of "みた" would surface "見立" as the top hit,
+    // which we definitely don't want. Holding these aside and merging at
+    // the end pushes them to the tail of each candidate list instead.
+    std::unordered_map<std::wstring, std::vector<std::wstring>> deferredOkuri;
+
     std::string raw;
     while (std::getline(f, raw))
     {
@@ -75,12 +84,22 @@ HRESULT SkkDictionary::Load(const std::wstring& path)
 
         std::wstring reading = line.substr(0, sp);
         if (reading.empty()) continue;
-        // Okuri-ari readings end in an ASCII letter (e.g. "おくr" for okuru/送る).
-        // We can't render those without okuri information from the composition
-        // layer, so drop them here rather than mishandle them downstream.
+
+        // SKK splits its dictionary into okuri-nasi (送り仮名なし) entries with
+        // pure-hiragana readings, and okuri-ari entries whose reading ends in
+        // a single ASCII letter denoting the conjugation stem (e.g. "あかk"
+        // covers 赤k → 赤い/赤く/etc., "おくr" covers 送 r → 送る/送り/etc.).
+        // For an IME's lookup-by-reading use case we don't have okuri info
+        // from the composition, so we strip the trailing ASCII letter and
+        // store the stem reading mapped to the candidate stems. The bunsetsu
+        // splitter can then match "あか" -> "赤" and treat the following い/く
+        // as a separate (hiragana) bunsetsu. Without this, common forms like
+        // 赤い / 青い / 明るい / 送る are completely missing from the dictionary.
         wchar_t back = reading.back();
-        if (back < 128 && ((back >= L'a' && back <= L'z') || (back >= L'A' && back <= L'Z')))
-            continue;
+        bool okuriAri = (back < 128 && iswalpha((wint_t)back));
+        wchar_t okuriCode = okuriAri ? back : L'\0';
+        if (okuriAri) reading.pop_back();
+        if (reading.empty()) continue;
 
         std::wstring rest = line.substr(sp + 1);
         if (rest.size() < 2 || rest.front() != L'/') continue;
@@ -96,12 +115,72 @@ HRESULT SkkDictionary::Load(const std::wstring& path)
             // Annotation: "<word>;<gloss>" — keep only the word.
             size_t semi = cand.find(L';');
             if (semi != std::wstring::npos) cand.resize(semi);
+            // For okuri-ari, strip the same trailing ASCII letter from the
+            // candidate so 赤k -> 赤. We don't validate that the suffix
+            // actually matches the reading's stripped letter; a few rare
+            // entries use a different letter as a separator but the kanji
+            // half is what we want either way.
+            if (okuriAri && !cand.empty())
+            {
+                wchar_t cb = cand.back();
+                if (cb < 128 && iswalpha((wint_t)cb)) cand.pop_back();
+            }
             if (!cand.empty()) cands.push_back(std::move(cand));
             pos = next + 1;
         }
 
-        if (!cands.empty())
-            m_entries.emplace(std::move(reading), std::move(cands));
+        if (cands.empty()) continue;
+
+        // For i-adjective stems (okuri code 'i'), synthesize the 終止形 form
+        // and front-prepend it to m_entries["<stem>い"]. Without this, a
+        // lookup of "あかい" matches the okuri-nashi entry "あかい /赤井/"
+        // (the surname) and the adjective 赤い is unreachable because no
+        // okuri-nashi entry exists for it. Doing it BEFORE merging the stem
+        // into `slot` keeps the suffix-attachment loop iterating over the
+        // freshly-read candidate list, not the (possibly already populated)
+        // merged slot.
+        if (okuriCode == L'i' && !cands.empty())
+        {
+            std::wstring fullReading = reading + L"い";
+            auto& fullSlot = m_entries[fullReading];
+            // Build "<cand>い" and insert at the FRONT of fullSlot. Reverse-
+            // iterate over `cands` so a successive insert(begin(), …) keeps
+            // the original cand order at the head of the vector.
+            for (auto it = cands.rbegin(); it != cands.rend(); ++it)
+            {
+                std::wstring full = *it + L"い";
+                // Dedupe against whatever's already in fullSlot.
+                if (std::find(fullSlot.begin(), fullSlot.end(), full) == fullSlot.end())
+                {
+                    fullSlot.insert(fullSlot.begin(), std::move(full));
+                }
+            }
+        }
+
+        // okuri-nashi entries merge directly into m_entries. okuri-ari
+        // stems get held in deferredOkuri so they end up at the TAIL of
+        // their candidate lists rather than the head.
+        auto& slot = okuriAri ? deferredOkuri[reading] : m_entries[reading];
+        for (auto& c : cands)
+        {
+            if (std::find(slot.begin(), slot.end(), c) == slot.end())
+            {
+                slot.push_back(std::move(c));
+            }
+        }
+    }
+
+    // Flush deferred okuri-ari stems to the end of each entry's list.
+    for (auto& kv : deferredOkuri)
+    {
+        auto& slot = m_entries[kv.first];
+        for (auto& c : kv.second)
+        {
+            if (std::find(slot.begin(), slot.end(), c) == slot.end())
+            {
+                slot.push_back(std::move(c));
+            }
+        }
     }
 
     m_loaded = true;
@@ -113,4 +192,64 @@ std::vector<std::wstring> SkkDictionary::Lookup(const std::wstring& reading) con
     auto it = m_entries.find(reading);
     if (it == m_entries.end()) return {};
     return it->second;
+}
+
+namespace
+{
+    // Conservative joshi list for bunsetsu-boundary detection. We DELIBERATELY
+    // keep this short. Each char we add gives us cleaner sentence-end splits
+    // ("いんだよ"→ん/だ/よ) but breaks any word that starts with it as a
+    // morpheme ("たんとう"→た/んとう, "だんしゃく"→だ/んしゃく). The list
+    // below sticks to chars whose word-initial frequency is low — case-
+    // marking 助詞 (は/が/を/へ) and the most-common 終助詞 (よ/ね/わ/ぞ/ぜ).
+    //
+    // Deliberately EXCLUDED:
+    //   に, で, と  — common word-initials (にほん, でんわ, とり, ...)
+    //   も, や, か  — common word-initials (もの, やま, かさ, ...)
+    //   ん, だ      — common mid-word kana, sentence ends like "んだ" survive
+    //                  as kanji-substituted but at least don't shred 担当/段
+    bool IsJoshiChar(wchar_t c)
+    {
+        static const std::wstring kJoshi = L"はがをへよねわぞぜ";
+        return kJoshi.find(c) != std::wstring::npos;
+    }
+}
+
+SkkDictionary::PrefixMatch SkkDictionary::FindLongestPrefix(
+    const std::wstring& reading, size_t start) const
+{
+    if (start >= reading.size()) return {};
+
+    // Rule (a): joshi position → forced 1-char hiragana bunsetsu. We don't
+    // even check the dictionary, because "は" → 葉/歯/羽 is exactly the
+    // mis-substitution we want to prevent.
+    if (IsJoshiChar(reading[start]))
+    {
+        PrefixMatch m;
+        m.length     = 1;
+        m.candidates = { reading.substr(start, 1) };
+        return m;
+    }
+
+    // Rule (b): cap the search length at the next joshi position (exclusive).
+    // Stops "あしたは…" from collapsing into a single match.
+    size_t maxLen = reading.size() - start;
+    for (size_t i = 1; i < maxLen; ++i)
+    {
+        if (IsJoshiChar(reading[start + i])) { maxLen = i; break; }
+    }
+
+    // Linear scan from longest candidate length down. Each lookup is O(1).
+    for (size_t len = maxLen; len >= 1; --len)
+    {
+        auto it = m_entries.find(reading.substr(start, len));
+        if (it != m_entries.end())
+        {
+            PrefixMatch m;
+            m.length     = len;
+            m.candidates = it->second;
+            return m;
+        }
+    }
+    return {};
 }

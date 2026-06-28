@@ -7,6 +7,8 @@
 #include "candidatewindow.h"
 #include "symboldictionary.h"
 #include "skkdictionary.h"
+#include "bunsetsu.h"
+#include "mecabanalyzer.h"
 #include "learningstore.h"
 #include <stdio.h>
 #include <thread>
@@ -399,6 +401,8 @@ STDMETHODIMP CTextService::Activate(ITfThreadMgr* pThreadMgr, TfClientId tfClien
     // a 4–6 MB file read. Subsequent Activate calls hit the std::call_once
     // fast path and return the already-loaded singleton in nanoseconds.
     SkkDictionary::GetGlobal();
+    // Same idea for MeCab — sys.dic is ~188 MB, init is heavy.
+    MecabAnalyzer::GetGlobal();
 
     {
         wchar_t buf[128];
@@ -787,6 +791,76 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
             {
                 StartReorderAsync(pContext, reading, skkHits);
             }
+            return;
+        }
+
+        // No whole-reading match. Try MeCab morphological analysis first —
+        // it correctly handles cases SKK greedy split can't ("きょうはかいぎ"
+        // becomes 今日/は/会議 instead of き/ょうはかいぎ). MeCab + UniDic
+        // gives us the canonical kanji form as `lemma` for free; we augment
+        // each morpheme with SKK candidates for variant choices (雨/飴/天).
+        if (auto* mecab = MecabAnalyzer::GetGlobal(); mecab && mecab->IsReady())
+        {
+            auto parts = bunsetsu::SplitMecab(reading, *mecab, skk);
+            if (!parts.empty() && bunsetsu::AnyHit(parts) && m_pCandWnd)
+            {
+                wchar_t logbuf[200];
+                m_lastReading = reading;
+
+                if (parts.size() == 1)
+                {
+                    // Single-morpheme input (e.g. "あるく" → 1 verb form).
+                    // The whole-reading SKK lookup didn't fire (no surface
+                    // entry), but MeCab handed us a perfectly good kanji
+                    // form plus its SKK alternates. Show the bunsetsu's
+                    // full candidate list so the user can pick variants.
+                    swprintf_s(logbuf,
+                               L"[GenerativeIME] MeCab single morpheme: %zu candidates, top=%s\n",
+                               parts[0].candidates.size(),
+                               parts[0].candidates.empty() ? L"(none)"
+                                   : parts[0].candidates[0].c_str());
+                    OutputDebugStringW(logbuf);
+                    m_pCandWnd->SetCandidates(parts[0].candidates);
+                }
+                else
+                {
+                    // Multi-morpheme: Phase A still only shows the joined
+                    // 1st-of-each as a single candidate. Per-bunsetsu
+                    // selection is Phase B.
+                    std::wstring combined = bunsetsu::JoinSelected(parts);
+                    swprintf_s(logbuf,
+                               L"[GenerativeIME] MeCab split: %zu parts -> %s\n",
+                               parts.size(), combined.c_str());
+                    OutputDebugStringW(logbuf);
+                    m_pCandWnd->SetCandidates({ combined });
+                }
+
+                POINT pt = QueryCandidateAnchorPos(pContext);
+                m_pCandWnd->ShowAt(pt);
+                ApplyCandidateSelection(pContext);
+                return;
+            }
+        }
+
+        // MeCab declined to give a useful split — fall back to greedy SKK.
+        // This is rare in practice (MeCab handles most well-formed kana)
+        // but happens for completely OOV chunks, where greedy at least gets
+        // SOMETHING onto the screen before Ollama takes over.
+        auto parts = bunsetsu::SplitGreedy(reading, *skk);
+        if (parts.size() >= 2 && bunsetsu::AnyHit(parts) && m_pCandWnd)
+        {
+            std::wstring combined = bunsetsu::JoinSelected(parts);
+            wchar_t logbuf[160];
+            swprintf_s(logbuf,
+                       L"[GenerativeIME] SKK greedy split: %zu parts -> %s\n",
+                       parts.size(), combined.c_str());
+            OutputDebugStringW(logbuf);
+
+            m_lastReading = reading;
+            m_pCandWnd->SetCandidates({ combined });
+            POINT pt = QueryCandidateAnchorPos(pContext);
+            m_pCandWnd->ShowAt(pt);
+            ApplyCandidateSelection(pContext);
             return;
         }
     }

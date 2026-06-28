@@ -70,6 +70,13 @@ Desktop.ini
 *~
 
 # =============================================================================
+# Third-party dictionaries that are too big to track
+# =============================================================================
+# UniDic-Lite is ~250 MB. Fetch via `pip install unidic-lite` and copy the
+# DICDIR contents into third_party/mecab/unidic-lite/. See README.
+third_party/mecab/unidic-lite/
+
+# =============================================================================
 # Secrets (defensive — none expected in this repo today, but cheap to add)
 # =============================================================================
 *.env

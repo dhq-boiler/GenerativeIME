@@ -32,6 +32,17 @@ public:
     // orders them roughly by frequency / preference).
     std::vector<std::wstring> Lookup(const std::wstring& reading) const;
 
+    struct PrefixMatch
+    {
+        size_t                    length = 0;  // chars of `reading` consumed (0 = no match)
+        std::vector<std::wstring> candidates;
+    };
+
+    // Finds the longest prefix of `reading.substr(start)` that exists in the
+    // dictionary. Used by the bunsetsu (clause) splitter to break a long
+    // hiragana run like "あしたはいやらしい" into "あした" + "は" + "いやらしい".
+    PrefixMatch FindLongestPrefix(const std::wstring& reading, size_t start) const;
+
 private:
     SkkDictionary() = default;
 

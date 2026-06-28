@@ -50,6 +50,8 @@
     <OutDir>$(SolutionDir)build\$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(SolutionDir)build\obj\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir>
     <TargetName>GenerativeIME.Tsf</TargetName>
+    <VcpkgRoot Condition="'$(VcpkgRoot)'==''">C:\vcpkg</VcpkgRoot>
+    <VcpkgInstalled>$(VcpkgRoot)\installed\x64-windows</VcpkgInstalled>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
     <ClCompile>
@@ -61,16 +63,25 @@
       <Optimization>Disabled</Optimization>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalIncludeDirectories>$(VcpkgInstalled)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ModuleDefinitionFile>GenerativeIME.Tsf.def</ModuleDefinitionFile>
-      <AdditionalDependencies>user32.lib;gdi32.lib;ole32.lib;oleaut32.lib;advapi32.lib;uuid.lib;shlwapi.lib;imm32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>user32.lib;gdi32.lib;ole32.lib;oleaut32.lib;advapi32.lib;uuid.lib;shlwapi.lib;imm32.lib;mecab.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <!-- Debug builds MUST link against the vcpkg debug build of MeCab.
+           Mixing a Debug TSF DLL with a Release mecab.dll silently corrupts
+           STL allocators (different _ITERATOR_DEBUG_LEVEL) and ends up with
+           MeCab::createModel returning nullptr without a useful error. -->
+      <AdditionalLibraryDirectories>$(VcpkgInstalled)\debug\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <PostBuildEvent>
-      <Command>xcopy /Y /D "$(ProjectDir)..\..\third_party\skk\SKK-JISYO.L.utf8" "$(OutDir)"</Command>
-      <Message>Copy SKK-JISYO.L.utf8 next to the DLL</Message>
+      <Command>xcopy /Y /D "$(ProjectDir)..\..\third_party\skk\SKK-JISYO.L.utf8" "$(OutDir)"
+xcopy /Y /D "$(VcpkgInstalled)\debug\bin\mecab.dll" "$(OutDir)"
+if not exist "$(OutDir)unidic-lite\" mkdir "$(OutDir)unidic-lite"
+xcopy /Y /D "$(ProjectDir)..\..\third_party\mecab\unidic-lite\*" "$(OutDir)unidic-lite\"</Command>
+      <Message>Stage SKK + MeCab (debug) DLL + UniDic-Lite next to the IME DLL</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
@@ -113,6 +124,8 @@
     <ClCompile Include="symboldictionary.cpp" />
     <ClCompile Include="learningstore.cpp" />
     <ClCompile Include="skkdictionary.cpp" />
+    <ClCompile Include="bunsetsu.cpp" />
+    <ClCompile Include="mecabanalyzer.cpp" />
     <ClCompile Include="register.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -128,6 +141,8 @@
     <ClInclude Include="symboldictionary.h" />
     <ClInclude Include="learningstore.h" />
     <ClInclude Include="skkdictionary.h" />
+    <ClInclude Include="bunsetsu.h" />
+    <ClInclude Include="mecabanalyzer.h" />
     <ClInclude Include="register.h" />
     <ClInclude Include="resource.h" />
   </ItemGroup>
