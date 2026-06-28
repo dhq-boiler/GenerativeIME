@@ -1924,6 +1924,15 @@ static wchar_t ResolveSymbolChar(WPARAM wParam, LPARAM lParam)
 bool CTextService::ShouldEat(WPARAM wParam) const
 {
     if (!m_isImeOn) return false;
+    // Ctrl-modified keys are host shortcuts (Ctrl+X / C / V / A / Z / S /
+    // arrow / etc) and belong to the application, not the IME. Without
+    // this passthrough, IsAlphaKey would eat Ctrl+V and silently drop
+    // the paste instead of letting Notepad / VS Code / browsers handle
+    // it. Romaji input never uses the Ctrl chord, so giving up the whole
+    // class is safe. Composition-in-progress is no exception: a Ctrl+V
+    // mid-composition still goes to the app, which then either pastes
+    // around the composition or replaces it — we let the host decide.
+    if (GetKeyState(VK_CONTROL) < 0) return false;
     if (IsAlphaKey(wParam)) return true;
     if (IsSymbolKey(wParam)) return true;
     if (wParam == VK_BACK && !m_romajiBuffer.empty()) return true;
@@ -1964,6 +1973,19 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
 
     // Mode-switch key handling intentionally absent — see ShouldEat() comment.
     if (!m_isImeOn) return S_OK;
+
+    // Ctrl-modified keys are host shortcuts (Ctrl+X / C / V / A / Z / S /
+    // …) and never produce IME input. ShouldEat already returns false for
+    // them so OnTestKeyDown signals "don't eat" to TSF — but OnKeyDown
+    // still gets the call, and falling through to IsAlphaKey would push
+    // the letter into m_romajiBuffer (a Ctrl+V would type "v" into the
+    // composition while the host pastes around it). Bail out before any
+    // input branch runs.
+    if (GetKeyState(VK_CONTROL) < 0)
+    {
+        *pfEaten = FALSE;
+        return S_OK;
+    }
 
     if (IsAlphaKey(wParam))
     {
