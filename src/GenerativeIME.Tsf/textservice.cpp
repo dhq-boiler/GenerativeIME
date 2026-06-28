@@ -10,6 +10,7 @@
 #include "bunsetsu.h"
 #include "mecabanalyzer.h"
 #include "learningstore.h"
+#include <algorithm>
 #include <stdio.h>
 #include <thread>
 #include <vector>
@@ -1011,6 +1012,33 @@ void CTextService::HandleOllamaDone(PendingOllamaRequest* pending)
     if (m_pComposition && SUCCEEDED(pending->hr) && !pending->candidates.empty() && m_pCandWnd)
     {
         auto cands = pending->candidates;
+        // Drop suggestions whose reading drifted from the user's input
+        // (gemma4:12b occasionally answers "だから" for a "せいで" prompt).
+        // SKK / MeCab don't need this filter; only Ollama paths.
+        if (auto* mecab = MecabAnalyzer::GetGlobal(); mecab && mecab->IsReady())
+        {
+            size_t before = cands.size();
+            cands.erase(std::remove_if(cands.begin(), cands.end(),
+                [&](const std::wstring& c)
+                {
+                    return !bunsetsu::ReadsAs(c, pending->reading, *mecab);
+                }),
+                cands.end());
+            if (cands.size() != before)
+            {
+                wchar_t logbuf[160];
+                swprintf_s(logbuf,
+                           L"[GenerativeIME] Ollama: dropped %zu off-reading candidates (%zu→%zu)\n",
+                           before - cands.size(), before, cands.size());
+                OutputDebugStringW(logbuf);
+            }
+        }
+        if (cands.empty())
+        {
+            OutputDebugStringW(L"[GenerativeIME] Ollama: all candidates filtered, no update\n");
+            delete pending;
+            return;
+        }
         if (m_pLearning) cands = m_pLearning->Reorder(pending->reading, cands);
         m_lastReading = pending->reading;
         m_pCandWnd->SetCandidates(cands);
@@ -1266,6 +1294,37 @@ void CTextService::HandleOllamaFallbackDone(PendingOllamaFallbackRequest* pendin
         OutputDebugStringW(logbuf);
         delete pending;
         return;
+    }
+
+    // Drop suggestions whose reading drifted from the user's input. Same
+    // rationale as the main-path filter — gemma sometimes answers with
+    // a related word ("そのため" for "せいで") instead of a reading-
+    // matched alternate ("せいで" / "精で").
+    if (auto* mecab = MecabAnalyzer::GetGlobal(); mecab && mecab->IsReady())
+    {
+        size_t before = pending->candidates.size();
+        pending->candidates.erase(std::remove_if(
+            pending->candidates.begin(), pending->candidates.end(),
+            [&](const std::wstring& c)
+            {
+                return !bunsetsu::ReadsAs(c, pending->reading, *mecab);
+            }),
+            pending->candidates.end());
+        if (pending->candidates.size() != before)
+        {
+            wchar_t logbuf[180];
+            swprintf_s(logbuf,
+                       L"[GenerativeIME] Ollama fallback: dropped %zu off-reading (%zu→%zu)\n",
+                       before - pending->candidates.size(), before,
+                       pending->candidates.size());
+            OutputDebugStringW(logbuf);
+        }
+        if (pending->candidates.empty())
+        {
+            OutputDebugStringW(L"[GenerativeIME] Ollama fallback: all filtered, MeCab top stays\n");
+            delete pending;
+            return;
+        }
     }
 
     // Stale by content: composition / reading changed since we kicked off.

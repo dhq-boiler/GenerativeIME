@@ -242,12 +242,90 @@ std::vector<MecabMorpheme> MecabAnalyzer::Analyze(const std::wstring& text) cons
             m.lemmaReading = std::move(r);
         }
 
+        // Field 9 is 発音形出現形 (surface pronunciation) in katakana,
+        // using ー for long vowels. Convert to hiragana and expand ー
+        // against the previous kana's vowel — IME users type "セイ"
+        // ("せい") for 精, not "セー" ("せー"). The expansion table
+        // below covers all 清音 / 濁音 / 半濁音 + small variants; OOV
+        // kana fall through unchanged (still useful for the consonant
+        // before, just won't get a long-vowel expansion).
+        if (fields.size() > 9 && !fields[9].empty() && fields[9] != L"*")
+        {
+            std::wstring p = fields[9];
+            for (auto& c : p)
+            {
+                if (c >= 0x30A1 && c <= 0x30F6) c -= 0x60;
+            }
+            auto vowelOf = [](wchar_t c) -> wchar_t
+            {
+                // Returns the IME-input vowel kana that follows this kana
+                // when the user types it. 0 if not a 清/濁/半濁音 we know.
+                // e列 → い, o列 → う (long-vowel convention in modern Japanese
+                // IME input). a/i/u列 → same column.
+                switch (c)
+                {
+                    // a列 — return あ
+                    case L'あ': case L'か': case L'が': case L'さ': case L'ざ':
+                    case L'た': case L'だ': case L'な': case L'は': case L'ば':
+                    case L'ぱ': case L'ま': case L'や': case L'ら': case L'わ':
+                    case L'ゃ': case L'ぁ':
+                        return L'あ';
+                    // i列 — return い
+                    case L'い': case L'き': case L'ぎ': case L'し': case L'じ':
+                    case L'ち': case L'ぢ': case L'に': case L'ひ': case L'び':
+                    case L'ぴ': case L'み': case L'り': case L'ぃ':
+                        return L'い';
+                    // u列 — return う
+                    case L'う': case L'く': case L'ぐ': case L'す': case L'ず':
+                    case L'つ': case L'づ': case L'ぬ': case L'ふ': case L'ぶ':
+                    case L'ぷ': case L'む': case L'ゆ': case L'る': case L'ゅ':
+                    case L'ぅ':
+                        return L'う';
+                    // e列 — return い (long-vowel convention)
+                    case L'え': case L'け': case L'げ': case L'せ': case L'ぜ':
+                    case L'て': case L'で': case L'ね': case L'へ': case L'べ':
+                    case L'ぺ': case L'め': case L'れ': case L'ぇ':
+                        return L'い';
+                    // o列 — return う (long-vowel convention)
+                    case L'お': case L'こ': case L'ご': case L'そ': case L'ぞ':
+                    case L'と': case L'ど': case L'の': case L'ほ': case L'ぼ':
+                    case L'ぽ': case L'も': case L'よ': case L'ろ': case L'を':
+                    case L'ょ': case L'ぉ':
+                        return L'う';
+                }
+                return 0;
+            };
+            std::wstring out;
+            out.reserve(p.size());
+            wchar_t prev = 0;
+            for (wchar_t c : p)
+            {
+                if (c == L'ー' && prev != 0)
+                {
+                    wchar_t v = vowelOf(prev);
+                    if (v) { out.push_back(v); continue; }
+                }
+                out.push_back(c);
+                prev = c;
+            }
+            m.pronunciation = std::move(out);
+        }
+        else
+        {
+            // OOV / missing field — fall back to surface. If surface itself
+            // is pure kana the reading-match check still works; if it's
+            // kanji we'll just fail the match (and the candidate gets
+            // dropped, which is the safe default for Ollama suggestions).
+            m.pronunciation = m.surface;
+        }
+
         {
             wchar_t buf[400];
             swprintf_s(buf,
-                       L"[GenerativeIME] mecab morpheme: surface=%s pos=%s lemma=%s reading=%s fields=%zu\n",
+                       L"[GenerativeIME] mecab morpheme: surface=%s pos=%s lemma=%s reading=%s pron=%s fields=%zu\n",
                        m.surface.c_str(), m.pos.c_str(), m.lemma.c_str(),
                        m.lemmaReading.empty() ? L"(none)" : m.lemmaReading.c_str(),
+                       m.pronunciation.empty() ? L"(none)" : m.pronunciation.c_str(),
                        fields.size());
             OutputDebugStringW(buf);
         }

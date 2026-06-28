@@ -49,6 +49,17 @@ namespace bunsetsu
                                      const MecabAnalyzer& analyzer,
                                      const SkkDictionary* skk);
 
+    // True iff `candidate` reads as `expectedReading` when MeCab decomposes
+    // it. We sum each morpheme's `pronunciation` (UniDic field 9, hiragana
+    // + long-vowel expanded) and compare against expectedReading verbatim.
+    // Used to drop Ollama suggestions whose reading drifted from the user's
+    // input (e.g. "せいで" prompt → "だから" answer): SKK / MeCab candidates
+    // are reading-perfect by construction so this filter is meant for the
+    // LLM path only.
+    bool ReadsAs(const std::wstring& candidate,
+                 const std::wstring& expectedReading,
+                 const MecabAnalyzer& analyzer);
+
     // True iff MeCab's analysis of `reading` looks dubious enough that we
     // should ask Ollama for a second opinion. Triggers when the split has
     // 3+ morphemes AND at least one morpheme's lemma uses kanji that almost

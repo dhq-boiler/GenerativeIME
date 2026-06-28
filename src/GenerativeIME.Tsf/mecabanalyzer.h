@@ -19,6 +19,14 @@ struct MecabMorpheme
     // surface against lemmaReading to figure out how much of lemma's
     // leading kanji applies to the surface.
     std::wstring lemmaReading;
+
+    // The surface's actual pronunciation in hiragana (UniDic field 9,
+    // kana-cased + long-vowel mark expanded). For surface "見" this is
+    // "み"; for "精" this is "せい" (UniDic gives "セー", we expand the
+    // ー to "い" against IME input conventions). Used by bunsetsu::ReadsAs
+    // to verify an Ollama-suggested candidate actually reads as what the
+    // user typed.
+    std::wstring pronunciation;
 };
 
 // Thin wrapper around mecab::Model / mecab::Tagger configured to load the

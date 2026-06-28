@@ -261,6 +261,25 @@ std::vector<Bunsetsu> SplitMecab(const std::wstring& reading,
     return result;
 }
 
+bool ReadsAs(const std::wstring& candidate,
+             const std::wstring& expectedReading,
+             const MecabAnalyzer& analyzer)
+{
+    if (candidate.empty() || expectedReading.empty()) return false;
+
+    auto morphemes = analyzer.Analyze(candidate);
+    if (morphemes.empty()) return false;
+
+    std::wstring reading;
+    reading.reserve(expectedReading.size());
+    for (const auto& m : morphemes)
+    {
+        if (!m.pronunciation.empty()) reading += m.pronunciation;
+        else                          reading += m.surface;
+    }
+    return reading == expectedReading;
+}
+
 bool LooksSuspect(const std::wstring& reading,
                   const MecabAnalyzer& analyzer)
 {
