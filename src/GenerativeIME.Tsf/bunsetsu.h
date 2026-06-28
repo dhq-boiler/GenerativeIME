@@ -84,4 +84,14 @@ namespace bunsetsu
         const std::wstring& reading,
         const MecabAnalyzer& analyzer,
         const std::vector<std::wstring>& skkCandidates);
+
+    // Build a single Bunsetsu from `reading` without splitting it across
+    // multiple clauses. Tries SKK first (whole-reading lookup for nouns
+    // like "あめ" → 雨/飴/天), then MeCab for inflected forms ("みた"
+    // → 見た) and finally falls back to the literal kana. Used by Phase B
+    // when the user shrinks / grows a bunsetsu and we need fresh
+    // candidates for the new reading slice.
+    Bunsetsu MakeBunsetsuFromReading(const std::wstring& reading,
+                                     const MecabAnalyzer* analyzer,
+                                     const SkkDictionary* skk);
 }

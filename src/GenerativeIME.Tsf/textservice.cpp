@@ -1631,6 +1631,82 @@ void CTextService::RepaintBunsetsu(ITfContext* pContext)
     m_compositionConverted = TRUE;
 }
 
+void CTextService::ResizeFocusedBunsetsu(int delta, ITfContext* pContext)
+{
+    if (!InBunsetsuMode() || delta == 0) return;
+    if (m_focusedBunsetsu >= m_bunsetsuList.size()) return;
+
+    auto* mecab = MecabAnalyzer::GetGlobal();
+    auto* skk   = SkkDictionary::GetGlobal();
+
+    auto& cur = m_bunsetsuList[m_focusedBunsetsu];
+
+    if (delta > 0)
+    {
+        // Grow: pull the first character of the next bunsetsu onto the
+        // end of the focused one. No-op when there's no next bunsetsu
+        // to draw from.
+        if (m_focusedBunsetsu + 1 >= m_bunsetsuList.size()) return;
+        auto& nxt = m_bunsetsuList[m_focusedBunsetsu + 1];
+        if (nxt.reading.empty()) return;
+
+        std::wstring newCur = cur.reading + nxt.reading.substr(0, 1);
+        std::wstring newNxt = nxt.reading.substr(1);
+
+        cur = bunsetsu::MakeBunsetsuFromReading(newCur, mecab, skk);
+        if (newNxt.empty())
+        {
+            // The next bunsetsu's reading was fully absorbed.
+            m_bunsetsuList.erase(m_bunsetsuList.begin() + m_focusedBunsetsu + 1);
+        }
+        else
+        {
+            m_bunsetsuList[m_focusedBunsetsu + 1] =
+                bunsetsu::MakeBunsetsuFromReading(newNxt, mecab, skk);
+        }
+    }
+    else
+    {
+        // Shrink: peel the last character off the focused bunsetsu's
+        // reading and prepend it to the next bunsetsu (creating one if
+        // there isn't a next). No-op if focused is already one char —
+        // we can't shrink to zero.
+        if (cur.reading.size() <= 1) return;
+        wchar_t moved = cur.reading.back();
+        std::wstring newCur = cur.reading.substr(0, cur.reading.size() - 1);
+
+        if (m_focusedBunsetsu + 1 < m_bunsetsuList.size())
+        {
+            auto& nxt = m_bunsetsuList[m_focusedBunsetsu + 1];
+            std::wstring newNxt;
+            newNxt.push_back(moved);
+            newNxt += nxt.reading;
+            m_bunsetsuList[m_focusedBunsetsu + 1] =
+                bunsetsu::MakeBunsetsuFromReading(newNxt, mecab, skk);
+        }
+        else
+        {
+            // No tail bunsetsu — create one for the orphaned character so
+            // the user can still navigate to it with → / Tab.
+            Bunsetsu tail;
+            tail.reading = std::wstring(1, moved);
+            tail = bunsetsu::MakeBunsetsuFromReading(tail.reading, mecab, skk);
+            m_bunsetsuList.push_back(std::move(tail));
+        }
+        cur = bunsetsu::MakeBunsetsuFromReading(newCur, mecab, skk);
+    }
+
+    wchar_t logbuf[200];
+    swprintf_s(logbuf,
+               L"[GenerativeIME] Phase B resize: delta=%+d focused=%zu reading=%s parts=%zu\n",
+               delta, m_focusedBunsetsu,
+               m_bunsetsuList[m_focusedBunsetsu].reading.c_str(),
+               m_bunsetsuList.size());
+    OutputDebugStringW(logbuf);
+
+    RepaintBunsetsu(pContext);
+}
+
 void CTextService::AppendCommittedText(const std::wstring& text)
 {
     if (text.empty()) return;
@@ -1848,6 +1924,12 @@ bool CTextService::ShouldEat(WPARAM wParam) const
         if (wParam == VK_TAB) return true;
         if (wParam == VK_NEXT || wParam == VK_PRIOR) return true;
         if (wParam >= '1' && wParam <= '9') return true;
+        // Phase B: ←/→ navigate between bunsetsu. Alt+←/→ shrink/grow
+        // the focused bunsetsu by one character. Without ShouldEat
+        // returning true, OnKeyDown wouldn't see them and the host app
+        // would move the caret inside the composition instead.
+        if (!m_bunsetsuList.empty() && (wParam == VK_LEFT || wParam == VK_RIGHT))
+            return true;
     }
     if (m_pComposition && wParam >= VK_F6 && wParam <= VK_F10) return true;
     return false;
@@ -2058,6 +2140,43 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
             if (GetKeyState(VK_SHIFT) < 0) m_pCandWnd->SelectPrev();
             else                            m_pCandWnd->SelectNext();
             if (pic) ApplyCandidateSelection(pic);
+        }
+        *pfEaten = TRUE;
+    }
+    else if ((wParam == VK_LEFT || wParam == VK_RIGHT) &&
+             InBunsetsuMode() &&
+             m_pCandWnd && m_pCandWnd->IsVisible())
+    {
+        // Shift+←/→ resize the focused bunsetsu's reading by one char,
+        // pushing or pulling the character across the boundary with the
+        // next bunsetsu. Plain ←/→ navigate between bunsetsu. We use
+        // Shift instead of Alt because Alt-modified keys arrive as
+        // WM_SYSKEYDOWN, which TSF's ITfKeyEventSink doesn't see — and
+        // Shift+←/→ is the MS-IME standard for clause resizing anyway.
+        bool shiftDown = (GetKeyState(VK_SHIFT) < 0);
+        if (shiftDown)
+        {
+            ResizeFocusedBunsetsu(wParam == VK_RIGHT ? +1 : -1, pic);
+        }
+        else if (m_bunsetsuList.size() > 1)
+        {
+            int sel = m_pCandWnd->GetSelectedIndex();
+            if (sel >= 0)
+                m_bunsetsuList[m_focusedBunsetsu].selected = (size_t)sel;
+
+            size_t n = m_bunsetsuList.size();
+            if (wParam == VK_LEFT)
+                m_focusedBunsetsu = (m_focusedBunsetsu + n - 1) % n;
+            else
+                m_focusedBunsetsu = (m_focusedBunsetsu + 1) % n;
+
+            wchar_t logbuf[160];
+            swprintf_s(logbuf,
+                       L"[GenerativeIME] Phase B (arrow): focus -> %zu (reading=%s)\n",
+                       m_focusedBunsetsu,
+                       m_bunsetsuList[m_focusedBunsetsu].reading.c_str());
+            OutputDebugStringW(logbuf);
+            RepaintBunsetsu(pic);
         }
         *pfEaten = TRUE;
     }

@@ -187,4 +187,9 @@ private:
     // window at the focused bunsetsu's candidate set. Called whenever a
     // Tab moves focus or a candidate is picked in Phase B mode.
     void                  RepaintBunsetsu(ITfContext* pContext);
+    // Grow (delta=+1) or shrink (delta=-1) the focused bunsetsu by one
+    // character, redistributing across the boundary with the next
+    // bunsetsu. Regenerates candidates for the affected bunsetsu via
+    // bunsetsu::MakeBunsetsuFromReading and repaints.
+    void                  ResizeFocusedBunsetsu(int delta, ITfContext* pContext);
 };

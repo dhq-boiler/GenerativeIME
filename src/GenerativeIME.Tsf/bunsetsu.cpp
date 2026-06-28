@@ -8,6 +8,23 @@ namespace
 {
     constexpr bool IsHiragana(wchar_t c) { return c >= 0x3040 && c <= 0x309F; }
 
+    // Promote a pure-hiragana reading to katakana. We use this to offer the
+    // katakana spelling as a candidate alongside the hiragana surface for
+    // 助詞 / 助動詞 / 記号 — typing "は" should let the user pick "ハ" too,
+    // not just "は" or "歯". Characters outside the hiragana plane pass
+    // through unchanged so mixed input doesn't get mangled.
+    std::wstring ToKatakana(const std::wstring& s)
+    {
+        std::wstring out;
+        out.reserve(s.size());
+        for (wchar_t c : s)
+        {
+            if (c >= 0x3041 && c <= 0x3096) out.push_back(c + 0x60);
+            else                            out.push_back(c);
+        }
+        return out;
+    }
+
     // Splits a verb lemma "食べる" into ("食", "べる"). When the lemma has
     // no leading kanji (e.g. "する"), kanjiPrefix is empty and hiraSuffix
     // is the whole string.
@@ -190,7 +207,28 @@ std::vector<Bunsetsu> SplitMecab(const std::wstring& reading,
 
         if (isParticle)
         {
+            // 助詞 / 助動詞 / 記号: hiragana surface first, then the
+            // katakana version, then SKK kanji homophones at the tail
+            // (歯 / 葉 / 羽 for "は"). The kana stays at the head so a
+            // bare-Enter on "は" never silently picks "歯", but the
+            // homophones are reachable with ↓ for the user who actually
+            // means them.
             b.candidates = { m.surface };
+            auto kata = ToKatakana(m.surface);
+            if (kata != m.surface)
+                b.candidates.push_back(std::move(kata));
+            if (skk && skk->IsLoaded())
+            {
+                auto hits = skk->Lookup(m.surface);
+                for (auto& c : hits)
+                {
+                    if (std::find(b.candidates.begin(), b.candidates.end(), c)
+                        == b.candidates.end())
+                    {
+                        b.candidates.push_back(std::move(c));
+                    }
+                }
+            }
         }
         else if (isInflected)
         {
@@ -418,6 +456,78 @@ std::vector<std::wstring> MergeMecabVerbForms(
         }
     }
     return merged;
+}
+
+Bunsetsu MakeBunsetsuFromReading(const std::wstring& reading,
+                                 const MecabAnalyzer* analyzer,
+                                 const SkkDictionary* skk)
+{
+    Bunsetsu b;
+    b.reading = reading;
+    b.selected = 0;
+    if (reading.empty()) { b.candidates.push_back(reading); return b; }
+
+    // 1. The reading itself first. Resize operations can land on short
+    //    readings like "は" / "が" where SKK lookup returns kanji
+    //    homophones (歯 / 葉 / 羽) — those should be available but never
+    //    the default, because the user almost certainly wants the kana
+    //    they typed. Pushing the reading at the head also guarantees
+    //    JoinSelected never has an empty Selected() to concatenate.
+    b.candidates.push_back(reading);
+
+    // 2. Katakana version (when the reading is pure hiragana). Gives the
+    //    user a one-keystroke katakana spelling without scrolling past
+    //    the kanji homophones.
+    auto kata = ToKatakana(reading);
+    if (kata != reading)
+        b.candidates.push_back(std::move(kata));
+
+    // 3. MeCab joined form — handles inflected verbs / phrases SKK doesn't
+    //    have as a single key ("みた" → 見た). Only adopt the combined form
+    //    when it differs from the raw reading (otherwise we'd just push the
+    //    kana again).
+    if (analyzer)
+    {
+        auto morphemes = analyzer->Analyze(reading);
+        std::wstring combined;
+        for (const auto& m : morphemes)
+        {
+            const bool isParticle =
+                m.pos == L"助詞" || m.pos == L"助動詞" || m.pos == L"記号";
+            if (isParticle)
+                combined += m.surface;
+            else if (m.pos == L"動詞")
+                combined += KanjifyByReading(m.surface, m.lemma, m.lemmaReading);
+            else
+                combined += (m.lemma.empty() ? m.surface : m.lemma);
+        }
+        if (!combined.empty() && combined != reading &&
+            std::find(b.candidates.begin(), b.candidates.end(), combined)
+            == b.candidates.end())
+        {
+            b.candidates.push_back(std::move(combined));
+        }
+    }
+
+    // 4. SKK whole-reading lookup last — homophones (雨/飴/天 for "あめ",
+    //    歯/葉/羽 for "は") are useful alternates but ranked below the
+    //    typed kana and the MeCab joined form.
+    if (skk && skk->IsLoaded())
+    {
+        auto hits = skk->Lookup(reading);
+        if (analyzer)
+            hits = MergeMecabVerbForms(reading, *analyzer, hits);
+        for (auto& c : hits)
+        {
+            if (std::find(b.candidates.begin(), b.candidates.end(), c)
+                == b.candidates.end())
+            {
+                b.candidates.push_back(std::move(c));
+            }
+        }
+    }
+
+    return b;
 }
 
 } // namespace bunsetsu
