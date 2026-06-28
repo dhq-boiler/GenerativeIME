@@ -429,12 +429,21 @@ STDMETHODIMP CTextService::Activate(ITfThreadMgr* pThreadMgr, TfClientId tfClien
     swprintf_s(lsbuf, L"[GenerativeIME] LearningStore.Load hr=0x%08X\n", (unsigned)hrLs);
     OutputDebugStringW(lsbuf);
 
-    // Warm the SKK dictionary so the first user keystroke isn't blocked by
-    // a 4–6 MB file read. Subsequent Activate calls hit the std::call_once
-    // fast path and return the already-loaded singleton in nanoseconds.
-    SkkDictionary::GetGlobal();
-    // Same idea for MeCab — sys.dic is ~188 MB, init is heavy.
-    MecabAnalyzer::GetGlobal();
+    // Warm the dictionaries in the background. Doing this inline blocks
+    // Activate for ~10 seconds (SKK = 4–6 MB text parse, MeCab UniDic-Lite
+    // sys.dic = ~188 MB) and the user sees the IME pill but can't
+    // actually convert until it finishes. Background warmup lets the
+    // mode UI come up immediately; the first Space-conversion that needs
+    // the dict blocks on std::call_once inside GetGlobal (same total
+    // latency on first use, but at least romaji-mode typing works
+    // straight away).
+    std::thread([]()
+    {
+        SkkDictionary::GetGlobal();
+        MecabAnalyzer::GetGlobal();
+        OutputDebugStringW(L"[GenerativeIME] dict warmup complete\n");
+    }).detach();
+
     // Also kick Ollama: gemma4:12b cold-loads in ~90s on a CPU-only box,
     // which would blow past the per-request timeout in the fallback path.
     // Fire it now (fire-and-forget) so by the time the user types the
@@ -1576,6 +1585,7 @@ void CTextService::CommitConvertedIfAny(ITfContext* pContext)
     m_romajiBuffer.clear();
     m_compositionConverted = FALSE;
     m_lastReading.clear();
+    m_fkeyConvertedText.clear();
     if (m_pCandWnd) m_pCandWnd->Hide();
 }
 
@@ -2046,14 +2056,19 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         else if (m_compositionConverted)
         {
             // Range already holds the converted text. Remember the user's choice
-            // so the same reading puts that candidate first next time.
-            if (m_pCandWnd)
+            // so the same reading puts that candidate first next time. F6-F10
+            // conversions live in m_fkeyConvertedText (the candidate window
+            // was hidden when the F-key fired), normal candidate picks live
+            // in m_pCandWnd's selection.
+            std::wstring picked;
+            if (!m_fkeyConvertedText.empty())
+                picked = m_fkeyConvertedText;
+            else if (m_pCandWnd)
+                picked = m_pCandWnd->GetSelected();
+            if (!picked.empty())
             {
-                std::wstring picked = m_pCandWnd->GetSelected();
                 if (m_pLearning && !m_lastReading.empty())
-                {
                     m_pLearning->Record(m_lastReading, picked);
-                }
                 AppendCommittedText(picked);
             }
             if (pic) RequestEditSession(pic, EditAction::EndCommit, L"");
@@ -2069,6 +2084,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         m_romajiBuffer.clear();
         m_compositionConverted = FALSE;
         m_lastReading.clear();
+        m_fkeyConvertedText.clear();
         if (m_pCandWnd) m_pCandWnd->Hide();
         *pfEaten = TRUE;
     }
@@ -2077,6 +2093,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         if (pic) RequestEditSession(pic, EditAction::EndCancel, L"");
         m_romajiBuffer.clear();
         m_compositionConverted = FALSE;
+        m_fkeyConvertedText.clear();
         LeaveBunsetsuMode();
         if (m_pCandWnd) m_pCandWnd->Hide();
         *pfEaten = TRUE;
@@ -2210,7 +2227,9 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         }
         if (m_pCandWnd) m_pCandWnd->Hide();
         if (pic && !text.empty()) RequestEditSession(pic, EditAction::Update, text);
-        m_compositionConverted = TRUE;
+        m_compositionConverted    = TRUE;
+        m_fkeyConvertedText       = text;
+        m_lastReading             = hira;  // learning key for the F-key form
         *pfEaten = TRUE;
     }
     else if (wParam >= '1' && wParam <= '9' && m_pCandWnd && m_pCandWnd->IsVisible())

@@ -127,6 +127,12 @@ private:
     CCandidateWindow*   m_pCandWnd;     // popup listing Ollama candidates; null until Create succeeds
     LearningStore*      m_pLearning;    // persisted reading-to-favorite map
     std::wstring        m_lastReading;  // reading that produced the current candidate list, for Record() on commit
+    // F6-F10 conversions overwrite the composition range with a fixed form
+    // (hiragana / katakana / ascii) instead of going through the candidate
+    // window. We stash the resulting text here so VK_RETURN can commit it
+    // and feed it to LearningStore the same way a candidate pick would.
+    // Cleared on commit / cancel / fresh composition.
+    std::wstring        m_fkeyConvertedText;
     ImeMode             m_imeMode;      // shaping mode applied to composition display
 
     // Rolling buffer of recently committed text, for feeding context to the
