@@ -108,6 +108,7 @@ private:
     void    ApplyCandidateSelection(ITfContext* pContext);
     void    CommitConvertedIfAny(ITfContext* pContext);
     POINT   QueryCandidateAnchorPos(ITfContext* pContext);
+    POINT   QueryBunsetsuAnchorPos(ITfContext* pContext, size_t offset, size_t length);
     HRESULT RequestEditSession(ITfContext* pContext, EditAction action, const std::wstring& text);
 
     LONG                m_cRef;

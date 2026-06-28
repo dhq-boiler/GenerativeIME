@@ -24,6 +24,12 @@ extern const GUID c_guidDisplayAttributeInput =
 
 TfGuidAtom g_gaDisplayAttributeInput = TF_INVALID_GUIDATOM;
 
+// {5C0F8F4A-2D7E-4A1F-8C9B-3F2A6B4E1D5C}
+extern const GUID c_guidDisplayAttributeBunsetsuFocus =
+    { 0x5C0F8F4A, 0x2D7E, 0x4A1F, { 0x8C, 0x9B, 0x3F, 0x2A, 0x6B, 0x4E, 0x1D, 0x5C } };
+
+TfGuidAtom g_gaDisplayAttributeBunsetsuFocus = TF_INVALID_GUIDATOM;
+
 // {098029FD-8E37-47EE-9252-0CF677A18C44}
 extern const GUID c_guidLangBarItemButton =
     { 0x098029FD, 0x8E37, 0x47EE, { 0x92, 0x52, 0x0C, 0xF6, 0x77, 0xA1, 0x8C, 0x44 } };

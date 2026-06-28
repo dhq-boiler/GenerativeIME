@@ -4,10 +4,19 @@
 
 namespace
 {
-    // Stamps the composition range with our display attribute guidatom via
-    // GUID_PROP_ATTRIBUTE. This is what makes the host app render the
-    // composition with our underline (TF_LS_SOLID) instead of as plain text.
-    HRESULT ApplyDisplayAttributeToComposition(TfEditCookie ec, ITfContext* pContext, ITfComposition* pComposition)
+    HRESULT SetAttributeOnRange(TfEditCookie ec, ITfProperty* pProp,
+                                ITfRange* pRange, TfGuidAtom atom)
+    {
+        VARIANT v;
+        VariantInit(&v);
+        v.vt = VT_I4;
+        v.lVal = static_cast<LONG>(atom);
+        return pProp->SetValue(ec, pRange, &v);
+    }
+
+    // Stamps the entire composition with the plain "input" attribute.
+    // Used when Phase B isn't active or when there's no focus information.
+    HRESULT ApplyInputAttributeToComposition(TfEditCookie ec, ITfContext* pContext, ITfComposition* pComposition)
     {
         if (!pContext || !pComposition || g_gaDisplayAttributeInput == TF_INVALID_GUIDATOM)
             return E_UNEXPECTED;
@@ -20,15 +29,74 @@ namespace
         hr = pContext->GetProperty(GUID_PROP_ATTRIBUTE, &pProp);
         if (SUCCEEDED(hr) && pProp)
         {
-            VARIANT v;
-            VariantInit(&v);
-            v.vt = VT_I4;
-            v.lVal = static_cast<LONG>(g_gaDisplayAttributeInput);
-            hr = pProp->SetValue(ec, pRange, &v);
+            hr = SetAttributeOnRange(ec, pProp, pRange, g_gaDisplayAttributeInput);
             pProp->Release();
         }
         pRange->Release();
         return hr;
+    }
+
+    // Phase B: split the composition into three contiguous sub-ranges
+    // (pre / focused / post) and stamp the focused middle one with the
+    // BunsetsuFocus attribute, the others with Input. If the BunsetsuFocus
+    // atom didn't register we fall back to the plain Input stamp.
+    HRESULT ApplyBunsetsuAttributesToComposition(
+        TfEditCookie ec, ITfContext* pContext, ITfComposition* pComposition,
+        ULONG focusedStart, ULONG focusedLen)
+    {
+        if (!pContext || !pComposition) return E_UNEXPECTED;
+        if (g_gaDisplayAttributeBunsetsuFocus == TF_INVALID_GUIDATOM)
+            return ApplyInputAttributeToComposition(ec, pContext, pComposition);
+
+        ITfRange* pFull = nullptr;
+        HRESULT hr = pComposition->GetRange(&pFull);
+        if (FAILED(hr) || !pFull) return hr;
+
+        ITfProperty* pProp = nullptr;
+        hr = pContext->GetProperty(GUID_PROP_ATTRIBUTE, &pProp);
+        if (FAILED(hr) || !pProp)
+        {
+            pFull->Release();
+            return hr;
+        }
+
+        // Build [pre, focused, post] by cloning the full range and shifting
+        // anchors. ShiftStart / ShiftEnd take character counts and return
+        // how many they actually moved (clamped at range boundaries).
+        ITfRange* pPre     = nullptr;
+        ITfRange* pFocused = nullptr;
+        ITfRange* pPost    = nullptr;
+        pFull->Clone(&pPre);
+        pFull->Clone(&pFocused);
+        pFull->Clone(&pPost);
+
+        if (pPre)
+        {
+            LONG shifted = 0;
+            pPre->ShiftEnd(ec, (LONG)focusedStart, &shifted, nullptr);
+            SetAttributeOnRange(ec, pProp, pPre, g_gaDisplayAttributeInput);
+            pPre->Release();
+        }
+        if (pFocused)
+        {
+            LONG shifted = 0;
+            pFocused->ShiftStart(ec, (LONG)focusedStart, &shifted, nullptr);
+            pFocused->Collapse(ec, TF_ANCHOR_START);
+            pFocused->ShiftEnd(ec, (LONG)focusedLen, &shifted, nullptr);
+            SetAttributeOnRange(ec, pProp, pFocused, g_gaDisplayAttributeBunsetsuFocus);
+            pFocused->Release();
+        }
+        if (pPost)
+        {
+            LONG shifted = 0;
+            pPost->ShiftStart(ec, (LONG)(focusedStart + focusedLen), &shifted, nullptr);
+            SetAttributeOnRange(ec, pProp, pPost, g_gaDisplayAttributeInput);
+            pPost->Release();
+        }
+
+        pProp->Release();
+        pFull->Release();
+        return S_OK;
     }
 }
 
@@ -121,7 +189,11 @@ HRESULT CEditSession::DoStartAndUpdate(TfEditCookie ec)
     }
 
     m_pService->SetComposition(pComposition);
-    ApplyDisplayAttributeToComposition(ec, m_pContext, pComposition);
+    if (m_hasFocus)
+        ApplyBunsetsuAttributesToComposition(ec, m_pContext, pComposition,
+                                             (ULONG)m_focusedStart, (ULONG)m_focusedLen);
+    else
+        ApplyInputAttributeToComposition(ec, m_pContext, pComposition);
     pComposition->Release();
     return S_OK;
 }
@@ -152,7 +224,11 @@ HRESULT CEditSession::DoUpdate(TfEditCookie ec)
 
     // Re-stamp the attribute: SetText replaces the range contents and TSF
     // does not carry the property forward to the freshly-inserted characters.
-    ApplyDisplayAttributeToComposition(ec, m_pContext, pComposition);
+    if (m_hasFocus)
+        ApplyBunsetsuAttributesToComposition(ec, m_pContext, pComposition,
+                                             (ULONG)m_focusedStart, (ULONG)m_focusedLen);
+    else
+        ApplyInputAttributeToComposition(ec, m_pContext, pComposition);
     return S_OK;
 }
 
@@ -222,6 +298,86 @@ STDMETHODIMP CGetRectSession::DoEditSession(TfEditCookie ec)
     }
 
     pRange->Release();
+    pView->Release();
+    return hr;
+}
+
+// ---------------------------------------------------------------------------
+// CGetBunsetsuRectSession
+// ---------------------------------------------------------------------------
+
+CGetBunsetsuRectSession::CGetBunsetsuRectSession(ITfContext* ctx, ITfComposition* comp,
+                                                 ULONG start, ULONG length, POINT* outPos)
+    : m_cRef(1), m_ctx(ctx), m_comp(comp), m_start(start), m_length(length), m_outPos(outPos)
+{
+    if (m_ctx)  m_ctx->AddRef();
+    if (m_comp) m_comp->AddRef();
+    InterlockedIncrement(&g_cRefDll);
+}
+
+CGetBunsetsuRectSession::~CGetBunsetsuRectSession()
+{
+    if (m_comp) m_comp->Release();
+    if (m_ctx)  m_ctx->Release();
+    InterlockedDecrement(&g_cRefDll);
+}
+
+STDMETHODIMP CGetBunsetsuRectSession::QueryInterface(REFIID riid, void** ppvObj)
+{
+    if (!ppvObj) return E_INVALIDARG;
+    *ppvObj = nullptr;
+    if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfEditSession))
+    {
+        *ppvObj = static_cast<ITfEditSession*>(this);
+        AddRef();
+        return S_OK;
+    }
+    return E_NOINTERFACE;
+}
+
+STDMETHODIMP_(ULONG) CGetBunsetsuRectSession::AddRef()
+{
+    return InterlockedIncrement(&m_cRef);
+}
+
+STDMETHODIMP_(ULONG) CGetBunsetsuRectSession::Release()
+{
+    LONG c = InterlockedDecrement(&m_cRef);
+    if (c == 0) delete this;
+    return c;
+}
+
+STDMETHODIMP CGetBunsetsuRectSession::DoEditSession(TfEditCookie ec)
+{
+    if (!m_ctx || !m_comp || !m_outPos) return E_UNEXPECTED;
+
+    ITfContextView* pView = nullptr;
+    HRESULT hr = m_ctx->GetActiveView(&pView);
+    if (FAILED(hr) || !pView) return hr;
+
+    ITfRange* pSub = nullptr;
+    hr = m_comp->GetRange(&pSub);
+    if (FAILED(hr) || !pSub) { pView->Release(); return hr; }
+
+    // Trim the cloned range to [m_start, m_start + m_length) before asking
+    // for its on-screen rect. ShiftStart / ShiftEnd return how many chars
+    // they actually moved (clamped at the range's natural boundaries) so a
+    // request past the end just gives us the tail rect, which is fine.
+    LONG shifted = 0;
+    pSub->ShiftStart(ec, (LONG)m_start, &shifted, nullptr);
+    pSub->Collapse(ec, TF_ANCHOR_START);
+    pSub->ShiftEnd(ec, (LONG)m_length, &shifted, nullptr);
+
+    RECT rc = {};
+    BOOL clipped = FALSE;
+    hr = pView->GetTextExt(ec, pSub, &rc, &clipped);
+    if (SUCCEEDED(hr))
+    {
+        m_outPos->x = rc.left;
+        m_outPos->y = rc.bottom + 2;
+    }
+
+    pSub->Release();
     pView->Release();
     return hr;
 }

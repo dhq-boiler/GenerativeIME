@@ -16,6 +16,13 @@ extern const GUID  c_guidGenerativeImeProfile;
 // Display attribute GUID for composition input text: {B4CD8585-EB3A-4971-A770-6EB7E071A0D3}
 extern const GUID  c_guidDisplayAttributeInput;
 
+// Display attribute GUID for the focused bunsetsu in Phase B (per-bunsetsu
+// candidate-selection UI). Renders with a thicker / more visible underline
+// so the user can tell which bunsetsu Tab is currently parked on while the
+// rest of the multi-bunsetsu composition uses the plain input attribute.
+// {5C0F8F4A-2D7E-4A1F-8C9B-3F2A6B4E1D5C}
+extern const GUID  c_guidDisplayAttributeBunsetsuFocus;
+
 // LangBar item GUID (the "あ" mode button): {098029FD-8E37-47EE-9252-0CF677A18C44}
 extern const GUID  c_guidLangBarItemButton;
 
@@ -29,6 +36,7 @@ extern const GUID  c_guidKeyImeOff;      // VK_OEM_ENLW (0xF4) — explicit OFF
 // Resolved TfGuidAtom for c_guidDisplayAttributeInput. Populated by CTextService::Activate
 // via ITfCategoryMgr::RegisterGUID, consumed by edit sessions to stamp GUID_PROP_ATTRIBUTE.
 extern TfGuidAtom  g_gaDisplayAttributeInput;
+extern TfGuidAtom  g_gaDisplayAttributeBunsetsuFocus;
 
 // Japanese (ja-JP)
 constexpr LANGID c_langIdJapanese = 0x0411;

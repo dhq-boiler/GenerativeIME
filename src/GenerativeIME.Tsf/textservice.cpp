@@ -616,6 +616,18 @@ HRESULT CTextService::InitDisplayAttributeGuidAtom()
     if (FAILED(hr) || !pCategoryMgr) return hr;
 
     hr = pCategoryMgr->RegisterGUID(c_guidDisplayAttributeInput, &g_gaDisplayAttributeInput);
+    if (SUCCEEDED(hr))
+    {
+        // Best-effort: BunsetsuFocus is only used by Phase B and we'd rather
+        // run without per-bunsetsu highlighting than fail Activate.
+        HRESULT hr2 = pCategoryMgr->RegisterGUID(c_guidDisplayAttributeBunsetsuFocus,
+                                                 &g_gaDisplayAttributeBunsetsuFocus);
+        wchar_t buf[160];
+        swprintf_s(buf,
+                   L"[GenerativeIME] RegisterGUID(BunsetsuFocus) hr=0x%08X atom=0x%08X\n",
+                   (unsigned)hr2, (unsigned)g_gaDisplayAttributeBunsetsuFocus);
+        OutputDebugStringW(buf);
+    }
     pCategoryMgr->Release();
     return hr;
 }
@@ -1464,6 +1476,29 @@ POINT CTextService::QueryCandidateAnchorPos(ITfContext* pContext)
     return pt;
 }
 
+// Phase B: rect of a substring of the composition. Used to anchor the
+// candidate window under the currently focused bunsetsu instead of the
+// composition's left edge. Falls back to the composition-left anchor if
+// the substring rect query came back empty.
+POINT CTextService::QueryBunsetsuAnchorPos(ITfContext* pContext, size_t offset, size_t length)
+{
+    POINT pt = { 0, 0 };
+    if (pContext && m_pComposition && length > 0)
+    {
+        CGetBunsetsuRectSession* sess = new CGetBunsetsuRectSession(
+            pContext, m_pComposition, (ULONG)offset, (ULONG)length, &pt);
+        HRESULT hrSession = S_OK;
+        HRESULT hr = pContext->RequestEditSession(m_tfClientId, sess,
+            TF_ES_SYNC | TF_ES_READ, &hrSession);
+        sess->Release();
+        if (SUCCEEDED(hr) && SUCCEEDED(hrSession) && (pt.x != 0 || pt.y != 0))
+        {
+            return pt;
+        }
+    }
+    return QueryCandidateAnchorPos(pContext);
+}
+
 // Replace the composition range with whatever's currently selected in the
 // candidate window. Called on initial show and whenever Up/Down moves the cursor.
 void CTextService::ApplyCandidateSelection(ITfContext* pContext)
@@ -1575,15 +1610,23 @@ void CTextService::RepaintBunsetsu(ITfContext* pContext)
         m_pCandWnd->SelectIndex((int)cur.selected);
     m_lastReading = cur.reading;
 
-    // Composition holds the joined-selected text. MVP places the candidate
-    // window at the composition's left anchor — a future Phase B polish
-    // step can advance the popup to each bunsetsu's starting column.
     if (pContext)
     {
-        POINT pt = QueryCandidateAnchorPos(pContext);
-        m_pCandWnd->ShowAt(pt);
+        // Update composition FIRST so the bunsetsu offsets we hand to
+        // GetTextExt match the post-update text. RequestEditSession also
+        // sees we're in Phase B and splits the display attribute so the
+        // focused clause renders with the highlight style.
         std::wstring combined = bunsetsu::JoinSelected(m_bunsetsuList);
         RequestEditSession(pContext, EditAction::Update, combined);
+
+        // Anchor the candidate window at the focused bunsetsu's starting
+        // column instead of the composition's left edge. Falls back to
+        // the legacy anchor if the rect query failed.
+        size_t offset = 0;
+        for (size_t i = 0; i < m_focusedBunsetsu; ++i)
+            offset += m_bunsetsuList[i].Selected().size();
+        POINT pt = QueryBunsetsuAnchorPos(pContext, offset, cur.Selected().size());
+        m_pCandWnd->ShowAt(pt);
     }
     m_compositionConverted = TRUE;
 }
@@ -1734,9 +1777,17 @@ STDMETHODIMP CTextService::GetDisplayAttributeInfo(REFGUID guidInfo, ITfDisplayA
 {
     if (!ppInfo) return E_INVALIDARG;
     *ppInfo = nullptr;
-    if (!IsEqualGUID(guidInfo, c_guidDisplayAttributeInput)) return E_INVALIDARG;
-    *ppInfo = new CDisplayAttributeInfoInput();
-    return *ppInfo ? S_OK : E_OUTOFMEMORY;
+    if (IsEqualGUID(guidInfo, c_guidDisplayAttributeInput))
+    {
+        *ppInfo = new CDisplayAttributeInfoInput();
+        return *ppInfo ? S_OK : E_OUTOFMEMORY;
+    }
+    if (IsEqualGUID(guidInfo, c_guidDisplayAttributeBunsetsuFocus))
+    {
+        *ppInfo = new CDisplayAttributeInfoBunsetsuFocus();
+        return *ppInfo ? S_OK : E_OUTOFMEMORY;
+    }
+    return E_INVALIDARG;
 }
 
 // wParam in TSF OnKey* is a virtual-key code. VK 'A'-'Z' map to 0x41-0x5A.
@@ -2130,6 +2181,21 @@ void CTextService::SetComposition(ITfComposition* pComposition)
 HRESULT CTextService::RequestEditSession(ITfContext* pContext, EditAction action, const std::wstring& text)
 {
     CEditSession* pSession = new CEditSession(this, pContext, action, text);
+
+    // When we're in Phase B AND the action is an Update of the live
+    // composition, attach the current focused-bunsetsu offset so the edit
+    // session can split the display attribute and highlight just that
+    // clause. Other actions (Start, EndCommit, EndCancel) don't care.
+    if (InBunsetsuMode() && action == EditAction::Update)
+    {
+        size_t start = 0;
+        for (size_t i = 0; i < m_focusedBunsetsu && i < m_bunsetsuList.size(); ++i)
+            start += m_bunsetsuList[i].Selected().size();
+        size_t len = (m_focusedBunsetsu < m_bunsetsuList.size())
+                         ? m_bunsetsuList[m_focusedBunsetsu].Selected().size()
+                         : 0;
+        if (len > 0) pSession->SetBunsetsuFocus(start, len);
+    }
 
     // First try synchronous read-write.
     HRESULT hrSession = S_OK;
