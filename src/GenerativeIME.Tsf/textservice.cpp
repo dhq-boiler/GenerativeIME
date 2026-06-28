@@ -884,16 +884,35 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
                 }
                 else
                 {
-                    // Multi-morpheme: Phase A still only shows the joined
-                    // 1st-of-each as a single candidate. Per-bunsetsu
-                    // selection is Phase B.
+                    // Multi-morpheme. Two cases:
+                    //   (a) Trustworthy split  → enter Phase B, the user
+                    //       Tab-steps between bunsetsu and Space-cycles
+                    //       each one's candidates.
+                    //   (b) LooksSuspect split → don't lock the user into
+                    //       a Phase B UI built on a bad analysis. Show the
+                    //       MeCab combined string as a single candidate and
+                    //       let Ollama fallback prepend a saner whole-input
+                    //       answer (the 学生 vs 顎所為 case).
                     std::wstring combined = bunsetsu::JoinSelected(parts);
+                    bool suspect = bunsetsu::LooksSuspect(reading, *mecab);
                     swprintf_s(logbuf,
-                               L"[GenerativeIME] MeCab split: %zu parts -> %s\n",
-                               parts.size(), combined.c_str());
+                               L"[GenerativeIME] MeCab split: %zu parts -> %s (suspect=%d)\n",
+                               parts.size(), combined.c_str(), (int)suspect);
                     OutputDebugStringW(logbuf);
-                    m_pCandWnd->SetCandidates({ combined });
                     shownTop = combined;
+                    if (suspect)
+                    {
+                        m_pCandWnd->SetCandidates({ combined });
+                        POINT pt = QueryCandidateAnchorPos(pContext);
+                        m_pCandWnd->ShowAt(pt);
+                        ApplyCandidateSelection(pContext);
+                        StartMecabSupplementAsync(pContext, reading, shownTop);
+                    }
+                    else
+                    {
+                        EnterBunsetsuMode(std::move(parts), pContext);
+                    }
+                    return;
                 }
 
                 POINT pt = QueryCandidateAnchorPos(pContext);
@@ -1015,27 +1034,43 @@ void CTextService::HandleOllamaDone(PendingOllamaRequest* pending)
         // Drop suggestions whose reading drifted from the user's input
         // (gemma4:12b occasionally answers "だから" for a "せいで" prompt).
         // SKK / MeCab don't need this filter; only Ollama paths.
+        //
+        // Fallback: if the filter would empty the candidate list, keep
+        // the original. UniDic-Lite assigns ONE reading per surface and
+        // gets it wrong for common multi-reading kanji (私 → ワタクシ,
+        // 明日 → アス), so a correct "私は学生" suggestion would fail
+        // ReadsAs against typed "わたしはがくせい". Showing the unfiltered
+        // LLM answer beats showing nothing.
         if (auto* mecab = MecabAnalyzer::GetGlobal(); mecab && mecab->IsReady())
         {
-            size_t before = cands.size();
-            cands.erase(std::remove_if(cands.begin(), cands.end(),
+            std::vector<std::wstring> filtered = cands;
+            filtered.erase(std::remove_if(filtered.begin(), filtered.end(),
                 [&](const std::wstring& c)
                 {
                     return !bunsetsu::ReadsAs(c, pending->reading, *mecab);
                 }),
-                cands.end());
-            if (cands.size() != before)
+                filtered.end());
+            if (filtered.empty())
+            {
+                OutputDebugStringW(L"[GenerativeIME] Ollama: all filtered (UniDic vocab mismatch?), keeping unfiltered\n");
+            }
+            else if (filtered.size() != cands.size())
             {
                 wchar_t logbuf[160];
                 swprintf_s(logbuf,
                            L"[GenerativeIME] Ollama: dropped %zu off-reading candidates (%zu→%zu)\n",
-                           before - cands.size(), before, cands.size());
+                           cands.size() - filtered.size(), cands.size(), filtered.size());
                 OutputDebugStringW(logbuf);
+                cands = std::move(filtered);
+            }
+            else
+            {
+                cands = std::move(filtered);
             }
         }
         if (cands.empty())
         {
-            OutputDebugStringW(L"[GenerativeIME] Ollama: all candidates filtered, no update\n");
+            OutputDebugStringW(L"[GenerativeIME] Ollama: no candidates, no update\n");
             delete pending;
             return;
         }
@@ -1285,6 +1320,20 @@ void CTextService::HandleOllamaFallbackDone(PendingOllamaFallbackRequest* pendin
         return;
     }
 
+    // Phase B's per-bunsetsu UI doesn't have anywhere clean to slot a
+    // whole-reading LLM suggestion — the candidate window is showing the
+    // focused bunsetsu's options, not the full input. Drop the response;
+    // the user still has Tab/Space to navigate the MeCab split, and a
+    // future Phase B polish could expose the LLM answer as a "replace
+    // whole composition" gesture (e.g. F-key) if it turns out to be
+    // useful in practice.
+    if (InBunsetsuMode())
+    {
+        OutputDebugStringW(L"[GenerativeIME] Ollama fallback: skipping in Phase B mode\n");
+        delete pending;
+        return;
+    }
+
     if (FAILED(pending->hr) || pending->candidates.empty())
     {
         wchar_t logbuf[160];
@@ -1299,31 +1348,35 @@ void CTextService::HandleOllamaFallbackDone(PendingOllamaFallbackRequest* pendin
     // Drop suggestions whose reading drifted from the user's input. Same
     // rationale as the main-path filter — gemma sometimes answers with
     // a related word ("そのため" for "せいで") instead of a reading-
-    // matched alternate ("せいで" / "精で").
+    // matched alternate ("せいで" / "精で"). Same fallback too: keep
+    // unfiltered if everything would drop, to survive UniDic vocab
+    // mismatches (私 → ワタクシ vs typed わたし).
     if (auto* mecab = MecabAnalyzer::GetGlobal(); mecab && mecab->IsReady())
     {
-        size_t before = pending->candidates.size();
-        pending->candidates.erase(std::remove_if(
-            pending->candidates.begin(), pending->candidates.end(),
+        std::vector<std::wstring> filtered = pending->candidates;
+        filtered.erase(std::remove_if(filtered.begin(), filtered.end(),
             [&](const std::wstring& c)
             {
                 return !bunsetsu::ReadsAs(c, pending->reading, *mecab);
             }),
-            pending->candidates.end());
-        if (pending->candidates.size() != before)
+            filtered.end());
+        if (filtered.empty())
+        {
+            OutputDebugStringW(L"[GenerativeIME] Ollama fallback: all filtered (UniDic vocab mismatch?), keeping unfiltered\n");
+        }
+        else if (filtered.size() != pending->candidates.size())
         {
             wchar_t logbuf[180];
             swprintf_s(logbuf,
                        L"[GenerativeIME] Ollama fallback: dropped %zu off-reading (%zu→%zu)\n",
-                       before - pending->candidates.size(), before,
-                       pending->candidates.size());
+                       pending->candidates.size() - filtered.size(),
+                       pending->candidates.size(), filtered.size());
             OutputDebugStringW(logbuf);
+            pending->candidates = std::move(filtered);
         }
-        if (pending->candidates.empty())
+        else
         {
-            OutputDebugStringW(L"[GenerativeIME] Ollama fallback: all filtered, MeCab top stays\n");
-            delete pending;
-            return;
+            pending->candidates = std::move(filtered);
         }
     }
 
@@ -1416,6 +1469,24 @@ POINT CTextService::QueryCandidateAnchorPos(ITfContext* pContext)
 void CTextService::ApplyCandidateSelection(ITfContext* pContext)
 {
     if (!pContext || !m_pCandWnd) return;
+
+    // Phase B: the window's selected index is for ONE bunsetsu only.
+    // Mirror it into m_bunsetsuList and re-render the composition by
+    // joining every bunsetsu's currently-selected candidate.
+    if (InBunsetsuMode())
+    {
+        int sel = m_pCandWnd->GetSelectedIndex();
+        if (sel < 0) sel = 0;
+        m_bunsetsuList[m_focusedBunsetsu].selected = (size_t)sel;
+        std::wstring combined = bunsetsu::JoinSelected(m_bunsetsuList);
+        if (!combined.empty())
+        {
+            RequestEditSession(pContext, EditAction::Update, combined);
+            m_compositionConverted = TRUE;
+        }
+        return;
+    }
+
     std::wstring picked = m_pCandWnd->GetSelected();
     if (picked.empty()) return;
     RequestEditSession(pContext, EditAction::Update, picked);
@@ -1431,7 +1502,33 @@ void CTextService::ApplyCandidateSelection(ITfContext* pContext)
 void CTextService::CommitConvertedIfAny(ITfContext* pContext)
 {
     if (!m_compositionConverted || !m_pComposition) return;
-    if (m_pCandWnd)
+    if (InBunsetsuMode())
+    {
+        // The user started typing the next chunk without hitting Enter on
+        // the multi-bunsetsu composition. Commit the current join as a
+        // single block, learning each bunsetsu's pick, then drop Phase B
+        // state so the new keystroke starts a fresh composition.
+        if (m_pCandWnd)
+        {
+            int sel = m_pCandWnd->GetSelectedIndex();
+            if (sel >= 0)
+                m_bunsetsuList[m_focusedBunsetsu].selected = (size_t)sel;
+        }
+        std::wstring text = bunsetsu::JoinSelected(m_bunsetsuList);
+        if (m_pLearning)
+        {
+            for (const auto& b : m_bunsetsuList)
+            {
+                if (b.reading.empty() || b.candidates.empty()) continue;
+                if (b.selected >= b.candidates.size())          continue;
+                m_pLearning->Record(b.reading, b.candidates[b.selected]);
+            }
+        }
+        AppendCommittedText(text);
+        if (pContext) RequestEditSession(pContext, EditAction::EndCommit, L"");
+        LeaveBunsetsuMode();
+    }
+    else if (m_pCandWnd)
     {
         std::wstring picked = m_pCandWnd->GetSelected();
         if (m_pLearning && !m_lastReading.empty())
@@ -1439,8 +1536,8 @@ void CTextService::CommitConvertedIfAny(ITfContext* pContext)
             m_pLearning->Record(m_lastReading, picked);
         }
         AppendCommittedText(picked);
+        if (pContext) RequestEditSession(pContext, EditAction::EndCommit, L"");
     }
-    if (pContext) RequestEditSession(pContext, EditAction::EndCommit, L"");
     m_romajiBuffer.clear();
     m_compositionConverted = FALSE;
     m_lastReading.clear();
@@ -1450,6 +1547,47 @@ void CTextService::CommitConvertedIfAny(ITfContext* pContext)
 // Append `text` to the rolling context buffer and clamp to the recent window.
 // We keep the buffer bounded so a hours-long session doesn't bloat memory and
 // so the LLM context we eventually send stays short (latency-sensitive path).
+void CTextService::EnterBunsetsuMode(std::vector<Bunsetsu> parts,
+                                     ITfContext* pContext)
+{
+    if (parts.empty()) return;
+    m_bunsetsuList    = std::move(parts);
+    m_focusedBunsetsu = 0;
+    RepaintBunsetsu(pContext);
+}
+
+void CTextService::LeaveBunsetsuMode()
+{
+    m_bunsetsuList.clear();
+    m_focusedBunsetsu = 0;
+}
+
+void CTextService::RepaintBunsetsu(ITfContext* pContext)
+{
+    if (!InBunsetsuMode() || !m_pCandWnd) return;
+    auto& cur = m_bunsetsuList[m_focusedBunsetsu];
+
+    // Candidate window shows the focused bunsetsu's options. m_lastReading
+    // tracks the focused bunsetsu's reading so per-bunsetsu learning on
+    // Enter records each piece independently.
+    m_pCandWnd->SetCandidates(cur.candidates);
+    if (cur.selected < cur.candidates.size())
+        m_pCandWnd->SelectIndex((int)cur.selected);
+    m_lastReading = cur.reading;
+
+    // Composition holds the joined-selected text. MVP places the candidate
+    // window at the composition's left anchor — a future Phase B polish
+    // step can advance the popup to each bunsetsu's starting column.
+    if (pContext)
+    {
+        POINT pt = QueryCandidateAnchorPos(pContext);
+        m_pCandWnd->ShowAt(pt);
+        std::wstring combined = bunsetsu::JoinSelected(m_bunsetsuList);
+        RequestEditSession(pContext, EditAction::Update, combined);
+    }
+    m_compositionConverted = TRUE;
+}
+
 void CTextService::AppendCommittedText(const std::wstring& text)
 {
     if (text.empty()) return;
@@ -1745,7 +1883,34 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
     }
     else if (wParam == VK_RETURN && m_pComposition)
     {
-        if (m_compositionConverted)
+        if (InBunsetsuMode())
+        {
+            // Sync the focused bunsetsu's pick from whatever the candidate
+            // window is showing, then commit the joined-selected text.
+            if (m_pCandWnd)
+            {
+                int sel = m_pCandWnd->GetSelectedIndex();
+                if (sel >= 0)
+                    m_bunsetsuList[m_focusedBunsetsu].selected = (size_t)sel;
+            }
+            std::wstring text = bunsetsu::JoinSelected(m_bunsetsuList);
+            // Per-bunsetsu learning: each (reading, chosen kanji) pair gets
+            // recorded independently so future SKK/MeCab lookups of that
+            // same reading promote what the user picked this time.
+            if (m_pLearning)
+            {
+                for (const auto& b : m_bunsetsuList)
+                {
+                    if (b.reading.empty() || b.candidates.empty()) continue;
+                    if (b.selected >= b.candidates.size())          continue;
+                    m_pLearning->Record(b.reading, b.candidates[b.selected]);
+                }
+            }
+            AppendCommittedText(text);
+            if (pic) RequestEditSession(pic, EditAction::EndCommit, L"");
+            LeaveBunsetsuMode();
+        }
+        else if (m_compositionConverted)
         {
             // Range already holds the converted text. Remember the user's choice
             // so the same reading puts that candidate first next time.
@@ -1779,6 +1944,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         if (pic) RequestEditSession(pic, EditAction::EndCancel, L"");
         m_romajiBuffer.clear();
         m_compositionConverted = FALSE;
+        LeaveBunsetsuMode();
         if (m_pCandWnd) m_pCandWnd->Hide();
         *pfEaten = TRUE;
     }
@@ -1812,10 +1978,36 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
     }
     else if (wParam == VK_TAB && m_pCandWnd && m_pCandWnd->IsVisible())
     {
-        // Tab forward; Shift+Tab backward.
-        if (GetKeyState(VK_SHIFT) < 0) m_pCandWnd->SelectPrev();
-        else                            m_pCandWnd->SelectNext();
-        if (pic) ApplyCandidateSelection(pic);
+        if (InBunsetsuMode() && m_bunsetsuList.size() > 1)
+        {
+            // Phase B: Tab moves bunsetsu focus, not candidate selection.
+            // Save the current focus's pick first so re-entering this
+            // bunsetsu later restores what the user landed on.
+            int sel = m_pCandWnd->GetSelectedIndex();
+            if (sel >= 0)
+                m_bunsetsuList[m_focusedBunsetsu].selected = (size_t)sel;
+
+            size_t n = m_bunsetsuList.size();
+            if (GetKeyState(VK_SHIFT) < 0)
+                m_focusedBunsetsu = (m_focusedBunsetsu + n - 1) % n;
+            else
+                m_focusedBunsetsu = (m_focusedBunsetsu + 1) % n;
+
+            wchar_t logbuf[160];
+            swprintf_s(logbuf,
+                       L"[GenerativeIME] Phase B: focus -> %zu (reading=%s)\n",
+                       m_focusedBunsetsu,
+                       m_bunsetsuList[m_focusedBunsetsu].reading.c_str());
+            OutputDebugStringW(logbuf);
+            RepaintBunsetsu(pic);
+        }
+        else
+        {
+            // Single-bunsetsu mode: Tab cycles candidate window selection.
+            if (GetKeyState(VK_SHIFT) < 0) m_pCandWnd->SelectPrev();
+            else                            m_pCandWnd->SelectNext();
+            if (pic) ApplyCandidateSelection(pic);
+        }
         *pfEaten = TRUE;
     }
     else if (wParam == VK_NEXT && m_pCandWnd && m_pCandWnd->IsVisible())

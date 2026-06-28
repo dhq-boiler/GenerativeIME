@@ -1,6 +1,7 @@
 #pragma once
 
 #include "globals.h"
+#include "bunsetsu.h"
 #include <msctf.h>
 #include <string>
 #include <vector>
@@ -162,4 +163,27 @@ private:
     // doesn't pay a 90-second cold-load. Fire-and-forget — we discard the
     // result; only the side effect of leaving the model resident matters.
     void                StartOllamaWarmupAsync();
+
+    // Phase B state: when MeCab splits the input into 2+ bunsetsu, we let
+    // the user step between them with Tab/Shift+Tab and cycle each one's
+    // candidates independently with Space/↓/↑. Empty vector means we're
+    // in single-bunsetsu mode (SKK whole hit, single-morpheme MeCab, or
+    // pre-conversion romaji buffer) and the candidate window behaves as
+    // before — its selection is what gets committed.
+    std::vector<Bunsetsu> m_bunsetsuList;
+    size_t                m_focusedBunsetsu = 0;
+    // True iff we're in Phase B mode (m_bunsetsuList non-empty AND the
+    // candidate window is showing the focused bunsetsu's candidates).
+    bool                  InBunsetsuMode() const { return !m_bunsetsuList.empty(); }
+    // Hand off the MeCab split to Phase B state and start showing the
+    // first bunsetsu's candidates. Called from TryOllamaConvertAsync.
+    void                  EnterBunsetsuMode(std::vector<Bunsetsu> parts,
+                                            ITfContext* pContext);
+    // Clear Phase B state and the candidate window. Composition is left
+    // alone — callers (EndCommit, EndCancel) handle that.
+    void                  LeaveBunsetsuMode();
+    // Re-render composition based on JoinSelected and point the candidate
+    // window at the focused bunsetsu's candidate set. Called whenever a
+    // Tab moves focus or a candidate is picked in Phase B mode.
+    void                  RepaintBunsetsu(ITfContext* pContext);
 };
