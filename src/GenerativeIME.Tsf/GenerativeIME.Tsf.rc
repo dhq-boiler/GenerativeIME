@@ -1,0 +1,7 @@
+#include "resource.h"
+
+IDI_GENIME           ICON "res\\genime.ico"
+IDI_GENIME_A         ICON "res\\genime_a.ico"
+IDI_GENIME_KATA      ICON "res\\genime_kata.ico"
+IDI_GENIME_HALFKATA  ICON "res\\genime_halfkata.ico"
+IDI_GENIME_FALNUM    ICON "res\\genime_falnum.ico"

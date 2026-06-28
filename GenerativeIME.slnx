@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/GenerativeIME.Core/GenerativeIME.Core.csproj" />
+    <Project Path="src/GenerativeIME.Sandbox/GenerativeIME.Sandbox.csproj" />
+    <Project Path="src/GenerativeIME.Tsf/GenerativeIME.Tsf.vcxproj" Id="5f4d3c23-45cf-4f2e-94ba-6fcd7c65e5ff" />
+  </Folder>
+</Solution>

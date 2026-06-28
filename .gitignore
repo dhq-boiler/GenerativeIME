@@ -1,0 +1,78 @@
+# =============================================================================
+# Visual Studio / MSBuild
+# =============================================================================
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+# =============================================================================
+# C++ build artifacts
+# =============================================================================
+# Our project-local build dir (vcxproj OutDir/IntDir target it explicitly).
+build/
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+Win32/
+ARM64/
+
+# Compiler / linker leftovers
+*.obj
+*.pch
+*.ipch
+*.ipdb
+*.iobj
+*.pdb
+*.idb
+*.ilk
+*.exp
+*.map
+*.tlog
+*.lastbuildstate
+*.unsuccessfulbuild
+*.aps
+
+# Resource-compiler intermediates
+*.res
+
+# Workaround files we create when the linker can't overwrite a loaded DLL.
+*.locked.*
+
+# =============================================================================
+# .NET / C# build artifacts
+# =============================================================================
+# bin / obj already covered above. Add NuGet caches just in case.
+packages/
+*.nuget.props
+*.nuget.targets
+
+# Test / coverage output
+TestResults/
+*.coverage
+*.coveragexml
+
+# =============================================================================
+# Editor / OS junk
+# =============================================================================
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+*.swp
+*.bak
+*.tmp
+*~
+
+# =============================================================================
+# Secrets (defensive — none expected in this repo today, but cheap to add)
+# =============================================================================
+*.env
+*.env.local
+secrets.json
+appsettings.*.local.json
