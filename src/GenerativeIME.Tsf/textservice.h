@@ -3,12 +3,14 @@
 #include "globals.h"
 #include <msctf.h>
 #include <string>
+#include <vector>
 
 enum class EditAction;
 class CLangBarItemButton;
 class CCandidateWindow;
 class LearningStore;
 struct PendingOllamaRequest;
+struct PendingOllamaReorderRequest;
 
 // Active "input mode" inside the IME. Off means IME is bypassing input entirely;
 // the other four shape how m_romajiBuffer renders in the composition.
@@ -123,4 +125,24 @@ private:
     LearningStore*      m_pLearning;    // persisted reading-to-favorite map
     std::wstring        m_lastReading;  // reading that produced the current candidate list, for Record() on commit
     ImeMode             m_imeMode;      // shaping mode applied to composition display
+
+    // Rolling buffer of recently committed text, for feeding context to the
+    // LLM. ~kRecentContextMax chars; older chars drop off the front so we
+    // never grow unbounded across a long editing session.
+    static constexpr size_t kRecentContextMax = 60;
+    std::wstring        m_recentContext;
+    void                AppendCommittedText(const std::wstring& text);
+
+    // Monotonically increasing counter bumped whenever we start a SKK
+    // lookup. The reorder worker stamps the active counter into its request;
+    // by the time it returns, if the counter has moved (the user typed more,
+    // committed, switched apps, etc.) we drop the stale result.
+    unsigned            m_reorderSeq = 0;
+    // Fire-and-forget reorder of the just-shown candidate list against
+    // m_recentContext. Caller has already updated the candidate window with
+    // `candidates` in their default (SKK) order.
+    void                StartReorderAsync(ITfContext* pContext,
+                                          const std::wstring& reading,
+                                          const std::vector<std::wstring>& candidates);
+    void                HandleOllamaReorderDone(PendingOllamaReorderRequest* pending);
 };

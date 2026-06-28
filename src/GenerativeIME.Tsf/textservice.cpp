@@ -6,15 +6,17 @@
 #include "ollamaclient.h"
 #include "candidatewindow.h"
 #include "symboldictionary.h"
+#include "skkdictionary.h"
 #include "learningstore.h"
 #include <stdio.h>
 #include <thread>
 #include <vector>
 #include <unordered_map>
 
-constexpr UINT WM_OLLAMA_DONE  = WM_USER + 1;
-constexpr UINT WM_LANGBAR_MENU = WM_USER + 2;
-constexpr UINT WM_SET_IME_MODE = WM_USER + 3; // wParam = 1 to turn ON, 0 to turn OFF
+constexpr UINT WM_OLLAMA_DONE         = WM_USER + 1;
+constexpr UINT WM_LANGBAR_MENU        = WM_USER + 2;
+constexpr UINT WM_SET_IME_MODE        = WM_USER + 3; // wParam = 1 to turn ON, 0 to turn OFF
+constexpr UINT WM_OLLAMA_REORDER_DONE = WM_USER + 4;
 constexpr wchar_t kMsgWndClass[] = L"GenerativeIME_MsgWnd_v1";
 
 // Posted from worker thread back to the IME thread via PostMessage.
@@ -25,18 +27,47 @@ struct PendingOllamaRequest
     CTextService*              service;
     ITfContext*                context;       // AddRef'd on construction, Release'd on destruction
     std::wstring               reading;
+    std::wstring               recentContext; // recently committed text — snapshot for the prompt
     std::vector<std::wstring>  candidates;    // all parsed "text" values
     HRESULT                    hr;
     DWORD                      httpStatus;
 
-    PendingOllamaRequest(CTextService* s, ITfContext* c, std::wstring r)
-        : service(s), context(c), reading(std::move(r)), hr(E_FAIL), httpStatus(0)
+    PendingOllamaRequest(CTextService* s, ITfContext* c, std::wstring r, std::wstring ctx)
+        : service(s), context(c), reading(std::move(r)), recentContext(std::move(ctx)),
+          hr(E_FAIL), httpStatus(0)
     {
         if (context) context->AddRef();
     }
     ~PendingOllamaRequest()
     {
         if (context) context->Release();
+    }
+};
+
+// Async reorder of SKK-supplied candidates against the current context.
+// Lifecycle: worker thread fills `reordered`; PostMessage hands ownership to
+// the IME thread, which deletes after HandleOllamaReorderDone.
+struct PendingOllamaReorderRequest
+{
+    CTextService*              service;
+    ITfContext*                tfContext;     // AddRef'd; needed for composition repaint after reorder
+    std::wstring               reading;
+    std::wstring               recentContext;
+    std::vector<std::wstring>  original;      // candidates we showed the user immediately
+    std::vector<std::wstring>  reordered;     // filled by worker; empty if reorder failed
+    unsigned                   seq;           // discarded on arrival if service's seq has moved on
+
+    PendingOllamaReorderRequest(CTextService* s, ITfContext* c, std::wstring r,
+                                std::wstring ctx, std::vector<std::wstring> orig,
+                                unsigned sequence)
+        : service(s), tfContext(c), reading(std::move(r)), recentContext(std::move(ctx)),
+          original(std::move(orig)), seq(sequence)
+    {
+        if (tfContext) tfContext->AddRef();
+    }
+    ~PendingOllamaReorderRequest()
+    {
+        if (tfContext) tfContext->Release();
     }
 };
 
@@ -175,6 +206,37 @@ namespace
             }
         }
         return false;
+    }
+
+    // Extract `"<key>":[N1, N2, ...]` as a vector of ints. Used for the
+    // reorder response shape `{"order":[2,0,1,3]}`. Hand-rolled for the
+    // same reason ExtractAllCandidates is.
+    std::vector<int> ExtractIntArray(const std::wstring& jsonBody, const std::wstring& key)
+    {
+        std::vector<int> result;
+        std::wstring pat = L"\"" + key + L"\"";
+        size_t kpos = jsonBody.find(pat);
+        if (kpos == std::wstring::npos) return result;
+        size_t open = jsonBody.find(L'[', kpos);
+        if (open == std::wstring::npos) return result;
+        size_t close = jsonBody.find(L']', open);
+        if (close == std::wstring::npos) return result;
+
+        size_t pos = open + 1;
+        while (pos < close)
+        {
+            while (pos < close && !iswdigit(jsonBody[pos]) && jsonBody[pos] != L'-') pos++;
+            if (pos >= close) break;
+            std::wstring num;
+            if (jsonBody[pos] == L'-') { num += L'-'; pos++; }
+            while (pos < close && iswdigit(jsonBody[pos])) { num += jsonBody[pos++]; }
+            if (!num.empty())
+            {
+                try { result.push_back(std::stoi(num)); }
+                catch (...) { /* skip malformed entries */ }
+            }
+        }
+        return result;
     }
 
     std::vector<std::wstring> ExtractAllCandidates(const std::wstring& jsonBody)
@@ -332,6 +394,11 @@ STDMETHODIMP CTextService::Activate(ITfThreadMgr* pThreadMgr, TfClientId tfClien
     wchar_t lsbuf[96];
     swprintf_s(lsbuf, L"[GenerativeIME] LearningStore.Load hr=0x%08X\n", (unsigned)hrLs);
     OutputDebugStringW(lsbuf);
+
+    // Warm the SKK dictionary so the first user keystroke isn't blocked by
+    // a 4–6 MB file read. Subsequent Activate calls hit the std::call_once
+    // fast path and return the already-loaded singleton in nanoseconds.
+    SkkDictionary::GetGlobal();
 
     {
         wchar_t buf[128];
@@ -696,7 +763,35 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
         return;
     }
 
-    auto* pending = new PendingOllamaRequest(this, pContext, reading);
+    // SKK dictionary second: a real reading→word dictionary purpose-built for
+    // IME use. Gives us correct, dictionary-grade conversions for known words
+    // without an LLM round-trip and without the model's hallucination problem
+    // (gemma4:12b will happily invent "丁寧解" for "ていれいかい" if asked).
+    if (auto* skk = SkkDictionary::GetGlobal(); skk && skk->IsLoaded())
+    {
+        auto skkHits = skk->Lookup(reading);
+        if (!skkHits.empty() && m_pCandWnd)
+        {
+            if (m_pLearning) skkHits = m_pLearning->Reorder(reading, skkHits);
+            m_lastReading = reading;
+            m_pCandWnd->SetCandidates(skkHits);
+            POINT pt = QueryCandidateAnchorPos(pContext);
+            m_pCandWnd->ShowAt(pt);
+            ApplyCandidateSelection(pContext);
+
+            // Kick off an async context-aware reorder when there's something
+            // to reorder. The candidate window stays usable in the meantime;
+            // if the user makes a selection before reorder lands, we drop
+            // the result on arrival to avoid surprising them.
+            if (skkHits.size() >= 2 && !m_recentContext.empty())
+            {
+                StartReorderAsync(pContext, reading, skkHits);
+            }
+            return;
+        }
+    }
+
+    auto* pending = new PendingOllamaRequest(this, pContext, reading, m_recentContext);
     HWND hwnd = m_hwndMsg;
 
     OutputDebugStringW(L"[GenerativeIME] Ollama: convert begin (async)\n");
@@ -706,9 +801,24 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
     std::thread([pending, hwnd]()
     {
         std::wstring prompt;
-        prompt += L"あなたは日本語のかな漢字変換辞書です。\n";
-        prompt += L"入力された読み（ひらがな）を漢字かな混じり候補に変換します。\n";
-        prompt += L"JSON のみ返してください。形式: {\"candidates\":[{\"text\":\"…\"}]}\n";
+        prompt += L"あなたは日本語のかな漢字変換 IME です。\n";
+        prompt += L"入力されたひらがなの読みを、もっとも自然で一般的な漢字かな混じり表記に変換します。\n";
+        prompt += L"\n";
+        prompt += L"ルール:\n";
+        prompt += L"1. JSON のみ返す。形式: {\"candidates\":[{\"text\":\"…\"}]}\n";
+        prompt += L"2. 最大 5 候補を、文脈に最も合うもの順に並べる。1 番目は最も自然な単語。\n";
+        prompt += L"3. 国語辞典に載っている実在の単語のみを候補にする。造語・当て字・意味の通らない漢字の組み合わせは絶対に含めない。\n";
+        prompt += L"4. 適切な漢字変換がない場合はひらがな・カタカナのまま返す。\n";
+        prompt += L"\n";
+        if (!pending->recentContext.empty())
+        {
+            prompt += L"直前までの文章 (文脈の手がかり):\n";
+            prompt += L"「";
+            prompt += pending->recentContext;
+            prompt += L"」\n";
+            prompt += L"この文脈の続きとして自然な変換を選んでください。\n";
+            prompt += L"\n";
+        }
         prompt += L"読み: ";
         prompt += pending->reading;
         prompt += L"\n";
@@ -765,6 +875,132 @@ void CTextService::HandleOllamaDone(PendingOllamaRequest* pending)
     delete pending;
 }
 
+void CTextService::StartReorderAsync(ITfContext* pContext,
+                                     const std::wstring& reading,
+                                     const std::vector<std::wstring>& candidates)
+{
+    if (!m_hwndMsg || candidates.size() < 2) return;
+
+    // Bump the sequence; the worker pins the new value into its request, and
+    // anything older that comes back later is rejected as stale.
+    unsigned seq = ++m_reorderSeq;
+    auto* req = new PendingOllamaReorderRequest(this, pContext, reading, m_recentContext,
+                                                candidates, seq);
+    HWND hwnd = m_hwndMsg;
+
+    OutputDebugStringW(L"[GenerativeIME] Ollama reorder: begin (async)\n");
+
+    std::thread([req, hwnd]()
+    {
+        std::wstring prompt;
+        prompt += L"あなたは日本語の IME のリランカーです。\n";
+        prompt += L"下記の変換候補リストを、直前までの文章の流れに最も合うよう並び替えてください。\n";
+        prompt += L"候補テキストは絶対に変更しないでください。順序の並び替えのみ行います。\n";
+        prompt += L"JSON のみ返す。形式: {\"order\":[0始まりの新しい順序のインデックス配列]}\n";
+        prompt += L"配列にはすべての候補のインデックスを過不足なく含めてください。\n";
+        prompt += L"\n";
+        prompt += L"直前までの文章: 「";
+        prompt += req->recentContext;
+        prompt += L"」\n";
+        prompt += L"読み: ";
+        prompt += req->reading;
+        prompt += L"\n";
+        prompt += L"候補:\n";
+        for (size_t i = 0; i < req->original.size(); ++i)
+        {
+            wchar_t buf[16];
+            swprintf_s(buf, L"%zu: ", i);
+            prompt += buf;
+            prompt += req->original[i];
+            prompt += L"\n";
+        }
+
+        ollama::GenerateOptions opts;
+        opts.model       = L"gemma4:12b";
+        opts.prompt      = prompt;
+        opts.jsonFormat  = true;
+        opts.temperature = 0.1;
+        opts.numPredict  = 128;          // we only need a tiny index array
+        opts.keepAlive   = L"30m";
+        opts.think       = false;
+        opts.timeoutMs   = 30000;
+
+        auto resp = ollama::Generate(opts);
+        if (SUCCEEDED(resp.hr) && !resp.response.empty())
+        {
+            auto order = ExtractIntArray(resp.response, L"order");
+            // Build the reordered list; drop out-of-range / duplicate indices.
+            std::vector<bool> seen(req->original.size(), false);
+            std::vector<std::wstring> out;
+            out.reserve(req->original.size());
+            for (int idx : order)
+            {
+                if (idx < 0 || (size_t)idx >= req->original.size()) continue;
+                if (seen[idx]) continue;
+                seen[idx] = true;
+                out.push_back(req->original[idx]);
+            }
+            // Append anything the model omitted so we never lose candidates.
+            for (size_t i = 0; i < req->original.size(); ++i)
+            {
+                if (!seen[i]) out.push_back(req->original[i]);
+            }
+            // Only adopt the reorder if it actually changed something. Saves
+            // a redundant SetCandidates round-trip and the UI flicker that
+            // would come with it.
+            if (out != req->original) req->reordered = std::move(out);
+        }
+
+        if (!PostMessageW(hwnd, WM_OLLAMA_REORDER_DONE, 0, (LPARAM)req))
+        {
+            delete req;
+        }
+    }).detach();
+}
+
+void CTextService::HandleOllamaReorderDone(PendingOllamaReorderRequest* pending)
+{
+    if (!pending) return;
+
+    // Stale: another lookup started while we were thinking. Drop silently.
+    if (pending->seq != m_reorderSeq)
+    {
+        OutputDebugStringW(L"[GenerativeIME] Ollama reorder: stale (seq mismatch)\n");
+        delete pending;
+        return;
+    }
+
+    if (pending->reordered.empty())
+    {
+        OutputDebugStringW(L"[GenerativeIME] Ollama reorder: no-op or failed\n");
+        delete pending;
+        return;
+    }
+
+    // Stale by content: user typed more / committed / opened a new conversion.
+    // The candidate window may still be visible but for a different reading.
+    if (!m_pCandWnd || !m_pCandWnd->IsVisible() || m_lastReading != pending->reading)
+    {
+        delete pending;
+        return;
+    }
+
+    // Don't yank the highlight out from under the user mid-selection.
+    if (m_pCandWnd->GetSelectedIndex() != 0)
+    {
+        OutputDebugStringW(L"[GenerativeIME] Ollama reorder: user already moved, skipping\n");
+        delete pending;
+        return;
+    }
+
+    OutputDebugStringW(L"[GenerativeIME] Ollama reorder: applying\n");
+    m_pCandWnd->SetCandidates(pending->reordered);
+    // The 0-th candidate changed; repaint the composition so the inline
+    // preview matches the new "1st" candidate the user is implicitly hovering.
+    if (pending->tfContext) ApplyCandidateSelection(pending->tfContext);
+    delete pending;
+}
+
 // Best-effort screen position for the candidate popup. Tries three sources
 // in order: (1) TSF's GetTextExt on the live composition range (most accurate,
 // works in modern apps that don't expose a Win32 caret), (2) Win32 caret via
@@ -817,15 +1053,33 @@ void CTextService::ApplyCandidateSelection(ITfContext* pContext)
 void CTextService::CommitConvertedIfAny(ITfContext* pContext)
 {
     if (!m_compositionConverted || !m_pComposition) return;
-    if (m_pLearning && m_pCandWnd && !m_lastReading.empty())
+    if (m_pCandWnd)
     {
-        m_pLearning->Record(m_lastReading, m_pCandWnd->GetSelected());
+        std::wstring picked = m_pCandWnd->GetSelected();
+        if (m_pLearning && !m_lastReading.empty())
+        {
+            m_pLearning->Record(m_lastReading, picked);
+        }
+        AppendCommittedText(picked);
     }
     if (pContext) RequestEditSession(pContext, EditAction::EndCommit, L"");
     m_romajiBuffer.clear();
     m_compositionConverted = FALSE;
     m_lastReading.clear();
     if (m_pCandWnd) m_pCandWnd->Hide();
+}
+
+// Append `text` to the rolling context buffer and clamp to the recent window.
+// We keep the buffer bounded so a hours-long session doesn't bloat memory and
+// so the LLM context we eventually send stays short (latency-sensitive path).
+void CTextService::AppendCommittedText(const std::wstring& text)
+{
+    if (text.empty()) return;
+    m_recentContext.append(text);
+    if (m_recentContext.size() > kRecentContextMax)
+    {
+        m_recentContext.erase(0, m_recentContext.size() - kRecentContextMax);
+    }
 }
 
 LRESULT CALLBACK CTextService::StaticWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -841,6 +1095,11 @@ LRESULT CALLBACK CTextService::StaticWndProc(HWND hwnd, UINT msg, WPARAM wParam,
         if (msg == WM_OLLAMA_DONE)
         {
             self->HandleOllamaDone(reinterpret_cast<PendingOllamaRequest*>(lParam));
+            return 0;
+        }
+        if (msg == WM_OLLAMA_REORDER_DONE)
+        {
+            self->HandleOllamaReorderDone(reinterpret_cast<PendingOllamaReorderRequest*>(lParam));
             return 0;
         }
         if (msg == WM_LANGBAR_MENU)
@@ -1107,9 +1366,14 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         {
             // Range already holds the converted text. Remember the user's choice
             // so the same reading puts that candidate first next time.
-            if (m_pLearning && m_pCandWnd && !m_lastReading.empty())
+            if (m_pCandWnd)
             {
-                m_pLearning->Record(m_lastReading, m_pCandWnd->GetSelected());
+                std::wstring picked = m_pCandWnd->GetSelected();
+                if (m_pLearning && !m_lastReading.empty())
+                {
+                    m_pLearning->Record(m_lastReading, picked);
+                }
+                AppendCommittedText(picked);
             }
             if (pic) RequestEditSession(pic, EditAction::EndCommit, L"");
         }
@@ -1118,6 +1382,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
             // No conversion happened: resolve any trailing lone "n" to ん and commit.
             auto r = romaji::Convert(m_romajiBuffer);
             std::wstring finalText = r.hira + romaji::FinalizeTrailingN(r.remaining);
+            AppendCommittedText(finalText);
             if (pic) RequestEditSession(pic, EditAction::EndCommit, finalText);
         }
         m_romajiBuffer.clear();
@@ -1212,10 +1477,12 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         {
             m_pCandWnd->SelectIndex(idx);
             ApplyCandidateSelection(pic);
+            std::wstring picked = m_pCandWnd->GetSelected();
             if (m_pLearning && !m_lastReading.empty())
             {
-                m_pLearning->Record(m_lastReading, m_pCandWnd->GetSelected());
+                m_pLearning->Record(m_lastReading, picked);
             }
+            AppendCommittedText(picked);
             if (pic) RequestEditSession(pic, EditAction::EndCommit, L"");
             m_romajiBuffer.clear();
             m_compositionConverted = FALSE;

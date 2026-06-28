@@ -68,6 +68,10 @@
       <ModuleDefinitionFile>GenerativeIME.Tsf.def</ModuleDefinitionFile>
       <AdditionalDependencies>user32.lib;gdi32.lib;ole32.lib;oleaut32.lib;advapi32.lib;uuid.lib;shlwapi.lib;imm32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <PostBuildEvent>
+      <Command>xcopy /Y /D "$(ProjectDir)..\..\third_party\skk\SKK-JISYO.L.utf8" "$(OutDir)"</Command>
+      <Message>Copy SKK-JISYO.L.utf8 next to the DLL</Message>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
     <ClCompile>
@@ -90,6 +94,10 @@
       <ModuleDefinitionFile>GenerativeIME.Tsf.def</ModuleDefinitionFile>
       <AdditionalDependencies>user32.lib;gdi32.lib;ole32.lib;oleaut32.lib;advapi32.lib;uuid.lib;shlwapi.lib;imm32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <PostBuildEvent>
+      <Command>xcopy /Y /D "$(ProjectDir)..\..\third_party\skk\SKK-JISYO.L.utf8" "$(OutDir)"</Command>
+      <Message>Copy SKK-JISYO.L.utf8 next to the DLL</Message>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp" />
@@ -104,6 +112,7 @@
     <ClCompile Include="candidatewindow.cpp" />
     <ClCompile Include="symboldictionary.cpp" />
     <ClCompile Include="learningstore.cpp" />
+    <ClCompile Include="skkdictionary.cpp" />
     <ClCompile Include="register.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -118,6 +127,7 @@
     <ClInclude Include="candidatewindow.h" />
     <ClInclude Include="symboldictionary.h" />
     <ClInclude Include="learningstore.h" />
+    <ClInclude Include="skkdictionary.h" />
     <ClInclude Include="register.h" />
     <ClInclude Include="resource.h" />
   </ItemGroup>
