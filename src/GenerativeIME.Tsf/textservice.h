@@ -11,6 +11,7 @@ class CCandidateWindow;
 class LearningStore;
 struct PendingOllamaRequest;
 struct PendingOllamaReorderRequest;
+struct PendingOllamaFallbackRequest;
 
 // Active "input mode" inside the IME. Off means IME is bypassing input entirely;
 // the other four shape how m_romajiBuffer renders in the composition.
@@ -145,4 +146,20 @@ private:
                                           const std::wstring& reading,
                                           const std::vector<std::wstring>& candidates);
     void                HandleOllamaReorderDone(PendingOllamaReorderRequest* pending);
+
+    // Fire-and-forget supplementary Ollama lookup when MeCab's split looks
+    // dubious (see bunsetsu::LooksSuspect). Caller has already shown the
+    // MeCab result; when Ollama returns, its candidates get prepended to the
+    // candidate window so the user sees the saner LLM suggestion above the
+    // literal UniDic answer. Same staleness check as the reorder path —
+    // shares m_reorderSeq.
+    void                StartMecabSupplementAsync(ITfContext* pContext,
+                                                  const std::wstring& reading,
+                                                  const std::wstring& mecabTop);
+    void                HandleOllamaFallbackDone(PendingOllamaFallbackRequest* pending);
+
+    // Pre-load the Ollama model on Activate so the first real user query
+    // doesn't pay a 90-second cold-load. Fire-and-forget — we discard the
+    // result; only the side effect of leaving the model resident matters.
+    void                StartOllamaWarmupAsync();
 };

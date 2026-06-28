@@ -18,7 +18,8 @@
 constexpr UINT WM_OLLAMA_DONE         = WM_USER + 1;
 constexpr UINT WM_LANGBAR_MENU        = WM_USER + 2;
 constexpr UINT WM_SET_IME_MODE        = WM_USER + 3; // wParam = 1 to turn ON, 0 to turn OFF
-constexpr UINT WM_OLLAMA_REORDER_DONE = WM_USER + 4;
+constexpr UINT WM_OLLAMA_REORDER_DONE  = WM_USER + 4;
+constexpr UINT WM_OLLAMA_FALLBACK_DONE = WM_USER + 5;
 constexpr wchar_t kMsgWndClass[] = L"GenerativeIME_MsgWnd_v1";
 
 // Posted from worker thread back to the IME thread via PostMessage.
@@ -43,6 +44,36 @@ struct PendingOllamaRequest
     ~PendingOllamaRequest()
     {
         if (context) context->Release();
+    }
+};
+
+// Async supplementary Ollama lookup fired when MeCab's split looks dubious
+// (see bunsetsu::LooksSuspect). The worker generates a fresh candidate list
+// from scratch; on arrival the IME prepends those candidates above MeCab's
+// answer in the candidate window. Same seq-based staleness pattern as the
+// reorder request, on the same m_reorderSeq counter — both ops are
+// "asynchronous edits to the candidate list" so they share invalidation.
+struct PendingOllamaFallbackRequest
+{
+    CTextService*              service;
+    ITfContext*                tfContext;
+    std::wstring               reading;
+    std::wstring               recentContext;
+    std::wstring               mecabTop;       // MeCab's answer, passed to the prompt as "what NOT to repeat"
+    std::vector<std::wstring>  candidates;     // filled by worker
+    unsigned                   seq;
+    HRESULT                    hr;
+
+    PendingOllamaFallbackRequest(CTextService* s, ITfContext* c, std::wstring r,
+                                 std::wstring ctx, std::wstring top, unsigned sequence)
+        : service(s), tfContext(c), reading(std::move(r)), recentContext(std::move(ctx)),
+          mecabTop(std::move(top)), seq(sequence), hr(E_FAIL)
+    {
+        if (tfContext) tfContext->AddRef();
+    }
+    ~PendingOllamaFallbackRequest()
+    {
+        if (tfContext) tfContext->Release();
     }
 };
 
@@ -403,6 +434,11 @@ STDMETHODIMP CTextService::Activate(ITfThreadMgr* pThreadMgr, TfClientId tfClien
     SkkDictionary::GetGlobal();
     // Same idea for MeCab — sys.dic is ~188 MB, init is heavy.
     MecabAnalyzer::GetGlobal();
+    // Also kick Ollama: gemma4:12b cold-loads in ~90s on a CPU-only box,
+    // which would blow past the per-request timeout in the fallback path.
+    // Fire it now (fire-and-forget) so by the time the user types the
+    // model is resident and subsequent calls return in <1s.
+    StartOllamaWarmupAsync();
 
     {
         wchar_t buf[128];
@@ -776,6 +812,27 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
         auto skkHits = skk->Lookup(reading);
         if (!skkHits.empty() && m_pCandWnd)
         {
+            // SKK indexes uninflected readings, so a hit on a conjugated
+            // verb form ("みた", "もえた", "おりた") finds proper-noun
+            // homophones or okuri-ari leftovers ("三田" / "燃え立" /
+            // "下り立") instead of the obvious "見た" / "燃えた" / "下りた".
+            // MeCab can rebuild the inflected kanji form; prepend it.
+            if (auto* mecab = MecabAnalyzer::GetGlobal(); mecab && mecab->IsReady())
+            {
+                std::wstring prevTop = skkHits.front();
+                size_t       beforeN = skkHits.size();
+                skkHits = bunsetsu::MergeMecabVerbForms(reading, *mecab, skkHits);
+                if (skkHits.size() != beforeN || skkHits.front() != prevTop)
+                {
+                    wchar_t logbuf[256];
+                    swprintf_s(logbuf,
+                               L"[GenerativeIME] SKK+MeCab merge: top %s -> %s (%zu cands)\n",
+                               prevTop.c_str(),
+                               skkHits.empty() ? L"(none)" : skkHits.front().c_str(),
+                               skkHits.size());
+                    OutputDebugStringW(logbuf);
+                }
+            }
             if (m_pLearning) skkHits = m_pLearning->Reorder(reading, skkHits);
             m_lastReading = reading;
             m_pCandWnd->SetCandidates(skkHits);
@@ -807,6 +864,7 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
                 wchar_t logbuf[200];
                 m_lastReading = reading;
 
+                std::wstring shownTop;
                 if (parts.size() == 1)
                 {
                     // Single-morpheme input (e.g. "あるく" → 1 verb form).
@@ -821,6 +879,7 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
                                    : parts[0].candidates[0].c_str());
                     OutputDebugStringW(logbuf);
                     m_pCandWnd->SetCandidates(parts[0].candidates);
+                    shownTop = parts[0].candidates.empty() ? std::wstring{} : parts[0].candidates[0];
                 }
                 else
                 {
@@ -833,11 +892,24 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
                                parts.size(), combined.c_str());
                     OutputDebugStringW(logbuf);
                     m_pCandWnd->SetCandidates({ combined });
+                    shownTop = combined;
                 }
 
                 POINT pt = QueryCandidateAnchorPos(pContext);
                 m_pCandWnd->ShowAt(pt);
                 ApplyCandidateSelection(pContext);
+
+                // #13: when MeCab's split looks like the kind of over-literal
+                // answer UniDic-Lite tends to give for everyday phrases
+                // (3+ morphemes, lemma contains a rare-in-practice kanji
+                // like 顎 / 所為 / 為), fire Ollama in parallel and let it
+                // overrule. The user sees MeCab's answer immediately; the
+                // LLM result lands a beat later and prepends saner choices.
+                if (bunsetsu::LooksSuspect(reading, *mecab))
+                {
+                    OutputDebugStringW(L"[GenerativeIME] MeCab split looks suspect — kicking Ollama fallback\n");
+                    StartMecabSupplementAsync(pContext, reading, shownTop);
+                }
                 return;
             }
         }
@@ -1075,6 +1147,179 @@ void CTextService::HandleOllamaReorderDone(PendingOllamaReorderRequest* pending)
     delete pending;
 }
 
+void CTextService::StartMecabSupplementAsync(ITfContext* pContext,
+                                             const std::wstring& reading,
+                                             const std::wstring& mecabTop)
+{
+    if (!m_hwndMsg || reading.empty()) return;
+
+    unsigned seq = ++m_reorderSeq;
+    auto* req = new PendingOllamaFallbackRequest(this, pContext, reading, m_recentContext,
+                                                 mecabTop, seq);
+    HWND hwnd = m_hwndMsg;
+
+    std::thread([req, hwnd]()
+    {
+        // Prompt note: we tell the model MeCab's answer and ask it to do
+        // better, rather than asking blind. This lets gemma compare against
+        // the literal-but-wrong choice and rule it out — empirically that
+        // gives noticeably less "model just repeats what MeCab said"
+        // behavior than a vanilla convert prompt.
+        std::wstring prompt;
+        prompt += L"あなたは日本語のかな漢字変換 IME の補助モデルです。\n";
+        prompt += L"形態素解析器が以下の読みを変換した結果は文脈上不自然な可能性が高いです。\n";
+        prompt += L"もっと自然な変換候補を最大 3 つ提案してください。\n";
+        prompt += L"\n";
+        prompt += L"ルール:\n";
+        prompt += L"1. JSON のみ返す。形式: {\"candidates\":[{\"text\":\"…\"}]}\n";
+        prompt += L"2. 国語辞典に載っている実在の単語・自然な複合語のみ。\n";
+        prompt += L"3. 「所為」「為」「居る」「出来る」「御」「様」など、現代日本語であまり書かない漢字表記は避ける。\n";
+        prompt += L"4. 形態素解析器の答えと同じ提案はしない。\n";
+        prompt += L"\n";
+        if (!req->recentContext.empty())
+        {
+            prompt += L"直前までの文章: 「";
+            prompt += req->recentContext;
+            prompt += L"」\n";
+        }
+        prompt += L"読み: ";
+        prompt += req->reading;
+        prompt += L"\n";
+        prompt += L"形態素解析器の答え: ";
+        prompt += req->mecabTop;
+        prompt += L"\n";
+
+        ollama::GenerateOptions opts;
+        opts.model       = L"gemma4:12b";
+        opts.prompt      = prompt;
+        opts.jsonFormat  = true;
+        opts.temperature = 0.2;
+        opts.numPredict  = 192;
+        opts.keepAlive   = L"30m";
+        opts.think       = false;
+        // Generous timeout: gemma4:12b cold-load is ~90s on CPU-only boxes
+        // and we'd rather have the user see a late candidate-list update
+        // than silently drop the request after 30s. The Activate-time
+        // warmup keeps subsequent calls in the sub-second range.
+        opts.timeoutMs   = 120000;
+
+        auto resp = ollama::Generate(opts);
+        req->hr = resp.hr;
+        if (SUCCEEDED(resp.hr) && !resp.response.empty())
+        {
+            req->candidates = ExtractAllCandidates(resp.response);
+        }
+
+        if (!PostMessageW(hwnd, WM_OLLAMA_FALLBACK_DONE, 0, (LPARAM)req))
+        {
+            delete req;
+        }
+    }).detach();
+}
+
+// Fire-and-forget warmup of the Ollama model. We don't care about the
+// response — the whole point is to make the model resident before the
+// user's first real query, so the per-request opts.timeoutMs doesn't
+// have to swallow a 90s cold-load. Called from Activate.
+void CTextService::StartOllamaWarmupAsync()
+{
+    std::thread([]()
+    {
+        ollama::GenerateOptions opts;
+        opts.model       = L"gemma4:12b";
+        opts.prompt      = L"warmup";
+        opts.jsonFormat  = false;
+        opts.temperature = 0.0;
+        opts.numPredict  = 4;
+        opts.keepAlive   = L"30m";
+        opts.think       = false;
+        opts.timeoutMs   = 180000;
+
+        OutputDebugStringW(L"[GenerativeIME] Ollama: warmup begin (async)\n");
+        auto resp = ollama::Generate(opts);
+        wchar_t buf[128];
+        swprintf_s(buf,
+                   L"[GenerativeIME] Ollama: warmup done hr=0x%08X http=%u\n",
+                   (unsigned)resp.hr, (unsigned)resp.httpStatus);
+        OutputDebugStringW(buf);
+    }).detach();
+}
+
+void CTextService::HandleOllamaFallbackDone(PendingOllamaFallbackRequest* pending)
+{
+    if (!pending) return;
+
+    // Stale: another async op (reorder or another fallback) raced ahead.
+    if (pending->seq != m_reorderSeq)
+    {
+        OutputDebugStringW(L"[GenerativeIME] Ollama fallback: stale (seq mismatch)\n");
+        delete pending;
+        return;
+    }
+
+    if (FAILED(pending->hr) || pending->candidates.empty())
+    {
+        wchar_t logbuf[160];
+        swprintf_s(logbuf,
+                   L"[GenerativeIME] Ollama fallback: hr=0x%08X candidates=%zu — dropping\n",
+                   (unsigned)pending->hr, pending->candidates.size());
+        OutputDebugStringW(logbuf);
+        delete pending;
+        return;
+    }
+
+    // Stale by content: composition / reading changed since we kicked off.
+    if (!m_pCandWnd || !m_pCandWnd->IsVisible() || m_lastReading != pending->reading)
+    {
+        delete pending;
+        return;
+    }
+
+    // Don't override a candidate the user is actively selecting.
+    if (m_pCandWnd->GetSelectedIndex() != 0)
+    {
+        OutputDebugStringW(L"[GenerativeIME] Ollama fallback: user already moved, skipping\n");
+        delete pending;
+        return;
+    }
+
+    // Prepend Ollama's suggestions ahead of MeCab's answer. We dedup against
+    // mecabTop (model was told not to repeat it but sometimes does anyway)
+    // and keep mecabTop as a trailing fallback the user can still scroll to.
+    std::vector<std::wstring> merged;
+    merged.reserve(pending->candidates.size() + 1);
+    for (auto& c : pending->candidates)
+    {
+        if (c == pending->mecabTop) continue;
+        if (std::find(merged.begin(), merged.end(), c) == merged.end())
+        {
+            merged.push_back(std::move(c));
+        }
+    }
+    if (!pending->mecabTop.empty() &&
+        std::find(merged.begin(), merged.end(), pending->mecabTop) == merged.end())
+    {
+        merged.push_back(pending->mecabTop);
+    }
+
+    if (merged.empty())
+    {
+        delete pending;
+        return;
+    }
+
+    wchar_t logbuf[200];
+    swprintf_s(logbuf,
+               L"[GenerativeIME] Ollama fallback: applying %zu cands, top=%s (was %s)\n",
+               merged.size(), merged.front().c_str(), pending->mecabTop.c_str());
+    OutputDebugStringW(logbuf);
+
+    if (m_pLearning) merged = m_pLearning->Reorder(pending->reading, merged);
+    m_pCandWnd->SetCandidates(merged);
+    if (pending->tfContext) ApplyCandidateSelection(pending->tfContext);
+    delete pending;
+}
+
 // Best-effort screen position for the candidate popup. Tries three sources
 // in order: (1) TSF's GetTextExt on the live composition range (most accurate,
 // works in modern apps that don't expose a Win32 caret), (2) Win32 caret via
@@ -1174,6 +1419,11 @@ LRESULT CALLBACK CTextService::StaticWndProc(HWND hwnd, UINT msg, WPARAM wParam,
         if (msg == WM_OLLAMA_REORDER_DONE)
         {
             self->HandleOllamaReorderDone(reinterpret_cast<PendingOllamaReorderRequest*>(lParam));
+            return 0;
+        }
+        if (msg == WM_OLLAMA_FALLBACK_DONE)
+        {
+            self->HandleOllamaFallbackDone(reinterpret_cast<PendingOllamaFallbackRequest*>(lParam));
             return 0;
         }
         if (msg == WM_LANGBAR_MENU)
