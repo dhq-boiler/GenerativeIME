@@ -171,20 +171,31 @@ HRESULT SkkDictionary::Load(const std::wstring& path)
     }
 
     // Flush deferred okuri-ari stems to the end of each entry's list.
+    // We ALSO keep them in m_okuri keyed by stem reading so the bunsetsu
+    // splitter can reconstruct inflected alternates (ふ→[振,触,降] gives
+    // us "降る" / "触る" candidates the okuri-nashi map alone can't).
     for (auto& kv : deferredOkuri)
     {
         auto& slot = m_entries[kv.first];
-        for (auto& c : kv.second)
+        for (const auto& c : kv.second)
         {
             if (std::find(slot.begin(), slot.end(), c) == slot.end())
             {
-                slot.push_back(std::move(c));
+                slot.push_back(c);
             }
         }
+        m_okuri[kv.first] = std::move(kv.second);
     }
 
     m_loaded = true;
     return S_OK;
+}
+
+std::vector<std::wstring> SkkDictionary::LookupOkuri(const std::wstring& stemReading) const
+{
+    auto it = m_okuri.find(stemReading);
+    if (it == m_okuri.end()) return {};
+    return it->second;
 }
 
 std::vector<std::wstring> SkkDictionary::Lookup(const std::wstring& reading) const

@@ -242,6 +242,32 @@ std::vector<MecabMorpheme> MecabAnalyzer::Analyze(const std::wstring& text) cons
             m.lemmaReading = std::move(r);
         }
 
+        // If the surface is already pure kana, use it as the
+        // pronunciation directly. MeCab's field 9 is the PHONETIC form,
+        // which diverges from the typed form for 助詞 like は (pronounced
+        // ワ but typed は) and へ (pronounced エ but typed へ). For
+        // IME-input matching we want what the user typed, not how it's
+        // pronounced — those candidates would otherwise fail the ReadsAs
+        // filter and get dropped, leaving an Ollama-fallback empty.
+        auto isPureKana = [](const std::wstring& s) {
+            if (s.empty()) return false;
+            for (wchar_t c : s)
+            {
+                bool hira = (c >= 0x3041 && c <= 0x309F);
+                bool kata = (c >= 0x30A1 && c <= 0x30FE);
+                if (!hira && !kata) return false;
+            }
+            return true;
+        };
+        if (isPureKana(m.surface))
+        {
+            std::wstring s = m.surface;
+            for (auto& c : s)
+            {
+                if (c >= 0x30A1 && c <= 0x30F6) c -= 0x60;
+            }
+            m.pronunciation = std::move(s);
+        }
         // Field 9 is 発音形出現形 (surface pronunciation) in katakana,
         // using ー for long vowels. Convert to hiragana and expand ー
         // against the previous kana's vowel — IME users type "セイ"
@@ -249,7 +275,7 @@ std::vector<MecabMorpheme> MecabAnalyzer::Analyze(const std::wstring& text) cons
         // below covers all 清音 / 濁音 / 半濁音 + small variants; OOV
         // kana fall through unchanged (still useful for the consonant
         // before, just won't get a long-vowel expansion).
-        if (fields.size() > 9 && !fields[9].empty() && fields[9] != L"*")
+        else if (fields.size() > 9 && !fields[9].empty() && fields[9] != L"*")
         {
             std::wstring p = fields[9];
             for (auto& c : p)

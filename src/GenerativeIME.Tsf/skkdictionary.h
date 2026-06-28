@@ -43,6 +43,15 @@ public:
     // hiragana run like "あしたはいやらしい" into "あした" + "は" + "いやらしい".
     PrefixMatch FindLongestPrefix(const std::wstring& reading, size_t start) const;
 
+    // Looks up an okuri-ari verb / adjective stem by the stripped reading
+    // (the reading WITHOUT the trailing ASCII letter that SKK uses to mark
+    // the inflection class — "ふr /振/触/降/" is keyed by "ふ"). Returns
+    // the kanji-stem candidates. bunsetsu uses this to recover inflection-
+    // form alternates that SKK only stores at the stem level, so an input
+    // like "ふる" can offer 振る / 触る / 降る even though SKK's "ふる"
+    // okuri-nashi entry only carries "古".
+    std::vector<std::wstring> LookupOkuri(const std::wstring& stemReading) const;
+
 private:
     SkkDictionary() = default;
 
@@ -52,5 +61,11 @@ private:
     HRESULT Load(const std::wstring& path);
 
     std::unordered_map<std::wstring, std::vector<std::wstring>> m_entries;
+    // Separate map for okuri-ari stems (e.g. "ふ" → {振, 触, 降, ...} from
+    // the "ふr" line). Kept apart from m_entries because the same stem
+    // reading is also a valid okuri-nashi reading on its own ("ふ" → 不/府/
+    // 普 from the okuri-nashi side, plus the okuri-ari kanji stems used
+    // for verb inflection reconstruction).
+    std::unordered_map<std::wstring, std::vector<std::wstring>> m_okuri;
     bool m_loaded = false;
 };

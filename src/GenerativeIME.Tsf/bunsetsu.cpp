@@ -219,6 +219,43 @@ std::vector<Bunsetsu> SplitMecab(const std::wstring& reading,
                         b.candidates.push_back(std::move(c));
                     }
                 }
+
+                // SKK keeps verb-stem alternates under okuri-ari entries
+                // keyed by stem reading: "ふr /振/触/降/...". The
+                // okuri-nashi lookup of "ふる" returns only "古". Recover
+                // 振る / 触る / 降る by aligning lemma+lemmaReading the
+                // same way KanjifyByReading does, then asking SKK for the
+                // okuri-ari stems and reattaching the surface inflection.
+                if (!m.lemma.empty() && !m.lemmaReading.empty())
+                {
+                    std::wstring ls = m.lemma, rs = m.lemmaReading;
+                    while (!ls.empty() && !rs.empty() &&
+                           IsHiragana(ls.back()) && ls.back() == rs.back())
+                    {
+                        ls.pop_back();
+                        rs.pop_back();
+                    }
+                    // rs is now the kanji-stem's reading (e.g. "ふ"). The
+                    // surface must start with that reading for the
+                    // reattachment to be sound — promotional 促音便 like
+                    // "ふっ" wouldn't (no rs alignment), and we'd just skip.
+                    if (!rs.empty() &&
+                        m.surface.size() >= rs.size() &&
+                        m.surface.compare(0, rs.size(), rs) == 0)
+                    {
+                        std::wstring tail = m.surface.substr(rs.size());
+                        auto okuriStems = skk->LookupOkuri(rs);
+                        for (const auto& stem : okuriStems)
+                        {
+                            std::wstring full = stem + tail;
+                            if (std::find(b.candidates.begin(), b.candidates.end(), full)
+                                == b.candidates.end())
+                            {
+                                b.candidates.push_back(std::move(full));
+                            }
+                        }
+                    }
+                }
             }
             if (!m.lemma.empty() && m.lemma != m.surface &&
                 std::find(b.candidates.begin(), b.candidates.end(), m.lemma)
