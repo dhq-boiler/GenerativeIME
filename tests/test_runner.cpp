@@ -746,6 +746,77 @@ TEST(split_mecab_adjective_uses_kanji_lemma)
 }
 
 // ---------------------------------------------------------------------
+// JoinSelected / AnyHit — tiny helpers but used in the composition
+// inline path, so a regression here would silently corrupt every
+// commit.
+// ---------------------------------------------------------------------
+TEST(join_selected_concatenates_in_order)
+{
+    Bunsetsu a; a.reading = L"あした"; a.candidates = { L"明日" };
+    Bunsetsu b; b.reading = L"は";     b.candidates = { L"は" };
+    Bunsetsu c; c.reading = L"あめ";   c.candidates = { L"雨" };
+    EXPECT_EQ_W(bunsetsu::JoinSelected({a, b, c}), L"明日は雨");
+}
+
+TEST(join_selected_respects_selected_index)
+{
+    Bunsetsu a;
+    a.reading = L"あめ";
+    a.candidates = { L"雨", L"飴", L"天" };
+    a.selected = 1;  // 飴
+    EXPECT_EQ_W(bunsetsu::JoinSelected({a}), L"飴");
+}
+
+TEST(any_hit_pure_kana_passthrough)
+{
+    Bunsetsu a; a.reading = L"を"; a.candidates = { L"を" };
+    EXPECT_TRUE(!bunsetsu::AnyHit({a}));  // selected==reading, size==1 → no hit
+}
+
+TEST(any_hit_multi_candidate_counts)
+{
+    Bunsetsu a; a.reading = L"あめ"; a.candidates = { L"あめ", L"雨" };
+    EXPECT_TRUE(bunsetsu::AnyHit({a}));  // size>1 alone counts as a hit
+}
+
+TEST(any_hit_single_kanji_counts)
+{
+    Bunsetsu a; a.reading = L"ぱそこん"; a.candidates = { L"パソコン" };
+    EXPECT_TRUE(bunsetsu::AnyHit({a}));  // selected != reading
+}
+
+// い音便 verbs that UniDic-Lite analyzes correctly — KanjifyByReading
+// composes the kanji + い ending from lemma_stem alignment. Locks the
+// happy path; misanalyses (「かいた → 掻く」, 「ないた → ない(助動詞)」,
+// 「あるいた → 或る居た」) are tracked in docs/SESSION-STATE.md as a
+// future Trigger F candidate, not asserted here.
+TEST(split_mecab_ion_kiita)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    auto parts = bunsetsu::SplitMecab(L"きいた", *m, nullptr);
+    EXPECT_TRUE(!parts.empty());
+    if (!parts.empty()) {
+        bool ok = false;
+        for (const auto& c : parts[0].candidates) if (c == L"聞い") { ok = true; break; }
+        EXPECT_TRUE(ok);
+    }
+}
+
+TEST(split_mecab_ion_oyoida)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    auto parts = bunsetsu::SplitMecab(L"およいだ", *m, nullptr);
+    EXPECT_TRUE(!parts.empty());
+    if (!parts.empty()) {
+        bool ok = false;
+        for (const auto& c : parts[0].candidates) if (c == L"泳い") { ok = true; break; }
+        EXPECT_TRUE(ok);
+    }
+}
+
+// ---------------------------------------------------------------------
 int main()
 {
     // UTF-8 stdout — without this the CMD code page mangles Japanese in

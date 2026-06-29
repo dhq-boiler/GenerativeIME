@@ -84,6 +84,12 @@ TSF ベースの C++ IME (Win11)。ひらがな / 全角カナ / 半角カナ / 
 - `scratchpad/keylog.cs` — WH_KEYBOARD_LL で物理キーの VK コード特定。`csc /target:winexe /reference:System.Windows.Forms.dll keylog.cs`
 
 ## Errors / Unresolved
+- **い音便動詞 3 ケースが UniDic-Lite で誤認識** (test_runner プローブ観察):
+  - 「かいた → 掻く」(本命は「書く」)
+  - 「ないた → 助動詞ない+た」(本命は「泣く」)
+  - 「あるいた → 連体詞或る + 動詞居る + た」(本命は「歩く」)
+
+  Trigger E (2 形態素 + 末尾 aux + non-verb + ん/っ含む) では拾えない。Trigger F を強引に追加すると「掻く」「或る居る」を正規に書きたいケースまで巻き込むため誤検出リスク大。長期解は whole-reading fav fast path にユーザに学習させる方針。次の本格改善時の Trigger F 候補として残す。
 - **未解決バグなし**。`えくすくらめーしょんまーく` は Trigger D で Ollama 経路に正しく回る — LLM が筋の良い答えを返すかは別問題。長期解は「ユーザが Phase B + Enter で 1 度学習 → 次回以降 whole-reading fav fast path が即答」。
 - 開発機の **Smart App Control をオフにした** (このセッション中に user 判断で実施)。ビルドした未署名 EXE が SAC にブロックされて test_runner.exe が走らなかったため。SAC のオフは一方向 (Windows reset まで戻せない) ので注意。Defender 本体は有効のまま。
 - `learning.txt` には過去のテストで誤学習 (`みた → 三田` 等) が溜まりやすい。`%APPDATA%\GenerativeIME\learning.txt(.bak.*)` を確認 → 必要なら手動で剪定
