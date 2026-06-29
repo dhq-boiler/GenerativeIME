@@ -288,6 +288,151 @@ TEST(looks_suspect_two_choonpu)
 }
 
 // ---------------------------------------------------------------------
+// MergeMecabVerbForms — exercises the verb / non-verb branches and (via
+// SplitMecab → KanjifyByReading) the lemma-stem alignment used to build
+// the joined form. Regression-critical after the 2e76b83 lemma-promotion
+// change that altered which lemmas surface in non-verb branches.
+// ---------------------------------------------------------------------
+TEST(merge_verb_forms_prepends_inflected_top)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    // "みた" is the canonical inflected case: SKK whole-reading lookup
+    // returns proper-noun homophones (三田 / 見田 / …); MergeMecabVerbForms
+    // must prepend the synthesized "見た" so it wins on bare-Enter.
+    std::vector<std::wstring> skk = { L"三田", L"見田" };
+    auto out = bunsetsu::MergeMecabVerbForms(L"みた", *m, skk);
+    EXPECT_TRUE(!out.empty());
+    if (!out.empty()) EXPECT_EQ_W(out[0], L"見た");
+    // SKK candidates must still be present after the prepend, dedup-aware.
+    bool hasMita = false;
+    for (const auto& c : out) if (c == L"三田") { hasMita = true; break; }
+    EXPECT_TRUE(hasMita);
+}
+
+TEST(merge_verb_forms_pure_noun_unchanged)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    // "あめ" parses as a single noun morpheme — no inflected branch fires,
+    // so the SKK list must pass through untouched (SKK's curated 雨/飴/天
+    // is the authoritative ranking here).
+    std::vector<std::wstring> skk = { L"雨", L"飴", L"天" };
+    auto out = bunsetsu::MergeMecabVerbForms(L"あめ", *m, skk);
+    EXPECT_TRUE(out.size() == 3);
+    if (out.size() == 3) {
+        EXPECT_EQ_W(out[0], L"雨");
+        EXPECT_EQ_W(out[1], L"飴");
+        EXPECT_EQ_W(out[2], L"天");
+    }
+}
+
+TEST(merge_verb_forms_partial_coverage_bails_out)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    // Empty reading produces no morphemes → input list returned verbatim.
+    std::vector<std::wstring> skk = { L"X" };
+    auto out = bunsetsu::MergeMecabVerbForms(L"", *m, skk);
+    EXPECT_TRUE(out.size() == 1);
+    if (out.size() == 1) EXPECT_EQ_W(out[0], L"X");
+}
+
+// ---------------------------------------------------------------------
+// MakeBunsetsuFromReading — called from ResizeFocusedBunsetsu in Phase
+// B. Each test pins one of the four documented layering rules.
+// ---------------------------------------------------------------------
+TEST(make_bunsetsu_empty_reading)
+{
+    auto b = bunsetsu::MakeBunsetsuFromReading(L"", nullptr, nullptr);
+    EXPECT_EQ_W(b.reading, L"");
+    EXPECT_TRUE(b.candidates.size() == 1);
+    if (!b.candidates.empty()) EXPECT_EQ_W(b.candidates[0], L"");
+}
+
+TEST(make_bunsetsu_single_char_offers_kana_then_katakana)
+{
+    // "は" alone — the head must be the typed kana itself, the katakana
+    // promotion must come SECOND (so bare-Enter never silently picks 歯 /
+    // 葉 / 羽 even when SKK supplies them).
+    auto b = bunsetsu::MakeBunsetsuFromReading(L"は", nullptr, nullptr);
+    EXPECT_TRUE(b.candidates.size() >= 2);
+    if (b.candidates.size() >= 2) {
+        EXPECT_EQ_W(b.candidates[0], L"は");
+        EXPECT_EQ_W(b.candidates[1], L"ハ");
+    }
+}
+
+TEST(make_bunsetsu_inflected_form_appears_after_kana)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    // "みた" with analyzer but no SKK: head stays as kana, MeCab's joined
+    // "見た" must surface (proving the analyzer-branch path through
+    // KanjifyByReading works for resize-recreated bunsetsu).
+    auto b = bunsetsu::MakeBunsetsuFromReading(L"みた", m, nullptr);
+    EXPECT_TRUE(!b.candidates.empty());
+    if (!b.candidates.empty()) EXPECT_EQ_W(b.candidates[0], L"みた");
+    bool hasMita = false;
+    for (const auto& c : b.candidates) if (c == L"見た") { hasMita = true; break; }
+    EXPECT_TRUE(hasMita);
+}
+
+TEST(make_bunsetsu_no_duplicate_candidates)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    // Pure hiragana that MeCab can't compress into a non-kana joined form
+    // (the joined form == raw reading) must NOT push that joined form a
+    // second time — JoinSelected's bookkeeping assumes uniqueness.
+    auto b = bunsetsu::MakeBunsetsuFromReading(L"あいうえお", m, nullptr);
+    EXPECT_TRUE(!b.candidates.empty());
+    // The raw reading should appear exactly once at the head.
+    int rawCount = 0;
+    for (const auto& c : b.candidates) if (c == L"あいうえお") ++rawCount;
+    EXPECT_TRUE(rawCount == 1);
+}
+
+// ---------------------------------------------------------------------
+// SplitMecab + KanjifyByReading — anonymous-namespace KanjifyByReading
+// isn't directly callable, but its lemma-stem alignment is the engine
+// behind every inflected-verb candidate that SplitMecab produces. These
+// tests pin the documented alignment cases from the source comments.
+// ---------------------------------------------------------------------
+TEST(split_mecab_verb_ichidan_taberu)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    // "たべた" → KanjifyByReading("たべ", "食べる", "たべる") = "食べ",
+    // then auxiliary "た" stays kana. The first bunsetsu must have a
+    // candidate starting with "食".
+    auto parts = bunsetsu::SplitMecab(L"たべた", *m, nullptr);
+    EXPECT_TRUE(!parts.empty());
+    if (!parts.empty()) {
+        bool hasTabe = false;
+        for (const auto& c : parts[0].candidates)
+            if (!c.empty() && c[0] == L'食') { hasTabe = true; break; }
+        EXPECT_TRUE(hasTabe);
+    }
+}
+
+TEST(split_mecab_filler_lemma_not_promoted)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    // Regression guard for the 2e76b83 lemma-promotion fix: UniDic's
+    // フィラー entries give "ん" the lemma "んー" and "う" the lemma
+    // "うう". Those stretched all-hiragana lemmas must NOT be pushed as
+    // candidates — the surface kana is the only sane answer.
+    auto parts = bunsetsu::SplitMecab(L"ん", *m, nullptr);
+    if (!parts.empty()) {
+        for (const auto& c : parts[0].candidates) {
+            EXPECT_TRUE(c != L"んー");
+        }
+    }
+}
+
+// ---------------------------------------------------------------------
 int main()
 {
     // UTF-8 stdout — without this the CMD code page mangles Japanese in
