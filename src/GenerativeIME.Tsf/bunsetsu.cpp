@@ -423,6 +423,39 @@ bool LooksSuspect(const std::wstring& reading,
     // even 中 / 学 / 生). The LLM almost always recombines these correctly.
     if (morphemes.size() >= 5 && reading.size() >= 6) return true;
 
+    // Trigger E: 2-morpheme hiragana inputs where UniDic-Lite misanalyzes
+    // a 五段 verb's 撥音便/促音便 stem as a noun / pronoun / 連体詞 /
+    // 感動詞 instead of a 動詞. Real-world misses observed:
+    //   しんだ → シン(名詞) + だ        (want: 死んだ)
+    //   ふんだ → 其れ(代名詞) + だ      (want: 踏んだ)
+    //   かんだ → 彼(代名詞) + だ        (want: 噛んだ)
+    //   もんだ → 物(名詞) + だ          (want: 揉んだ)
+    //   あんだ → 餡(名詞) + だ          (want: 編んだ)
+    //   うんだ → うん(感動詞) + だ      (want: 産んだ)
+    //   しんで → 芯(名詞) + だ          (want: 死んで)
+    // Conditions kept narrow to avoid disturbing legitimate parses:
+    //   - exactly 2 morphemes
+    //   - morpheme[0].pos is not 動詞 / 形容詞 (= MeCab missed the verb)
+    //   - morpheme[0].surface contains ん or っ (撥音便/促音便 marker)
+    //   - morpheme[1].surface ∈ {だ, た, で, て} (past / connective aux)
+    // Negative checks confirmed: ぱんだ / うんちく / せんだ → 1 morpheme
+    // (skipped by size check); あんち → tail is ち (skipped by aux check);
+    // のんだ / よんだ / すんだ / くんだ → morpheme[0].pos == 動詞
+    // (skipped by pos check, so正常な MeCab 動詞解析は触らない).
+    if (morphemes.size() == 2)
+    {
+        const auto& a = morphemes[0];
+        const auto& b = morphemes[1];
+        const bool tailIsAux =
+            b.surface == L"だ" || b.surface == L"た" ||
+            b.surface == L"で" || b.surface == L"て";
+        const bool hasOnbinMarker =
+            a.surface.find(L'ん') != std::wstring::npos ||
+            a.surface.find(L'っ') != std::wstring::npos;
+        const bool notVerbal = (a.pos != L"動詞" && a.pos != L"形容詞");
+        if (tailIsAux && hasOnbinMarker && notVerbal) return true;
+    }
+
     return false;
 }
 
