@@ -2211,6 +2211,16 @@ static wchar_t ResolveSymbolChar(WPARAM wParam, LPARAM lParam)
 //  - Up / Down / 1-9 while the candidate window is up
 bool CTextService::ShouldEat(WPARAM wParam) const
 {
+    // カタカナひらがなローマ字 key on JP keyboards. The physical key emits
+    // different virtual codes depending on shift state — VK_DBE_HIRAGANA
+    // (0xF2) for the unshifted form (and for Ctrl+), VK_DBE_KATAKANA
+    // (0xF1) for Shift+. (VK_KANA = 0x15 is left in as a defensive catch
+    // for layouts that report it instead.) These are mode-switch keys we
+    // want even when the IME is off, since one of their jobs is to turn
+    // the IME on.
+    if (wParam == 0xF2 /* VK_DBE_HIRAGANA */ ||
+        wParam == 0xF1 /* VK_DBE_KATAKANA */ ||
+        wParam == VK_KANA) return true;
     if (!m_isImeOn) return false;
     // Ctrl-modified keys are host shortcuts (Ctrl+X / C / V / A / Z / S /
     // arrow / etc) and belong to the application, not the IME. Without
@@ -2264,6 +2274,38 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
 {
     if (!pfEaten) return E_INVALIDARG;
     *pfEaten = FALSE;
+
+    // カタカナひらがなローマ字 key. The physical key reports:
+    //   - VK_DBE_HIRAGANA (0xF2) when pressed alone or with Ctrl
+    //   - VK_DBE_KATAKANA (0xF1) when pressed with Shift
+    // (VK_KANA = 0x15 is a fallback for layouts that report it.)
+    // MS-IME-compatible behavior:
+    //   - VK_DBE_HIRAGANA without Ctrl → ひらがな mode (and IME on)
+    //   - VK_DBE_HIRAGANA with Ctrl    → IME off (romaji passthrough)
+    //   - VK_DBE_KATAKANA              → 全角カタカナ mode (and IME on)
+    // We treat VK_KANA the same as VK_DBE_HIRAGANA.
+    if (wParam == 0xF2 /* VK_DBE_HIRAGANA */ || wParam == VK_KANA)
+    {
+        bool ctrl = (GetKeyState(VK_CONTROL) < 0);
+        if (ctrl)
+        {
+            if (m_isImeOn) SetImeOpenClose(FALSE);
+        }
+        else
+        {
+            SetImeMode(ImeMode::Hiragana);
+            if (!m_isImeOn) SetImeOpenClose(TRUE);
+        }
+        *pfEaten = TRUE;
+        return S_OK;
+    }
+    if (wParam == 0xF1 /* VK_DBE_KATAKANA */)
+    {
+        SetImeMode(ImeMode::FullKatakana);
+        if (!m_isImeOn) SetImeOpenClose(TRUE);
+        *pfEaten = TRUE;
+        return S_OK;
+    }
 
     // Mode-switch key handling intentionally absent — see ShouldEat() comment.
     if (!m_isImeOn) return S_OK;
@@ -2654,12 +2696,23 @@ STDMETHODIMP CTextService::OnPreservedKey(ITfContext* /*pic*/, REFGUID rguid, BO
     }
     else if (IsEqualGUID(rguid, c_guidKeyImeOn))
     {
-        SetImeOpenClose(TRUE);
+        // ひらがな key on JP keyboards (the unshifted form of the
+        // カタカナひらがなローマ字 key): switch to hiragana mode and
+        // make sure the IME is on. We treat this as a mode pick rather
+        // than just an on-switch so subsequent typing renders correctly
+        // even when the previous session left us in カタカナ.
+        SetImeMode(ImeMode::Hiragana);
+        if (!m_isImeOn) SetImeOpenClose(TRUE);
         *pfEaten = TRUE;
     }
     else if (IsEqualGUID(rguid, c_guidKeyImeOff))
     {
-        SetImeOpenClose(FALSE);
+        // カタカナ key (the shifted form of the same physical key).
+        // Mirrors the ひらがな branch: switch to 全角カタカナ mode and
+        // ensure IME is on. The legacy "OFF" name is kept on the GUID /
+        // variable for ABI / preserved-key continuity.
+        SetImeMode(ImeMode::FullKatakana);
+        if (!m_isImeOn) SetImeOpenClose(TRUE);
         *pfEaten = TRUE;
     }
     return S_OK;
