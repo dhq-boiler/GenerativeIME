@@ -619,4 +619,53 @@ namespace symbols
         }
         return {};
     }
+
+    std::vector<std::wstring> PunctPairs(std::wstring_view typed)
+    {
+        if (typed.size() != 1) return {};
+        wchar_t c = typed[0];
+
+        // Static initializer runs once — the table is tiny so the cost is
+        // a few hundred ns the first time and zero after. Each entry lists
+        // the typed form FIRST so a bare Enter keeps what the user typed
+        // and ↓/Space promotes the alternate form. Add new pairs here
+        // when users request them; keep both directions in sync.
+        static const std::vector<std::pair<wchar_t, std::vector<std::wstring>>> pairs = {
+            { L'！', { L"！", L"!" } },
+            { L'!',  { L"!",  L"！" } },
+            { L'？', { L"？", L"?" } },
+            { L'?',  { L"?",  L"？" } },
+            { L'、', { L"、", L"," } },
+            { L',',  { L",",  L"、" } },
+            { L'。', { L"。", L"." } },
+            { L'.',  { L".",  L"。" } },
+            { L'＠', { L"＠", L"@" } },
+            { L'@',  { L"@",  L"＠" } },
+            { L'＃', { L"＃", L"#" } },
+            { L'#',  { L"#",  L"＃" } },
+            { L'＄', { L"＄", L"$" } },
+            { L'$',  { L"$",  L"＄" } },
+            { L'％', { L"％", L"%" } },
+            { L'%',  { L"%",  L"％" } },
+            { L'＆', { L"＆", L"&" } },
+            { L'&',  { L"&",  L"＆" } },
+            { L'＊', { L"＊", L"*" } },
+            { L'*',  { L"*",  L"＊" } },
+            { L'（', { L"（", L"(" } },
+            { L'(',  { L"(",  L"（" } },
+            { L'）', { L"）", L")" } },
+            { L')',  { L")",  L"）" } },
+            { L'：', { L"：", L":" } },
+            { L':',  { L":",  L"：" } },
+            { L'；', { L"；", L";" } },
+            { L';',  { L";",  L"；" } },
+            { L'「', { L"「", L"\"" } },
+            { L'」', { L"」", L"\"" } },
+        };
+        for (const auto& kv : pairs)
+        {
+            if (kv.first == c) return kv.second;
+        }
+        return {};
+    }
 }

@@ -819,6 +819,27 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
     if (reading.empty()) reading = m_lastReading;
     if (reading.empty()) return;
 
+    // Punctuation pair fast path. If the composition currently shows a
+    // single full/half-width punctuation char (typed via IsSymbolKey
+    // earlier), Space opens a tiny 2-item candidate window so the user
+    // can swap between the typed form and its counterpart (「！」⇔「!」).
+    // The typed form sits at index 0 so a plain Enter keeps what the
+    // user got; ↓/Space picks the other one.
+    if (m_pCandWnd)
+    {
+        std::wstring display = DisplayForMode(m_romajiBuffer, m_imeMode);
+        auto puncts = symbols::PunctPairs(display);
+        if (!puncts.empty())
+        {
+            m_lastReading = display;
+            m_pCandWnd->SetCandidates(puncts);
+            POINT pt = QueryCandidateAnchorPos(pContext);
+            m_pCandWnd->ShowAt(pt);
+            ApplyCandidateSelection(pContext);
+            return;
+        }
+    }
+
     // Local symbol dictionary first: instant, no LLM round-trip. If we get
     // a hit, show that and skip Ollama — the user typed "やじるし" because
     // they want an arrow, not whatever the model would guess at.
@@ -2179,6 +2200,11 @@ static bool IsSymbolKey(WPARAM wParam)
     if (wParam >= VK_OEM_4 && wParam <= VK_OEM_8) return true;   // 0xDB-0xDF
     if (wParam == VK_OEM_PLUS || wParam == VK_OEM_COMMA
      || wParam == VK_OEM_MINUS || wParam == VK_OEM_PERIOD) return true;
+    // Number row when held with Shift produces ! @ # $ % ^ & * ( ) on a
+    // US/JP layout — let the IME claim those so we can render them as
+    // 全角「！」「＠」… in the composition. Unshifted digits stay with
+    // the host (regular numeric input).
+    if (wParam >= '0' && wParam <= '9' && (GetKeyState(VK_SHIFT) < 0)) return true;
     return false;
 }
 
@@ -2356,16 +2382,13 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
             {
                 EditAction action = (m_pComposition == nullptr) ? EditAction::StartAndUpdate : EditAction::Update;
                 RequestEditSession(pic, action, display);
-
-                // Auto-commit on terminal punctuation (, . ! ?). This matches
-                // typical IME behavior: the user wants to keep typing the
-                // next sentence without manually pressing Enter to confirm.
-                if (ch == L',' || ch == L'.' || ch == L'!' || ch == L'?')
-                {
-                    RequestEditSession(pic, EditAction::EndCommit, L"");
-                    m_romajiBuffer.clear();
-                }
             }
+            // Auto-commit on terminal punctuation removed: shortcut typing
+            // was overriding user intent — a full-width 「？」 should stay
+            // in the composition so the user can pick その他の候補 (？/?)
+            // or back it out before Enter confirms. The candidate window
+            // for full/half-width swapping is opened by Space via
+            // TryOllamaConvertAsync's PunctPairs fast path, not here.
         }
         *pfEaten = TRUE;
     }

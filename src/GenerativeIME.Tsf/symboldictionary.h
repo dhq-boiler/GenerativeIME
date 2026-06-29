@@ -21,4 +21,11 @@ namespace symbols
     // Top-level entry the IME calls: tries Lookup, then SegmentedLookup,
     // then choonpu-expanded variants. Returns first that produces results.
     std::vector<std::wstring> LookupAll(std::wstring_view reading);
+
+    // Full-width <-> half-width punctuation pair lookup for a single-char
+    // composition. Given "！" returns {"！", "!"}; given "!" returns
+    // {"!", "！"} — the typed form stays at index 0 so a bare Enter keeps
+    // what the user got, while ↓/Space picks the other form. Empty for
+    // anything that isn't a known punctuation pair.
+    std::vector<std::wstring> PunctPairs(std::wstring_view typed);
 }
