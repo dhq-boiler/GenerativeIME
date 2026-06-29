@@ -313,18 +313,21 @@ std::vector<Bunsetsu> SplitMecab(const std::wstring& reading,
             // 「う」 with lemmas 「んー」 / 「うう」 — a phonetic-stretched
             // version of the surface that the user never typed and never
             // wants. Skip promoting the lemma when it's pure hiragana
-            // longer than the surface AND contains the surface — that
-            // pattern catches exactly those filler stretches without
-            // touching legitimate noun lemmas (which contain kanji).
-            auto isAllHiragana = [](const std::wstring& s) {
+            // (plus 長音記号 ー) longer than the surface AND contains the
+            // surface — that pattern catches exactly those filler
+            // stretches without touching legitimate noun lemmas (which
+            // contain kanji). ー is U+30FC, outside the hiragana plane,
+            // so it has to be allowlisted explicitly or 「ん→んー」 slips
+            // through.
+            auto isFillerKana = [](const std::wstring& s) {
                 if (s.empty()) return false;
                 for (wchar_t c : s) {
-                    if (c < 0x3041 || c > 0x309F) return false;
+                    if ((c < 0x3041 || c > 0x309F) && c != L'ー') return false;
                 }
                 return true;
             };
             bool lemmaIsStretchedSurface =
-                isAllHiragana(m.lemma) &&
+                isFillerKana(m.lemma) &&
                 m.lemma.size() > m.surface.size() &&
                 m.lemma.find(m.surface) != std::wstring::npos;
             if (!lemmaIsStretchedSurface &&
