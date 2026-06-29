@@ -38,6 +38,11 @@ ARM64/
 *.unsuccessfulbuild
 *.aps
 
+# Unit test EXE built by tests/build_tests.ps1 — output goes next to
+# the IME DLL so g_hInst-resolved dict paths work, the source / script
+# under tests/ is tracked but the EXE itself is a build artifact.
+tests/test_runner.exe
+
 # Resource-compiler intermediates
 *.res
 
