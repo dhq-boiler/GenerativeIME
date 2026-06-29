@@ -35,6 +35,14 @@ public:
     size_t Count() const { return m_candidates.size(); }
     int    GetSelectedIndex() const { return m_selected; }
     std::wstring GetSelected() const;
+    const std::vector<std::wstring>& GetCandidates() const { return m_candidates; }
+
+    // Render a small spinner ("⠋⠙⠹…" / dot wave) along the bottom edge
+    // while we're waiting for an Ollama fallback response. Caller flips
+    // this to true when an async LLM request starts and back to false
+    // when the response lands (or times out). A WM_TIMER drives the
+    // animation; we leave it stopped when nothing is pending.
+    void SetOllamaPending(bool pending);
 
 private:
     static LRESULT CALLBACK StaticWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -50,4 +58,6 @@ private:
     std::vector<std::wstring> m_candidates;
     int         m_selected;
     int         m_pageStart; // index of first candidate currently rendered
+    bool        m_ollamaPending = false;
+    int         m_spinnerFrame = 0;  // bumped on every WM_TIMER tick
 };

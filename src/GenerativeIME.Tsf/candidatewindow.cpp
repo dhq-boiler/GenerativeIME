@@ -121,6 +121,12 @@ void CCandidateWindow::Resize()
     int rows = (int)(std::min)((size_t)kMaxRows, m_candidates.size());
     if (rows < 1) rows = 1;
     int height = rows * m_rowHeight + kPaddingY * 2;
+    // Reserve a slim strip below the candidate list for the Ollama
+    // spinner. The strip stays in the layout whether or not a request
+    // is pending so the window doesn't jitter when SetOllamaPending
+    // flips — keeping the height stable matters because Win11's drop
+    // shadow re-snaps every resize.
+    if (m_ollamaPending) height += m_rowHeight / 2 + 4;
     SetWindowPos(m_hwnd, nullptr, 0, 0, m_width, height, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
     ApplyRoundedRegion();
 }
@@ -241,8 +247,34 @@ LRESULT CCandidateWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         return 1; // handled in WM_PAINT
     case WM_MOUSEACTIVATE:
         return MA_NOACTIVATE; // never take focus
+    case WM_TIMER:
+        if (wParam == 1 && m_ollamaPending)
+        {
+            ++m_spinnerFrame;
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
+        return 0;
     }
     return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+void CCandidateWindow::SetOllamaPending(bool pending)
+{
+    if (m_ollamaPending == pending) return;
+    m_ollamaPending = pending;
+    if (!m_hwnd) return;
+    if (pending)
+    {
+        // ~110 ms tick = smooth Braille-spinner cycle without burning
+        // power. Timer ID 1 is reserved for this.
+        SetTimer(m_hwnd, 1, 110, nullptr);
+    }
+    else
+    {
+        KillTimer(m_hwnd, 1);
+    }
+    Resize();
+    if (IsWindowVisible(m_hwnd)) InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
 void CCandidateWindow::Paint(HDC hdc)
@@ -307,6 +339,26 @@ void CCandidateWindow::Paint(HDC hdc)
         }
 
         y += m_rowHeight;
+    }
+
+    // Ollama-pending spinner along the bottom edge. Cycles through a set
+    // of unicode wave-style glyphs so the user can see the LLM hasn't
+    // forgotten about them while a fallback request is in flight.
+    if (m_ollamaPending)
+    {
+        static const wchar_t* kFrames[] = {
+            L"⠋ Ollama 思考中…", L"⠙ Ollama 思考中…", L"⠹ Ollama 思考中…",
+            L"⠸ Ollama 思考中…", L"⠼ Ollama 思考中…", L"⠴ Ollama 思考中…",
+            L"⠦ Ollama 思考中…", L"⠧ Ollama 思考中…", L"⠇ Ollama 思考中…",
+            L"⠏ Ollama 思考中…",
+        };
+        constexpr int kFrameCount = (int)(sizeof(kFrames) / sizeof(kFrames[0]));
+        const wchar_t* frame = kFrames[((unsigned)m_spinnerFrame) % kFrameCount];
+
+        RECT spin = { kPaddingX, y + 2, rc.right - kPaddingX, rc.bottom - 2 };
+        SetTextColor(hdc, kIndexColor);
+        DrawTextW(hdc, frame, -1, &spin,
+                  DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
     }
 
     SelectObject(hdc, oldFont);

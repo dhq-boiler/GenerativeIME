@@ -24,6 +24,12 @@ namespace
             {L"ya", L"や"}, {L"yu", L"ゆ"}, {L"yo", L"よ"},
             {L"ra", L"ら"}, {L"ri", L"り"}, {L"ru", L"る"}, {L"re", L"れ"}, {L"ro", L"ろ"},
             {L"wa", L"わ"}, {L"wo", L"を"},
+            // "wi" / "we" / "wu" / "wyi" / "wye": IME convention for typing
+            // ウィ / ウェ / ウ / ヰ / ヱ. Without these, ローマ字 "windou"
+            // (= ウィンドウ) stalls partway through and the ASCII tail
+            // ("windou") falls out to MeCab as garbage ("ぃんー同").
+            {L"wi", L"うぃ"}, {L"we", L"うぇ"}, {L"wu", L"う"},
+            {L"wyi", L"ゐ"}, {L"wye", L"ゑ"},
             {L"nn", L"ん"},
 
             {L"kya", L"きゃ"}, {L"kyu", L"きゅ"}, {L"kyo", L"きょ"},
@@ -42,11 +48,37 @@ namespace
             {L"mya", L"みゃ"}, {L"myu", L"みゅ"}, {L"myo", L"みょ"},
             {L"rya", L"りゃ"}, {L"ryu", L"りゅ"}, {L"ryo", L"りょ"},
 
+            // Foreign-sound rows. Most modern IMEs offer these so the user
+            // can type ファイル / ヴィヴィッド / ティーチャー without
+            // dropping into katakana mode.
             {L"fa", L"ふぁ"}, {L"fi", L"ふぃ"}, {L"fe", L"ふぇ"}, {L"fo", L"ふぉ"},
+            {L"fya", L"ふゃ"}, {L"fyu", L"ふゅ"}, {L"fyo", L"ふょ"},
             {L"va", L"ヴぁ"}, {L"vi", L"ヴぃ"}, {L"vu", L"ヴ"}, {L"ve", L"ヴぇ"}, {L"vo", L"ヴぉ"},
+            {L"vya", L"ヴゃ"}, {L"vyu", L"ヴゅ"}, {L"vyo", L"ヴょ"},
+            {L"ye", L"いぇ"},                       // イェ
+            {L"she", L"しぇ"},                      // シェ
+            {L"je",  L"じぇ"},                      // ジェ
+            {L"che", L"ちぇ"},                      // チェ
+            {L"tsa", L"つぁ"}, {L"tsi", L"つぃ"}, {L"tse", L"つぇ"}, {L"tso", L"つぉ"},
+            {L"tha", L"てゃ"}, {L"thi", L"てぃ"}, {L"thu", L"てゅ"}, {L"the", L"てぇ"}, {L"tho", L"てょ"},
+            {L"dha", L"でゃ"}, {L"dhi", L"でぃ"}, {L"dhu", L"でゅ"}, {L"dhe", L"でぇ"}, {L"dho", L"でょ"},
+            {L"twa", L"とぁ"}, {L"twi", L"とぃ"}, {L"twu", L"とぅ"}, {L"twe", L"とぇ"}, {L"two", L"とぉ"},
+            {L"dwa", L"どぁ"}, {L"dwi", L"どぃ"}, {L"dwu", L"どぅ"}, {L"dwe", L"どぇ"}, {L"dwo", L"どぉ"},
+            {L"kwa", L"くぁ"}, {L"kwi", L"くぃ"}, {L"kwe", L"くぇ"}, {L"kwo", L"くぉ"},
+            {L"gwa", L"ぐぁ"}, {L"gwi", L"ぐぃ"}, {L"gwe", L"ぐぇ"}, {L"gwo", L"ぐぉ"},
+            {L"swa", L"すぁ"}, {L"swi", L"すぃ"}, {L"swe", L"すぇ"}, {L"swo", L"すぉ"},
+            {L"hwa", L"ふぁ"}, {L"hwi", L"ふぃ"}, {L"hwe", L"ふぇ"}, {L"hwo", L"ふぉ"},
+            // Small-kana shorthands. l*/x* prefix → produces the small
+            // version directly (useful for things the table above can't
+            // express, e.g. ぃ on its own, or ょ at the start of a row).
             {L"la", L"ぁ"}, {L"li", L"ぃ"}, {L"lu", L"ぅ"}, {L"le", L"ぇ"}, {L"lo", L"ぉ"},
             {L"xa", L"ぁ"}, {L"xi", L"ぃ"}, {L"xu", L"ぅ"}, {L"xe", L"ぇ"}, {L"xo", L"ぉ"},
+            {L"lya", L"ゃ"}, {L"lyu", L"ゅ"}, {L"lyo", L"ょ"},
+            {L"xya", L"ゃ"}, {L"xyu", L"ゅ"}, {L"xyo", L"ょ"},
+            {L"lwa", L"ゎ"}, {L"xwa", L"ゎ"},
+            {L"lke", L"ヶ"}, {L"xke", L"ヶ"},
             {L"ltu", L"っ"}, {L"xtu", L"っ"},
+            {L"ltsu", L"っ"}, {L"xtsu", L"っ"},
             {L"-", L"ー"},
 
             // Punctuation / common symbols: when the IME is on we map ASCII
@@ -69,7 +101,10 @@ namespace
         return t;
     }
 
-    constexpr int kMaxKey = 3;
+    // Up to 4 chars: covers "ltsu" / "xtsu" / "wyi" / "wye". The longest-
+    // first lookup inside Convert prefers the longer match so a literal
+    // "ts" inside the buffer still resolves to つ when followed by a vowel.
+    constexpr int kMaxKey = 4;
 
     wchar_t ToLower(wchar_t c) { return (wchar_t)std::towlower(c); }
 

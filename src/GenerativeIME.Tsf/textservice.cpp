@@ -840,6 +840,31 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
         }
     }
 
+    // Whole-reading learning fav fast path. If the user previously
+    // committed something for this EXACT composite reading (e.g.
+    // "こうほうぃんどう" → "候補ウィンドウ" after picking the Ollama
+    // fallback), show it as the top candidate immediately — no MeCab
+    // fragmentation, no Ollama latency. SKK/MeCab/Ollama still run
+    // through the lower paths if the user dismisses this and re-types.
+    if (m_pLearning && m_pCandWnd)
+    {
+        std::wstring fav = m_pLearning->GetFav(reading);
+        if (!fav.empty())
+        {
+            m_lastReading = reading;
+            m_pCandWnd->SetCandidates({ fav });
+            POINT pt = QueryCandidateAnchorPos(pContext);
+            m_pCandWnd->ShowAt(pt);
+            ApplyCandidateSelection(pContext);
+            wchar_t logbuf[200];
+            swprintf_s(logbuf,
+                       L"[GenerativeIME] Whole-reading fav fast path: reading=%s fav=%s\n",
+                       reading.c_str(), fav.c_str());
+            OutputDebugStringW(logbuf);
+            return;
+        }
+    }
+
     // Local symbol dictionary first: instant, no LLM round-trip. If we get
     // a hit, show that and skip Ollama — the user typed "やじるし" because
     // they want an arrow, not whatever the model would guess at.
@@ -946,6 +971,29 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
                     //       answer (the 学生 vs 顎所為 case).
                     std::wstring combined = bunsetsu::JoinSelected(parts);
                     bool suspect = bunsetsu::LooksSuspect(reading, *mecab);
+
+                    // Boundary blacklist: the user previously said this
+                    // exact partition was wrong. Force the suspect path
+                    // so Phase B doesn't reappear with the same shape;
+                    // Ollama gets a chance to propose a different shape.
+                    std::vector<size_t> endOffsets;
+                    {
+                        size_t cum = 0;
+                        for (const auto& p : parts)
+                        {
+                            cum += p.reading.size();
+                            endOffsets.push_back(cum);
+                        }
+                        if (!endOffsets.empty()) endOffsets.pop_back();
+                    }
+                    bool boundaryBlocked = (m_pLearning &&
+                        m_pLearning->IsBoundaryBlacklisted(reading, endOffsets));
+                    if (boundaryBlocked)
+                    {
+                        suspect = true;
+                        OutputDebugStringW(L"[GenerativeIME] Boundary blacklisted — forcing Ollama fallback\n");
+                    }
+
                     swprintf_s(logbuf,
                                L"[GenerativeIME] MeCab split: %zu parts -> %s (suspect=%d)\n",
                                parts.size(), combined.c_str(), (int)suspect);
@@ -953,10 +1001,35 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
                     shownTop = combined;
                     if (suspect)
                     {
-                        m_pCandWnd->SetCandidates({ combined });
+                        // Candidate list seed: MeCab's combined first
+                        // (lowest-confidence default), then a katakana-
+                        // probe answer if MeCab can parse the all-kana
+                        // version into a clean small morpheme count
+                        // (典型: 外来語連結 "えくすくらめーしょんまーく"
+                        // → "エクスクラメーションマーク" parses as 1
+                        // morpheme). The Ollama fallback will prepend
+                        // its own picks above these when it lands.
+                        std::vector<std::wstring> seed = { combined };
+                        std::wstring kataReading = bunsetsu::ToKatakanaPublic(reading);
+                        if (!kataReading.empty() && kataReading != reading)
+                        {
+                            auto kataMorphemes = mecab->Analyze(kataReading);
+                            if (!kataMorphemes.empty() && kataMorphemes.size() <= 3)
+                            {
+                                seed.push_back(kataReading);
+                                wchar_t logbuf[200];
+                                swprintf_s(logbuf,
+                                           L"[GenerativeIME] Katakana probe accepted: %s (%zu morphemes)\n",
+                                           kataReading.c_str(), kataMorphemes.size());
+                                OutputDebugStringW(logbuf);
+                            }
+                        }
+
+                        m_pCandWnd->SetCandidates(seed);
                         POINT pt = QueryCandidateAnchorPos(pContext);
                         m_pCandWnd->ShowAt(pt);
                         ApplyCandidateSelection(pContext);
+                        m_pCandWnd->SetOllamaPending(true);
                         StartMecabSupplementAsync(pContext, reading, shownTop);
                     }
                     else
@@ -979,6 +1052,7 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
                 if (bunsetsu::LooksSuspect(reading, *mecab))
                 {
                     OutputDebugStringW(L"[GenerativeIME] MeCab split looks suspect — kicking Ollama fallback\n");
+                    if (m_pCandWnd) m_pCandWnd->SetOllamaPending(true);
                     StartMecabSupplementAsync(pContext, reading, shownTop);
                 }
                 return;
@@ -1289,6 +1363,8 @@ void CTextService::StartMecabSupplementAsync(ITfContext* pContext,
         prompt += L"2. 国語辞典に載っている実在の単語・自然な複合語のみ。\n";
         prompt += L"3. 「所為」「為」「居る」「出来る」「御」「様」など、現代日本語であまり書かない漢字表記は避ける。\n";
         prompt += L"4. 形態素解析器の答えと同じ提案はしない。\n";
+        prompt += L"5. 読みに「うぃ/うぇ/うぉ/ヴ/ふぁ/ふぃ/ふぇ/ふぉ/てぃ/でぃ/とぅ/どぅ/つぁ/いぇ/しぇ/じぇ/ちぇ」 等の外来音表記が含まれる場合は、対応するカタカナ (ウィ/ウェ/ウォ/ヴ/ファ/フィ/フェ/フォ/ティ/ディ/トゥ/ドゥ/ツァ/イェ/シェ/ジェ/チェ) を使った外来語の候補 (例: 「うぃんどう」→「ウィンドウ」、「こうほうぃんどう」→「候補ウィンドウ」) も積極的に検討してください。\n";
+        prompt += L"6. 部分的なひらがな + カタカナ混じり (例:「候補」+「ウィンドウ」) は OK。\n";
         prompt += L"\n";
         if (!req->recentContext.empty())
         {
@@ -1362,6 +1438,11 @@ void CTextService::StartOllamaWarmupAsync()
 void CTextService::HandleOllamaFallbackDone(PendingOllamaFallbackRequest* pending)
 {
     if (!pending) return;
+
+    // Always clear the spinner once a response (or failure) is in hand.
+    // Even the stale-drop / skip branches below should kill the animation
+    // so the user doesn't think we're still thinking.
+    if (m_pCandWnd) m_pCandWnd->SetOllamaPending(false);
 
     // Stale: another async op (reorder or another fallback) raced ahead.
     if (pending->seq != m_reorderSeq)
@@ -1627,6 +1708,19 @@ void CTextService::EnterBunsetsuMode(std::vector<Bunsetsu> parts,
                                      ITfContext* pContext)
 {
     if (parts.empty()) return;
+    // Apply per-bunsetsu learning so the previously-picked kanji form
+    // for each reading lands at index 0. Without this, VK_RETURN's
+    // m_pLearning->Record on commit was a one-way street — the data
+    // was being written but never read back at conversion time.
+    if (m_pLearning)
+    {
+        for (auto& b : parts)
+        {
+            if (b.reading.empty() || b.candidates.empty()) continue;
+            b.candidates = m_pLearning->Reorder(b.reading, b.candidates);
+            b.selected   = 0;
+        }
+    }
     m_bunsetsuList    = std::move(parts);
     m_focusedBunsetsu = 0;
     RepaintBunsetsu(pContext);
@@ -1973,6 +2067,11 @@ void CTextService::ResizeFocusedBunsetsu(int delta, ITfContext* pContext)
         std::wstring newNxt = nxt.reading.substr(1);
 
         cur = bunsetsu::MakeBunsetsuFromReading(newCur, mecab, skk);
+        if (m_pLearning && !cur.candidates.empty())
+        {
+            cur.candidates = m_pLearning->Reorder(cur.reading, cur.candidates);
+            cur.selected   = 0;
+        }
         if (newNxt.empty())
         {
             // The next bunsetsu's reading was fully absorbed.
@@ -1980,8 +2079,13 @@ void CTextService::ResizeFocusedBunsetsu(int delta, ITfContext* pContext)
         }
         else
         {
-            m_bunsetsuList[m_focusedBunsetsu + 1] =
-                bunsetsu::MakeBunsetsuFromReading(newNxt, mecab, skk);
+            auto rebuilt = bunsetsu::MakeBunsetsuFromReading(newNxt, mecab, skk);
+            if (m_pLearning && !rebuilt.candidates.empty())
+            {
+                rebuilt.candidates = m_pLearning->Reorder(rebuilt.reading, rebuilt.candidates);
+                rebuilt.selected   = 0;
+            }
+            m_bunsetsuList[m_focusedBunsetsu + 1] = std::move(rebuilt);
         }
     }
     else
@@ -2273,6 +2377,8 @@ bool CTextService::ShouldEat(WPARAM wParam) const
         // would move the caret inside the composition instead.
         if (!m_bunsetsuList.empty() && (wParam == VK_LEFT || wParam == VK_RIGHT))
             return true;
+        // Shift+Delete: opt-out the highlighted candidate (blacklist).
+        if (wParam == VK_DELETE && (GetKeyState(VK_SHIFT) < 0)) return true;
     }
     if (m_pComposition && wParam >= VK_F6 && wParam <= VK_F10) return true;
     // 変換 / 無変換 keys (Japanese keyboards). 変換 acts as a convert
@@ -2643,6 +2749,134 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         m_pCandWnd->PagePrev();
         if (pic) ApplyCandidateSelection(pic);
         *pfEaten = TRUE;
+    }
+    else if (wParam == VK_DELETE)
+    {
+        wchar_t logbuf[200];
+        bool shift  = (GetKeyState(VK_SHIFT)   < 0);
+        bool ctrl   = (GetKeyState(VK_CONTROL) < 0);
+        bool wndVis = (m_pCandWnd && m_pCandWnd->IsVisible());
+        swprintf_s(logbuf,
+                   L"[GenerativeIME] VK_DELETE: shift=%d ctrl=%d wndVisible=%d bunsetsu=%d\n",
+                   (int)shift, (int)ctrl, (int)wndVis, (int)InBunsetsuMode());
+        OutputDebugStringW(logbuf);
+        if (shift && wndVis)
+        {
+        // Shift+Delete: opt-out. Behavior depends on mode.
+        if (InBunsetsuMode())
+        {
+            // Phase B: blacklist the CURRENT bunsetsu boundary pattern.
+            // The user declared that this partition itself is wrong
+            // (not just the per-bunsetsu picks). Record reading-total
+            // → end-offset array so next time SplitMecab tries the
+            // same shape we recognise it as forbidden and route to
+            // Ollama for a fresh take.
+            if (m_pLearning && !m_bunsetsuList.empty())
+            {
+                std::wstring fullReading;
+                std::vector<size_t> endOffsets;
+                for (const auto& b : m_bunsetsuList)
+                {
+                    fullReading += b.reading;
+                    endOffsets.push_back(fullReading.size());
+                }
+                // Drop the trailing entry (always equals reading.size()
+                // by construction) so the same boundary array compares
+                // equal regardless of total length.
+                if (!endOffsets.empty()) endOffsets.pop_back();
+                m_pLearning->BlacklistBoundary(fullReading, endOffsets);
+                wchar_t logbuf[300];
+                std::wstring joined;
+                for (size_t i = 0; i < endOffsets.size(); ++i)
+                {
+                    if (i) joined.push_back(L',');
+                    joined += std::to_wstring(endOffsets[i]);
+                }
+                swprintf_s(logbuf,
+                           L"[GenerativeIME] BlacklistBoundary: reading=%s ends=[%s]\n",
+                           fullReading.c_str(), joined.c_str());
+                OutputDebugStringW(logbuf);
+            }
+            // Leave Phase B for now; the user will retype (or hit Esc)
+            // and the next conversion will avoid this boundary shape.
+            if (m_pCandWnd) m_pCandWnd->Hide();
+            LeaveBunsetsuMode();
+            if (pic) RequestEditSession(pic, EditAction::EndCancel, L"");
+            m_romajiBuffer.clear();
+            m_compositionConverted = FALSE;
+            m_lastReading.clear();
+        }
+        else
+        {
+            // Single-candidate mode: opt-out the highlighted entry AND
+            // the SplitMecab boundary that produced it. Recording both
+            // means a re-type of the same composite reading skips Phase
+            // B (boundary blacklist hits) AND skips this exact joined
+            // candidate (candidate blacklist hits) so the Ollama
+            // fallback's answer gets a clean shot at the top slot.
+            int sel = m_pCandWnd->GetSelectedIndex();
+            auto cur = m_pCandWnd->GetCandidates();
+            if (sel >= 0 && sel < (int)cur.size() && !m_lastReading.empty())
+            {
+                std::wstring victim = cur[sel];
+                if (m_pLearning && !victim.empty())
+                {
+                    m_pLearning->Blacklist(m_lastReading, victim);
+                    wchar_t logbuf[200];
+                    swprintf_s(logbuf,
+                               L"[GenerativeIME] Blacklist: reading=%s word=%s\n",
+                               m_lastReading.c_str(), victim.c_str());
+                    OutputDebugStringW(logbuf);
+                }
+                // Also record the boundary so even if a future analyzer
+                // run produces a different joined string with the same
+                // shape, Phase B still gets bypassed.
+                if (m_pLearning)
+                {
+                    if (auto* mc = MecabAnalyzer::GetGlobal();
+                        mc && mc->IsReady())
+                    {
+                        auto* sk = SkkDictionary::GetGlobal();
+                        auto parts = bunsetsu::SplitMecab(m_lastReading, *mc, sk);
+                        if (parts.size() >= 2)
+                        {
+                            std::vector<size_t> endOffsets;
+                            size_t cum = 0;
+                            for (const auto& p : parts)
+                            {
+                                cum += p.reading.size();
+                                endOffsets.push_back(cum);
+                            }
+                            if (!endOffsets.empty()) endOffsets.pop_back();
+                            m_pLearning->BlacklistBoundary(m_lastReading, endOffsets);
+                            wchar_t logbuf[260];
+                            std::wstring joined;
+                            for (size_t i = 0; i < endOffsets.size(); ++i)
+                            {
+                                if (i) joined.push_back(L',');
+                                joined += std::to_wstring(endOffsets[i]);
+                            }
+                            swprintf_s(logbuf,
+                                       L"[GenerativeIME] BlacklistBoundary (single): reading=%s ends=[%s]\n",
+                                       m_lastReading.c_str(), joined.c_str());
+                            OutputDebugStringW(logbuf);
+                        }
+                    }
+                }
+                cur.erase(cur.begin() + sel);
+                if (cur.empty())
+                {
+                    m_pCandWnd->Hide();
+                }
+                else
+                {
+                    m_pCandWnd->SetCandidates(cur);
+                    ApplyCandidateSelection(pic);
+                }
+            }
+        }
+            *pfEaten = TRUE;
+        }
     }
     else if (wParam >= VK_F6 && wParam <= VK_F10 && m_pComposition)
     {

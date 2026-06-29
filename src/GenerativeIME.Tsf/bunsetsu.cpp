@@ -308,7 +308,27 @@ std::vector<Bunsetsu> SplitMecab(const std::wstring& reading,
             // (e.g. surface "あした" -> lemma "明日"). That's the right
             // top choice. Append SKK alternates and the bare surface as
             // fallbacks.
-            if (!m.lemma.empty() && m.lemma != m.surface)
+            //
+            // Exception: UniDic flags 感動詞 / フィラー like 「ん」 and
+            // 「う」 with lemmas 「んー」 / 「うう」 — a phonetic-stretched
+            // version of the surface that the user never typed and never
+            // wants. Skip promoting the lemma when it's pure hiragana
+            // longer than the surface AND contains the surface — that
+            // pattern catches exactly those filler stretches without
+            // touching legitimate noun lemmas (which contain kanji).
+            auto isAllHiragana = [](const std::wstring& s) {
+                if (s.empty()) return false;
+                for (wchar_t c : s) {
+                    if (c < 0x3041 || c > 0x309F) return false;
+                }
+                return true;
+            };
+            bool lemmaIsStretchedSurface =
+                isAllHiragana(m.lemma) &&
+                m.lemma.size() > m.surface.size() &&
+                m.lemma.find(m.surface) != std::wstring::npos;
+            if (!lemmaIsStretchedSurface &&
+                !m.lemma.empty() && m.lemma != m.surface)
             {
                 b.candidates.push_back(m.lemma);
             }
@@ -358,6 +378,20 @@ bool ReadsAs(const std::wstring& candidate,
 bool LooksSuspect(const std::wstring& reading,
                   const MecabAnalyzer& analyzer)
 {
+    // Trigger C (cheap, runs before any MeCab work): multiple 長音 marks
+    // are a strong 外来語 signal — "えくすくらめーしょんまーく" has two
+    // ー and UniDic-Lite has no entry for it, so the split shreds into
+    // nonsense ("えー樟眩め～小んーまーく"). One ー is fine (common in
+    // single katakana words MeCab knows), two suggests at least two
+    // foreign words concatenated, which is exactly what the LLM
+    // recombines well.
+    {
+        int choonpu = 0;
+        for (wchar_t c : reading)
+            if (c == L'ー') ++choonpu;
+        if (choonpu >= 2) return true;
+    }
+
     auto morphemes = analyzer.Analyze(reading);
     if (morphemes.empty()) return false;
 
@@ -456,6 +490,11 @@ std::vector<std::wstring> MergeMecabVerbForms(
         }
     }
     return merged;
+}
+
+std::wstring ToKatakanaPublic(const std::wstring& s)
+{
+    return ToKatakana(s);
 }
 
 Bunsetsu MakeBunsetsuFromReading(const std::wstring& reading,

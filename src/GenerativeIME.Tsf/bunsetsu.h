@@ -94,4 +94,11 @@ namespace bunsetsu
     Bunsetsu MakeBunsetsuFromReading(const std::wstring& reading,
                                      const MecabAnalyzer* analyzer,
                                      const SkkDictionary* skk);
+
+    // Promote a pure-hiragana string to its katakana counterpart. Chars
+    // outside the hiragana plane pass through unchanged. Exposed so
+    // textservice can try katakana-recovered foreign-word candidates
+    // ("えくすくらめーしょんまーく" → "エクスクラメーションマーク")
+    // when the hiragana reading looks like MeCab is going to shred it.
+    std::wstring ToKatakanaPublic(const std::wstring& s);
 }
