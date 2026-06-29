@@ -538,6 +538,62 @@ TEST(make_bunsetsu_no_duplicate_candidates)
     EXPECT_TRUE(rawCount == 1);
 }
 
+TEST(make_bunsetsu_skk_only_surfaces_homophones)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // analyzer nullptr — pure SKK lookup. ResizeFocusedBunsetsu uses this
+    // shape when the slice it just resized to is a known SKK reading and
+    // we don't want MeCab to splice an unrelated lemma in front.
+    auto b = bunsetsu::MakeBunsetsuFromReading(L"あめ", nullptr, skk);
+    EXPECT_TRUE(b.candidates.size() >= 3);
+    bool hasUme = false, hasAme = false;
+    for (const auto& c : b.candidates) {
+        if (c == L"雨") hasUme = true;
+        if (c == L"飴") hasAme = true;
+    }
+    EXPECT_TRUE(hasUme);
+    EXPECT_TRUE(hasAme);
+    // Raw reading still at head, katakana right after.
+    EXPECT_EQ_W(b.candidates[0], L"あめ");
+    EXPECT_EQ_W(b.candidates[1], L"アメ");
+}
+
+TEST(make_bunsetsu_no_dict_returns_kana_plus_katakana)
+{
+    // Both analyzer and skk nullptr — the worst-case path. Must still
+    // produce a non-empty candidate list (otherwise JoinSelected would
+    // crash on Selected()'s candidates[0] dereference) and the list
+    // should be {reading, katakana(reading)} for pure hiragana input.
+    auto b = bunsetsu::MakeBunsetsuFromReading(L"あいうえお", nullptr, nullptr);
+    EXPECT_TRUE(b.candidates.size() == 2);
+    if (b.candidates.size() == 2) {
+        EXPECT_EQ_W(b.candidates[0], L"あいうえお");
+        EXPECT_EQ_W(b.candidates[1], L"アイウエオ");
+    }
+}
+
+TEST(make_bunsetsu_full_chain_analyzer_plus_skk)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // analyzer + skk both present is the typical ResizeFocusedBunsetsu
+    // call shape. 「あめ」 is a single-noun reading — SKK supplies
+    // 雨/飴/天, MeCab adds 「あめ」 surface as a lemma. Verify the
+    // homophones surface AND the raw kana stays at the head.
+    auto b = bunsetsu::MakeBunsetsuFromReading(L"あめ", m, skk);
+    EXPECT_TRUE(!b.candidates.empty());
+    if (!b.candidates.empty()) EXPECT_EQ_W(b.candidates[0], L"あめ");
+    bool hasUme = false, hasAme = false;
+    for (const auto& c : b.candidates) {
+        if (c == L"雨") hasUme = true;
+        if (c == L"飴") hasAme = true;
+    }
+    EXPECT_TRUE(hasUme);
+    EXPECT_TRUE(hasAme);
+}
+
 // ---------------------------------------------------------------------
 // SplitMecab + KanjifyByReading — anonymous-namespace KanjifyByReading
 // isn't directly callable, but its lemma-stem alignment is the engine
