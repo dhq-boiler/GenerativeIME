@@ -416,6 +416,62 @@ TEST(split_mecab_verb_ichidan_taberu)
     }
 }
 
+// Regression guards for KanjifyByReading on promotional / nasal sound
+// shifts (sokuon-bin "い → いっ", "る → っ", "つ → っ"; hatsuon-bin
+// "む → ん", "ぬ → ん"). The 2e76b83 KanjifyByReading lemma-stem
+// alignment is the engine — these pin it down for the common五段 verbs.
+TEST(split_mecab_sokuon_iku)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    auto parts = bunsetsu::SplitMecab(L"いった", *m, nullptr);
+    EXPECT_TRUE(!parts.empty());
+    if (!parts.empty()) {
+        // 「いっ」 must produce 「行っ」 as a candidate.
+        bool ok = false;
+        for (const auto& c : parts[0].candidates) if (c == L"行っ") { ok = true; break; }
+        EXPECT_TRUE(ok);
+    }
+}
+
+TEST(split_mecab_sokuon_hashiru)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    auto parts = bunsetsu::SplitMecab(L"はしった", *m, nullptr);
+    EXPECT_TRUE(!parts.empty());
+    if (!parts.empty()) {
+        bool ok = false;
+        for (const auto& c : parts[0].candidates) if (c == L"走っ") { ok = true; break; }
+        EXPECT_TRUE(ok);
+    }
+}
+
+TEST(split_mecab_hatsuon_nomu)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    auto parts = bunsetsu::SplitMecab(L"のんだ", *m, nullptr);
+    EXPECT_TRUE(!parts.empty());
+    if (!parts.empty()) {
+        bool ok = false;
+        for (const auto& c : parts[0].candidates) if (c == L"飲ん") { ok = true; break; }
+        EXPECT_TRUE(ok);
+    }
+}
+
+// LooksSuspect must trip on 「たった」: UniDic-Lite mis-analyzes it as
+// the rare 副詞 「唯」 (= "ただ" reading) instead of the past form of
+// 「立つ」. Adding 唯 to kSuspect routes this through Ollama fallback.
+// (「しんだ → シン」 is a separate case — lemma is katakana, not caught
+// by kSuspect; left for a future Trigger.)
+TEST(looks_suspect_misanalyzed_tatta)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    EXPECT_TRUE(bunsetsu::LooksSuspect(L"たった", *m));
+}
+
 TEST(split_mecab_filler_lemma_not_promoted)
 {
     auto* m = MecabAnalyzer::GetGlobal();
