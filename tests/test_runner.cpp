@@ -472,6 +472,67 @@ TEST(looks_suspect_misanalyzed_tatta)
     EXPECT_TRUE(bunsetsu::LooksSuspect(L"たった", *m));
 }
 
+// Trigger E (LooksSuspect): UniDic-Lite mis-parses several 五段 verb
+// 撥音便/促音便 stems as nouns / pronouns / 連体詞 / 感動詞. The trigger
+// catches the 2-morpheme cases that the kSuspect kanji list misses.
+TEST(looks_suspect_trigger_e_shinda)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    // 「しんだ」 → 名詞「シン」+ だ. Want: 死んだ.
+    EXPECT_TRUE(bunsetsu::LooksSuspect(L"しんだ", *m));
+}
+
+TEST(looks_suspect_trigger_e_funda)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    // 「ふんだ」 → 代名詞「其れ」+ だ. Want: 踏んだ.
+    EXPECT_TRUE(bunsetsu::LooksSuspect(L"ふんだ", *m));
+}
+
+TEST(looks_suspect_trigger_e_monda)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    // 「もんだ」 → 名詞「物」+ だ. Want: 揉んだ.
+    EXPECT_TRUE(bunsetsu::LooksSuspect(L"もんだ", *m));
+}
+
+TEST(looks_suspect_trigger_e_shinde)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    // 「しんで」 → 名詞「芯」+ で. Want: 死んで.
+    EXPECT_TRUE(bunsetsu::LooksSuspect(L"しんで", *m));
+}
+
+// Negatives: must NOT fire on legitimate verb analyses or unrelated nouns.
+TEST(looks_suspect_trigger_e_negative_yonda)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    // 「よんだ」 → 動詞「呼ぶ」+ た. Verb correctly identified, no fallback.
+    EXPECT_TRUE(!bunsetsu::LooksSuspect(L"よんだ", *m));
+}
+
+TEST(looks_suspect_trigger_e_negative_panda)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    // 「ぱんだ」 → single 名詞 「パンダ」. size != 2, no fallback.
+    EXPECT_TRUE(!bunsetsu::LooksSuspect(L"ぱんだ", *m));
+}
+
+TEST(looks_suspect_trigger_e_negative_anchi)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    // 「あんち」 → 記号「アン」+ 記号「チ」. Tail is ち, not だ/た/で/て,
+    // so the aux check rejects it.
+    EXPECT_TRUE(!bunsetsu::LooksSuspect(L"あんち", *m));
+}
+
 TEST(split_mecab_filler_lemma_not_promoted)
 {
     auto* m = MecabAnalyzer::GetGlobal();
