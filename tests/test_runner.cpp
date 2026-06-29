@@ -295,6 +295,88 @@ TEST(learning_reorder_preserves_non_fav_order)
 }
 
 // ---------------------------------------------------------------------
+// SkkDictionary — depends on SKK-JISYO.L.utf8 being staged next to the
+// test EXE (build_tests.ps1 routes output there for this reason).
+// ---------------------------------------------------------------------
+TEST(skk_loaded)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // Sanity: SKK-JISYO.L is ~300k okuri-nashi entries. If the loaded
+    // count is suspiciously small the dict file likely got truncated.
+    EXPECT_TRUE(skk->EntryCount() > 10000);
+}
+
+TEST(skk_lookup_homophones)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // 「あめ」 must surface at least 雨 and 飴 — the two canonical
+    // homophones that the bunsetsu MakeBunsetsuFromReading path relies
+    // on for noun rendering of resized bunsetsu.
+    auto cands = skk->Lookup(L"あめ");
+    bool hasUme = false, hasAme = false;
+    for (const auto& c : cands) {
+        if (c == L"雨") hasUme = true;
+        if (c == L"飴") hasAme = true;
+    }
+    EXPECT_TRUE(hasUme);
+    EXPECT_TRUE(hasAme);
+}
+
+TEST(skk_lookup_miss_returns_empty)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // Garbage reading must not crash and must return an empty vector
+    // (callers iterate the result without a null check).
+    auto cands = skk->Lookup(L"ぁぁぁぁぁ");
+    EXPECT_TRUE(cands.empty());
+}
+
+TEST(skk_find_longest_prefix_matches_inner_word)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // 「あしたはいやらしい」 starts with 「あした」 which IS in SKK.
+    // FindLongestPrefix must consume the 「あした」 prefix (4 chars).
+    auto match = skk->FindLongestPrefix(L"あしたはいやらしい", 0);
+    EXPECT_TRUE(match.length >= 3);  // at minimum "あし" or "あした"
+    if (match.length > 0) {
+        // 明日 should be among the candidates for 「あした」.
+        bool ok = false;
+        for (const auto& c : match.candidates) if (c == L"明日") { ok = true; break; }
+        EXPECT_TRUE(ok);
+    }
+}
+
+TEST(skk_find_longest_prefix_no_match)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // A start position into pure padding produces length=0 with an
+    // empty candidate vector — SplitGreedy relies on this to fall
+    // through to the literal-kana-bunsetsu branch.
+    auto match = skk->FindLongestPrefix(L"ぁぁぁ", 0);
+    EXPECT_TRUE(match.length == 0);
+    EXPECT_TRUE(match.candidates.empty());
+}
+
+TEST(skk_lookup_okuri_recovers_verb_stem_kanji)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // SKK has 「ふr /振/触/降/...」 as an okuri-ari entry — keyed by the
+    // stem 「ふ」 in m_okuri. SplitMecab uses this to recover 振る /
+    // 触る / 降る when the user types 「ふる」 (whose okuri-nashi-only
+    // entry is just 「古」).
+    auto stems = skk->LookupOkuri(L"ふ");
+    bool hasFuru = false;
+    for (const auto& s : stems) if (s == L"振") { hasFuru = true; break; }
+    EXPECT_TRUE(hasFuru);
+}
+
+// ---------------------------------------------------------------------
 // MeCab + bunsetsu integration. These depend on UniDic-Lite being
 // resident next to the test EXE — build_tests.ps1 outputs to the IME
 // build/x64/Debug dir where the dict is already staged.
