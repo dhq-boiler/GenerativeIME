@@ -407,7 +407,7 @@ bool LooksSuspect(const std::wstring& reading,
     // both 所為 and 為に; a hit on 何 catches 如何. Expand as we hit new
     // "MeCab is being too literal" patterns in real usage.
     static const std::wstring kSuspect =
-        L"顎為居出御様等処時故沢殆凡矢兎宛何嘗只迄謂勿論尤所如";
+        L"顎為居出御様等処時故沢殆凡矢兎宛何嘗只迄謂勿論尤所如唯";
 
     for (const auto& m : morphemes)
     {
