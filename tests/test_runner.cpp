@@ -250,6 +250,50 @@ TEST(learning_boundary_blacklist)
     EXPECT_TRUE(!ls.IsBoundaryBlacklisted(L"r_test", { 3 })); // different shape
 }
 
+TEST(learning_latest_record_wins_fav)
+{
+    // The fav for a reading is whatever was Record()'d most recently
+    // and is not currently blacklisted. Repeated Record on different
+    // words must promote the latest pick to the head.
+    LearningStore ls;
+    ls.Record(L"z_test", L"Z1");
+    ls.Record(L"z_test", L"Z2");
+    auto out = ls.Reorder(L"z_test", { L"Z1", L"Z2", L"Z3" });
+    EXPECT_TRUE(!out.empty());
+    if (!out.empty()) EXPECT_EQ_W(out[0], L"Z2");
+}
+
+TEST(learning_blacklist_outranks_fav)
+{
+    // Same word recorded as fav AND blacklisted → blacklist wins, the
+    // word is dropped from Reorder and GetFav returns empty. Guards
+    // against a regression where a blacklist would only take effect on
+    // the next session.
+    LearningStore ls;
+    ls.Record(L"w_test", L"W1");
+    ls.Blacklist(L"w_test", L"W1");
+    auto out = ls.Reorder(L"w_test", { L"W1", L"W2" });
+    EXPECT_TRUE(out.size() == 1);
+    if (out.size() == 1) EXPECT_EQ_W(out[0], L"W2");
+    EXPECT_EQ_W(ls.GetFav(L"w_test"), L"");
+}
+
+TEST(learning_reorder_preserves_non_fav_order)
+{
+    // Reorder only re-ranks blacklisted / fav entries. Everything else
+    // must stay in the input order so SKK's authoritative ranking is
+    // preserved (e.g. 雨/飴/天 stays 飴/天 if 雨 is the fav).
+    LearningStore ls;
+    ls.Record(L"a_test", L"雨");
+    auto out = ls.Reorder(L"a_test", { L"飴", L"雨", L"天" });
+    EXPECT_TRUE(out.size() == 3);
+    if (out.size() == 3) {
+        EXPECT_EQ_W(out[0], L"雨");
+        EXPECT_EQ_W(out[1], L"飴");
+        EXPECT_EQ_W(out[2], L"天");
+    }
+}
+
 // ---------------------------------------------------------------------
 // MeCab + bunsetsu integration. These depend on UniDic-Lite being
 // resident next to the test EXE — build_tests.ps1 outputs to the IME
@@ -274,6 +318,25 @@ TEST(reads_as_matches_typed_reading)
     // matches as "は" (not pronunciation "わ"), so the joined
     // pronunciation of 「私は学生」 equals the typed reading.
     EXPECT_TRUE(bunsetsu::ReadsAs(L"私は学生", L"わたくしはがくせい", *m));
+}
+
+TEST(reads_as_rejects_drift)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    // 「だから」 reads as 「だから」, NOT 「せいで」. This is the exact
+    // Ollama-drift case the filter was built for — without it the LLM
+    // could replace the user's typed reading with an unrelated synonym.
+    EXPECT_TRUE(!bunsetsu::ReadsAs(L"だから", L"せいで", *m));
+}
+
+TEST(reads_as_empty_inputs_reject)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    // Both halves of the empty-input guard at the top of ReadsAs.
+    EXPECT_TRUE(!bunsetsu::ReadsAs(L"", L"あめ", *m));
+    EXPECT_TRUE(!bunsetsu::ReadsAs(L"雨", L"", *m));
 }
 
 TEST(looks_suspect_two_choonpu)
@@ -546,6 +609,57 @@ TEST(split_mecab_filler_lemma_not_promoted)
         for (const auto& c : parts[0].candidates) {
             EXPECT_TRUE(c != L"んー");
         }
+    }
+}
+
+TEST(split_mecab_noun_promotes_kanji_lemma)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    // 「あした」 is a noun whose lemma is the kanji form 「明日」. The
+    // noun branch in SplitMecab must surface 「明日」 as a candidate so
+    // bare-Enter picks it over the typed kana.
+    auto parts = bunsetsu::SplitMecab(L"あした", *m, nullptr);
+    EXPECT_TRUE(!parts.empty());
+    if (!parts.empty()) {
+        bool ok = false;
+        for (const auto& c : parts[0].candidates) if (c == L"明日") { ok = true; break; }
+        EXPECT_TRUE(ok);
+    }
+}
+
+TEST(split_mecab_particle_keeps_surface_first)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    // 「は」 alone is a particle. The head must stay 「は」 — silently
+    // picking 歯/葉/羽 on bare-Enter would be the wrong default. The
+    // katakana 「ハ」 must come right after, ahead of any SKK kanji
+    // homophones.
+    auto parts = bunsetsu::SplitMecab(L"は", *m, nullptr);
+    EXPECT_TRUE(!parts.empty());
+    if (!parts.empty()) {
+        EXPECT_TRUE(parts[0].candidates.size() >= 2);
+        if (parts[0].candidates.size() >= 2) {
+            EXPECT_EQ_W(parts[0].candidates[0], L"は");
+            EXPECT_EQ_W(parts[0].candidates[1], L"ハ");
+        }
+    }
+}
+
+TEST(split_mecab_adjective_uses_kanji_lemma)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    // Adjectives go through the non-verb branch — their UniDic lemma
+    // (「赤い」) is the canonical kanji form the user usually wants.
+    // 「あかい」 must produce 「赤い」 as a candidate.
+    auto parts = bunsetsu::SplitMecab(L"あかい", *m, nullptr);
+    EXPECT_TRUE(!parts.empty());
+    if (!parts.empty()) {
+        bool ok = false;
+        for (const auto& c : parts[0].candidates) if (c == L"赤い") { ok = true; break; }
+        EXPECT_TRUE(ok);
     }
 }
 
