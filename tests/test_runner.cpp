@@ -145,6 +145,59 @@ TEST(romaji_foreign_sounds)
     EXPECT_EQ_W(r4.hira, L"いぇ");
 }
 
+TEST(romaji_w_series_kwa_gwa_swa_hwa)
+{
+    // The four-letter w-series rows added in 2e76b83. kMaxKey = 4 must
+    // hold; one regression on this would break kwa / gwa / swa / hwa
+    // and only show up at runtime as silent passthrough.
+    EXPECT_EQ_W(romaji::Convert(L"kwa").hira, L"くぁ");
+    EXPECT_EQ_W(romaji::Convert(L"gwa").hira, L"ぐぁ");
+    EXPECT_EQ_W(romaji::Convert(L"swa").hira, L"すぁ");
+    EXPECT_EQ_W(romaji::Convert(L"hwa").hira, L"ふぁ");
+    EXPECT_EQ_W(romaji::Convert(L"twa").hira, L"とぁ");
+    EXPECT_EQ_W(romaji::Convert(L"dwa").hira, L"どぁ");
+}
+
+TEST(romaji_dha_tho_series)
+{
+    EXPECT_EQ_W(romaji::Convert(L"tho").hira, L"てょ");
+    EXPECT_EQ_W(romaji::Convert(L"dha").hira, L"でゃ");
+    EXPECT_EQ_W(romaji::Convert(L"dho").hira, L"でょ");
+}
+
+TEST(romaji_vya_fya)
+{
+    EXPECT_EQ_W(romaji::Convert(L"vya").hira, L"ヴゃ");
+    EXPECT_EQ_W(romaji::Convert(L"vyu").hira, L"ヴゅ");
+    EXPECT_EQ_W(romaji::Convert(L"fya").hira, L"ふゃ");
+    EXPECT_EQ_W(romaji::Convert(L"fyo").hira, L"ふょ");
+}
+
+TEST(romaji_small_kana_lwa_lke_ltsu)
+{
+    EXPECT_EQ_W(romaji::Convert(L"lwa").hira, L"ゎ");
+    EXPECT_EQ_W(romaji::Convert(L"xwa").hira, L"ゎ");
+    EXPECT_EQ_W(romaji::Convert(L"lke").hira, L"ヶ");
+    EXPECT_EQ_W(romaji::Convert(L"xke").hira, L"ヶ");
+    EXPECT_EQ_W(romaji::Convert(L"ltsu").hira, L"っ");
+    EXPECT_EQ_W(romaji::Convert(L"xtsu").hira, L"っ");
+}
+
+TEST(romaji_je_che_she)
+{
+    EXPECT_EQ_W(romaji::Convert(L"je").hira, L"じぇ");
+    EXPECT_EQ_W(romaji::Convert(L"che").hira, L"ちぇ");
+    EXPECT_EQ_W(romaji::Convert(L"she").hira, L"しぇ");
+}
+
+TEST(romaji_tsa_tso_series)
+{
+    EXPECT_EQ_W(romaji::Convert(L"tsa").hira, L"つぁ");
+    EXPECT_EQ_W(romaji::Convert(L"tsi").hira, L"つぃ");
+    EXPECT_EQ_W(romaji::Convert(L"tse").hira, L"つぇ");
+    EXPECT_EQ_W(romaji::Convert(L"tso").hira, L"つぉ");
+}
+
 TEST(romaji_punctuation)
 {
     auto r = romaji::Convert(L"!");
@@ -481,6 +534,19 @@ TEST(merge_verb_forms_partial_coverage_bails_out)
     auto out = bunsetsu::MergeMecabVerbForms(L"", *m, skk);
     EXPECT_TRUE(out.size() == 1);
     if (out.size() == 1) EXPECT_EQ_W(out[0], L"X");
+}
+
+TEST(merge_verb_forms_adjective_branch)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    // The hasInflected check fires on 動詞 OR 形容詞. 「あかい」 is a
+    // pure adjective single-morpheme reading — MergeMecabVerbForms must
+    // still prepend the lemma 「赤い」 even with no verbs in the parse.
+    std::vector<std::wstring> skk = { L"亜界" };  // contrived: SKK garbage
+    auto out = bunsetsu::MergeMecabVerbForms(L"あかい", *m, skk);
+    EXPECT_TRUE(!out.empty());
+    if (!out.empty()) EXPECT_EQ_W(out[0], L"赤い");
 }
 
 // ---------------------------------------------------------------------
@@ -856,6 +922,27 @@ TEST(split_mecab_ion_kiita)
         bool ok = false;
         for (const auto& c : parts[0].candidates) if (c == L"聞い") { ok = true; break; }
         EXPECT_TRUE(ok);
+    }
+}
+
+TEST(split_mecab_verb_okuri_recovery_furu)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // SKK keeps 振る/触る/降る under the okuri-ari entry 「ふr /振/触/降/」
+    // keyed by stem 「ふ」. The okuri-nashi entry for 「ふる」 alone is
+    // just 「古」. The verb branch in SplitMecab reattaches the okuri-ari
+    // stems with the surface inflection so 「ふる」 surfaces 振る/触る/降る
+    // as candidates — without this recovery the user can only get 古.
+    auto parts = bunsetsu::SplitMecab(L"ふる", *m, skk);
+    EXPECT_TRUE(!parts.empty());
+    if (!parts.empty()) {
+        bool hasFuru = false;
+        for (const auto& c : parts[0].candidates) {
+            if (c == L"振る") { hasFuru = true; break; }
+        }
+        EXPECT_TRUE(hasFuru);
     }
 }
 
