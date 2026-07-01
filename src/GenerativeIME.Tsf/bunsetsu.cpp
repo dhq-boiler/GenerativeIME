@@ -172,6 +172,51 @@ bool AnyHit(const std::vector<Bunsetsu>& parts)
     return false;
 }
 
+namespace
+{
+    // Greedy left-to-right pass: merge adjacent MeCab morphemes when their
+    // joined reading has a whole-word SKK entry. Fixes UniDic-Lite over-
+    // fragmentation on common compound nouns and short verbs that UniDic
+    // shreds into 1-char pieces:
+    //   がく + せい     -> がくせい (SKK: 学生/学制/楽聖)
+    //   は + る         -> はる (SKK: 春/治/晴/…)
+    //   ちゅう + がくせい -> ちゅうがくせい (SKK: 中学生)
+    // Merged morpheme is tagged 名詞 with lemma == surface so the noun path
+    // skips lemma promotion and lets SKK Lookup drive candidates.
+    std::vector<MecabMorpheme> MergeAdjacentBySkk(
+        std::vector<MecabMorpheme> in,
+        const SkkDictionary* skk)
+    {
+        if (!skk || !skk->IsLoaded() || in.size() < 2) return in;
+        std::vector<MecabMorpheme> out;
+        out.reserve(in.size());
+        for (size_t i = 0; i < in.size(); )
+        {
+            auto tryMake = [&](size_t span) -> bool {
+                if (i + span > in.size()) return false;
+                std::wstring joined;
+                for (size_t k = 0; k < span; ++k) joined += in[i + k].surface;
+                if (skk->Lookup(joined).empty()) return false;
+                MecabMorpheme merged;
+                merged.surface       = joined;
+                merged.lemma         = joined;
+                merged.lemmaReading  = joined;
+                merged.pronunciation = joined;
+                merged.pos           = L"名詞";
+                out.push_back(std::move(merged));
+                i += span;
+                return true;
+            };
+            // Prefer the longer merge — triple first, then pair.
+            if (tryMake(3)) continue;
+            if (tryMake(2)) continue;
+            out.push_back(std::move(in[i]));
+            ++i;
+        }
+        return out;
+    }
+}
+
 std::vector<Bunsetsu> SplitMecab(const std::wstring& reading,
                                  const MecabAnalyzer& analyzer,
                                  const SkkDictionary* skk)
@@ -179,6 +224,7 @@ std::vector<Bunsetsu> SplitMecab(const std::wstring& reading,
     std::vector<Bunsetsu> result;
     auto morphemes = analyzer.Analyze(reading);
     if (morphemes.empty()) return result;
+    morphemes = MergeAdjacentBySkk(std::move(morphemes), skk);
 
     for (const auto& m : morphemes)
     {
@@ -213,6 +259,17 @@ std::vector<Bunsetsu> SplitMecab(const std::wstring& reading,
             // bare-Enter on "は" never silently picks "歯", but the
             // homophones are reachable with ↓ for the user who actually
             // means them.
+            //
+            // Exception (2026-07-02 fix): UniDic-Lite occasionally mislabels
+            // a semantic noun as 助動詞 when the reading is ambiguous with
+            // a verb suffix — 「はる」→ 助動詞 lemma「はる」, where the
+            // user almost always wants 春. When pos == 助動詞 AND surface
+            // is 2+ chars AND SKK's top for the surface reads back cleanly
+            // as the surface via MeCab, promote SKK top over the kana.
+            // Single-char 助詞 (は/を/に) is untouched. The ReadsAs filter
+            // rejects okuri-ari-synthesized tops (「ですg /出過/」flattens
+            // as SKK top「出過」whose MeCab reading is しゅつか, not です),
+            // so real auxiliaries like「です」/「ます」stay as kana top.
             b.candidates = { m.surface };
             auto kata = ToKatakana(m.surface);
             if (kata != m.surface)
@@ -220,6 +277,15 @@ std::vector<Bunsetsu> SplitMecab(const std::wstring& reading,
             if (skk && skk->IsLoaded())
             {
                 auto hits = skk->Lookup(m.surface);
+                bool promoteSkkTop =
+                    (m.pos == L"助動詞") &&
+                    (m.surface.size() >= 2) &&
+                    !hits.empty() &&
+                    bunsetsu::ReadsAs(hits[0], m.surface, analyzer);
+                if (promoteSkkTop)
+                {
+                    b.candidates.insert(b.candidates.begin(), hits[0]);
+                }
                 for (auto& c : hits)
                 {
                     if (std::find(b.candidates.begin(), b.candidates.end(), c)
@@ -330,23 +396,58 @@ std::vector<Bunsetsu> SplitMecab(const std::wstring& reading,
                 isFillerKana(m.lemma) &&
                 m.lemma.size() > m.surface.size() &&
                 m.lemma.find(m.surface) != std::wstring::npos;
+
+            // SKK candidates for the surface. We may prefer SKK's top over
+            // MeCab's lemma — UniDic-Lite occasionally returns pronoun-class
+            // kanji (其れ / 彼 / 此処) as lemma for common hiragana surfaces
+            // (ほん / かれ / ここ) where the user almost always wants the
+            // noun homophone (本 / 彼女 / etc.) instead.
+            //
+            // GOTCHA: SkkDictionary::Load flattens okuri-ari stem entries
+            // (e.g.「あかるi /明/」i-adjective synthesis, 「ですg /出過/」
+            // verb 出過ぐ stem) into m_entries as SYNTHESIZED tops like
+            // 「明い」and 「出過」. Those *look* like SKK candidates but
+            // do NOT read back as the surface (「明い」reads as あかい,
+            // not あかるい; 「出過」reads as しゅつか, not です). Promoting
+            // them blindly regresses adjective + auxiliary readings.
+            // Filter with `ReadsAs(top, surface, analyzer)` — only promote
+            // when MeCab confirms the top actually reads as the surface.
+            std::vector<std::wstring> skkCands;
+            if (skk && skk->IsLoaded())
+                skkCands = skk->Lookup(m.surface);
+
+            bool skkTopIsCleanForSurface =
+                !skkCands.empty() &&
+                bunsetsu::ReadsAs(skkCands[0], m.surface, analyzer);
+
+            // 1. SKK top (if it survives the ReadsAs filter).
+            if (skkTopIsCleanForSurface)
+                b.candidates.push_back(skkCands[0]);
+
+            // 2. MeCab lemma, unless it's the filler-stretched form or
+            //    duplicates something already in the list.
             if (!lemmaIsStretchedSurface &&
-                !m.lemma.empty() && m.lemma != m.surface)
+                !m.lemma.empty() && m.lemma != m.surface &&
+                std::find(b.candidates.begin(), b.candidates.end(), m.lemma)
+                == b.candidates.end())
             {
                 b.candidates.push_back(m.lemma);
             }
-            if (skk && skk->IsLoaded())
+
+            // 3. Rest of SKK candidates. If skkTop wasn't promoted (didn't
+            //    pass ReadsAs), start from index 0 so it lands after lemma
+            //    rather than getting dropped entirely.
+            size_t skkStart = skkTopIsCleanForSurface ? 1 : 0;
+            for (size_t k = skkStart; k < skkCands.size(); ++k)
             {
-                auto skkCands = skk->Lookup(m.surface);
-                for (auto& c : skkCands)
+                if (std::find(b.candidates.begin(), b.candidates.end(),
+                              skkCands[k]) == b.candidates.end())
                 {
-                    if (std::find(b.candidates.begin(), b.candidates.end(), c)
-                        == b.candidates.end())
-                    {
-                        b.candidates.push_back(std::move(c));
-                    }
+                    b.candidates.push_back(std::move(skkCands[k]));
                 }
             }
+
+            // 4. Surface kana as a final fallback.
             if (std::find(b.candidates.begin(), b.candidates.end(), m.surface)
                 == b.candidates.end())
             {

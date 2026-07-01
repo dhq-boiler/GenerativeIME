@@ -867,6 +867,134 @@ TEST(split_mecab_adjective_uses_kanji_lemma)
     }
 }
 
+// Adjacent-morpheme SKK merge (Layer A fix, 2026-07-02): UniDic-Lite
+// shreds「がくせい」into「がく + せい」with lemmas 顎 / 所為. That
+// triggers LooksSuspect (Trigger A) and, without Ollama, the whole
+// sentence commits as 「私は顎所為」. The merge pass in SplitMecab
+// recombines the pair (SKK has「がくせい」→ 学生/学制/楽聖), turning
+// bunsetsu[2] into a single「がくせい」whose top comes from SKK.
+TEST(split_mecab_merges_gakusei)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto parts = bunsetsu::SplitMecab(L"わたしはがくせい", *m, skk);
+    bool found = false;
+    for (const auto& b : parts) {
+        if (b.reading == L"がくせい") {
+            found = true;
+            EXPECT_TRUE(!b.candidates.empty());
+            if (!b.candidates.empty()) EXPECT_EQ_W(b.candidates[0], L"学生");
+            break;
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
+// Sanity check: common SKK direct hits pass ReadsAs (filter keeps them),
+// while okuri-ari-synthesized garbage (出過/です, 明い/あかるい) fails.
+// This locks the invariant the textservice.cpp SKK-direct filter depends on.
+TEST(reads_as_okuri_synth_garbage_filtered_out)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    // Garbage (synthesized from okuri-ari) — must fail.
+    EXPECT_TRUE(!bunsetsu::ReadsAs(L"出過",   L"です",       *m));
+    EXPECT_TRUE(!bunsetsu::ReadsAs(L"明い",   L"あかるい",   *m));
+    // Real SKK entries — must pass.
+    EXPECT_TRUE( bunsetsu::ReadsAs(L"有難う", L"ありがとう", *m));
+    EXPECT_TRUE( bunsetsu::ReadsAs(L"雨",     L"あめ",       *m));
+    EXPECT_TRUE( bunsetsu::ReadsAs(L"見た",   L"みた",       *m));
+    EXPECT_TRUE( bunsetsu::ReadsAs(L"本",     L"ほん",       *m));
+    EXPECT_TRUE( bunsetsu::ReadsAs(L"春",     L"はる",       *m));
+    EXPECT_TRUE( bunsetsu::ReadsAs(L"学生",   L"がくせい",   *m));
+    EXPECT_TRUE( bunsetsu::ReadsAs(L"明るい", L"あかるい",   *m));
+}
+
+// Regression guard: SKK okuri-ari synthesis flattens「ですg /出過/」into
+// SKK Lookup("です") returning [出過]. The ReadsAs filter in the 助動詞
+// promotion path must reject this — 出過 reads as しゅつか via MeCab, not
+// です. Top must stay です (kana surface).
+TEST(split_mecab_desu_not_promoted_to_dekasugi)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto parts = bunsetsu::SplitMecab(L"です", *m, skk);
+    EXPECT_TRUE(!parts.empty());
+    if (!parts.empty()) {
+        EXPECT_TRUE(!parts[0].candidates.empty());
+        if (!parts[0].candidates.empty()) EXPECT_EQ_W(parts[0].candidates[0], L"です");
+    }
+}
+
+// Regression guard: SKK i-adjective synthesis「あかるi /明/」flattens into
+// SKK Lookup("あかるい") returning [明い]. That reads as あかい, not
+// あかるい, so ReadsAs filters it out and lemma 明るい stays top.
+TEST(split_mecab_akarui_lemma_stays_top)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto parts = bunsetsu::SplitMecab(L"あかるい", *m, skk);
+    EXPECT_TRUE(!parts.empty());
+    if (!parts.empty()) {
+        EXPECT_TRUE(!parts[0].candidates.empty());
+        if (!parts[0].candidates.empty()) EXPECT_EQ_W(parts[0].candidates[0], L"明るい");
+    }
+}
+
+// UniDic-Lite mislabels standalone「はる」as 助動詞 (auxiliary), which
+// otherwise pins the raw kana as top via the particle path. The 2026-07-02
+// helper "promote SKK top for 助動詞 with 2+ char surface + SKK hit" fix
+// forces 春 up front while leaving legitimate short particles (は/を/に)
+// alone.
+TEST(split_mecab_promotes_skk_for_mislabeled_jodoushi_haru)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto parts = bunsetsu::SplitMecab(L"はる", *m, skk);
+    EXPECT_TRUE(!parts.empty());
+    if (!parts.empty()) {
+        EXPECT_TRUE(!parts[0].candidates.empty());
+        if (!parts[0].candidates.empty()) EXPECT_EQ_W(parts[0].candidates[0], L"春");
+    }
+}
+
+// Layer B (2026-07-02): noun path promotes SKK top over MeCab lemma.
+// UniDic-Lite occasionally lemma-tags common noun surfaces with
+// pronoun-class kanji (「ほん」→ lemma 其れ) that no user wants at
+// bare-Enter default. SKK's「ほん」top is 本 — that's the sane pick.
+TEST(split_mecab_noun_skk_top_beats_pronoun_lemma)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto parts = bunsetsu::SplitMecab(L"ほん", *m, skk);
+    EXPECT_TRUE(!parts.empty());
+    if (!parts.empty()) {
+        EXPECT_TRUE(!parts[0].candidates.empty());
+        if (!parts[0].candidates.empty()) EXPECT_EQ_W(parts[0].candidates[0], L"本");
+    }
+}
+
+// Regression guard for Layer B: existing filler-lemma suppression
+// still fires and 「ん」 does NOT get pushed as an extra empty
+// entry, and the surface stays reachable.
+TEST(split_mecab_filler_still_guarded_after_layer_b)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto parts = bunsetsu::SplitMecab(L"ん", *m, skk);
+    if (!parts.empty()) {
+        for (const auto& c : parts[0].candidates) {
+            EXPECT_TRUE(c != L"んー");
+        }
+    }
+}
+
 // ---------------------------------------------------------------------
 // JoinSelected / AnyHit — tiny helpers but used in the composition
 // inline path, so a regression here would silently corrupt every

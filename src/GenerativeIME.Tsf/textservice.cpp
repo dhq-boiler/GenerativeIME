@@ -887,6 +887,30 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
     if (auto* skk = SkkDictionary::GetGlobal(); skk && skk->IsLoaded())
     {
         auto skkHits = skk->Lookup(reading);
+
+        // Filter out okuri-ari-synthesized entries whose kanji doesn't
+        // read back as `reading` via MeCab. SkkDictionary::Load flattens
+        // 「ですg /出過/」and「あかるi /明/」into m_entries so a bare
+        // Lookup("です") returns [出過] — but 出過 reads as ですぎ
+        // (出/で + 過/すぎ), not です. Without this filter the whole-
+        // reading SKK path pins 出過 at bare-Enter default for「です」
+        // and blocks MeCab's saner「です」kana-passthrough. If NO hits
+        // read cleanly, drop the whole set and fall through to MeCab.
+        if (!skkHits.empty())
+        {
+            if (auto* mecab = MecabAnalyzer::GetGlobal(); mecab && mecab->IsReady())
+            {
+                std::vector<std::wstring> clean;
+                clean.reserve(skkHits.size());
+                for (auto& c : skkHits)
+                {
+                    if (bunsetsu::ReadsAs(c, reading, *mecab))
+                        clean.push_back(std::move(c));
+                }
+                skkHits = std::move(clean);
+            }
+        }
+
         if (!skkHits.empty() && m_pCandWnd)
         {
             // SKK indexes uninflected readings, so a hit on a conjugated
