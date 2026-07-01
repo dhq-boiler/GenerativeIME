@@ -100,6 +100,20 @@ HRESULT RegisterProfile()
         static_cast<ULONG>(wcslen(modulePath)),
         0); // icon index
 
+    if (SUCCEEDED(hr))
+    {
+        // Make this TIP the default input method for Japanese so it becomes the
+        // active TIP on the next logon. Without this, the OS keeps whatever was
+        // previously the default ja-JP TIP (e.g. a pre-installed MS-IME) active,
+        // and our text service stays registered-but-dormant until the user
+        // manually switches to it. Best-effort: a failure here doesn't undo the
+        // registration that already succeeded.
+        pProfiles->SetDefaultLanguageProfile(
+            c_langIdJapanese,
+            c_clsidGenerativeImeTextService,
+            c_guidGenerativeImeProfile);
+    }
+
     pProfiles->Release();
     return hr;
 }
