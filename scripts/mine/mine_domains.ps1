@@ -29,6 +29,17 @@ param(
 $ErrorActionPreference = 'Stop'
 $mine = Join-Path $PSScriptRoot 'mine_wikipedia.ps1'
 
+# Parallel-fan-out: launch one Start-Job per domain, then wait for all to
+# finish. Wikipedia's API is fine with 4-6 concurrent connections from one
+# IP so long as each keeps to a reasonable rate; our mine_wikipedia.ps1
+# does ~1 req/s per instance, so 5 parallel jobs = ~5 req/s aggregate,
+# well inside their polite-use guidance.
+#
+# Trade-off: Start-Job spawns a full powershell.exe per job (~50 MB each),
+# but this box has plenty of RAM and the throughput improvement is worth
+# it (5x speedup on a corpus mine that would otherwise take 10+ hours).
+[bool]$Parallel = $true
+
 # Curated category lists per domain. All are ja.wikipedia Category:
 # pages without the "Category:" prefix. mine_wikipedia paginates through
 # each with cmcontinue until CapPerDomain articles are collected total.
@@ -67,7 +78,8 @@ $domainCategories = @{
     )
 }
 
-# Run one mining session per domain. Each writes to its own raw + golden.
+# Kick off one Start-Job per domain.
+$jobs = @()
 foreach ($domain in $Domains) {
     if (-not $domainCategories.ContainsKey($domain)) {
         Write-Warning ("unknown domain: {0} (available: {1})" -f $domain, ($domainCategories.Keys -join ', '))
@@ -75,14 +87,32 @@ foreach ($domain in $Domains) {
     }
     $cats = $domainCategories[$domain]
     $rawOut = Join-Path $PSScriptRoot ("..\..\corpus\wikipedia\raw\pairs-raw-" + $domain + ".tsv")
-    Write-Host ''
-    Write-Host ('==== domain: ' + $domain + ' (' + $cats.Count + ' categories, cap ' + $CapPerDomain + ') ====') -ForegroundColor Cyan
-    $start = Get-Date
-    # Call mine_wikipedia via the & operator so we inherit its output stream.
-    & $mine -Category $cats -MaxArticles $CapPerDomain -Out $rawOut
-    $elapsed = (Get-Date) - $start
-    Write-Host ('domain ' + $domain + ' done in ' + $elapsed.ToString('mm\:ss')) -ForegroundColor Green
+    $logOut = Join-Path $PSScriptRoot ("..\..\corpus\wikipedia\raw\pairs-raw-" + $domain + ".log")
+    Write-Host ('[start] ' + $domain + ' (' + $cats.Count + ' cats, cap ' + $CapPerDomain + ')') -ForegroundColor Cyan
+    $j = Start-Job -Name ("mine-" + $domain) -ScriptBlock {
+        param($script, $cats, $cap, $out, $log)
+        & $script -Category $cats -MaxArticles $cap -Out $out *> $log
+    } -ArgumentList $mine, $cats, $CapPerDomain, $rawOut, $logOut
+    $jobs += $j
 }
+
+# Poll every 60 s to give a heartbeat; block until every job finishes.
+Write-Host ("[wait] {0} parallel domain mines running; polling every 60s" -f $jobs.Count) -ForegroundColor Yellow
+$runStart = Get-Date
+while ($jobs | Where-Object { $_.State -eq 'Running' }) {
+    Start-Sleep -Seconds 60
+    $elapsed = (Get-Date) - $runStart
+    $running = @($jobs | Where-Object { $_.State -eq 'Running' })
+    $done    = @($jobs | Where-Object { $_.State -in 'Completed', 'Failed', 'Stopped' })
+    Write-Host ("[{0:mm\:ss}] running: {1}   done: {2}" -f $elapsed, ($running.Name -join ','), ($done.Name -join ','))
+}
+foreach ($j in $jobs) {
+    if ($j.State -eq 'Failed') { Write-Warning ("job {0} failed" -f $j.Name) }
+    Receive-Job $j | Out-Null   # drain output
+    Remove-Job $j -Force
+}
+$totalElapsed = (Get-Date) - $runStart
+Write-Host ("[done] all domain mines finished in {0:hh\:mm\:ss}" -f $totalElapsed) -ForegroundColor Green
 
 # After every domain finishes, combine all pairs-raw-*.tsv into a single
 # merged aggregate and regenerate the modernranking table from it. The

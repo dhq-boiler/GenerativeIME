@@ -127,6 +127,11 @@ $sjis = [System.Text.Encoding]::GetEncoding(932)
 $scratch = 'C:\Users\dhq_b\AppData\Local\Temp\claude\C--Git-GenerativeIME\b5bcc637-24de-4ad3-b368-781caa736d7b\scratchpad'
 if (-not (Test-Path $scratch)) { New-Item -ItemType Directory -Force -Path $scratch | Out-Null }
 
+# Unique per-invocation prefix so parallel runs (mine_domains.ps1 fan-out)
+# don't clobber each other's mecab in/out temp files. -f: fixed count from
+# the parent process id + a random suffix for extra safety.
+$runId = ("{0}_{1:x8}" -f $PID, (Get-Random -Minimum 0 -Maximum 0xFFFFFFFF))
+
 # Katakana -> Hiragana. Katakana U+30A1..U+30F3 map to Hiragana by -0x60,
 # except 30FC (long vowel mark) which we keep as-is because IME users
 # type it too.
@@ -187,8 +192,8 @@ foreach ($title in $titles | Select-Object -First $MaxArticles) {
     # high-value pairs are; deeper sections have long lists / references.
     if ($body.Length -gt 4000) { $body = $body.Substring(0, 4000) }
 
-    $inFile  = Join-Path $scratch ("wiki_in_"  + $articlesProcessed + '.txt')
-    $outFile = Join-Path $scratch ("wiki_out_" + $articlesProcessed + '.txt')
+    $inFile  = Join-Path $scratch ("wiki_in_"  + $runId + '_' + $articlesProcessed + '.txt')
+    $outFile = Join-Path $scratch ("wiki_out_" + $runId + '_' + $articlesProcessed + '.txt')
     [System.IO.File]::WriteAllBytes($inFile, $sjis.GetBytes($body))
     & $MecabExe -o $outFile $inFile
     $outBytes = [System.IO.File]::ReadAllBytes($outFile)
