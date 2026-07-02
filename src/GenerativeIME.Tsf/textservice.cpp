@@ -2990,23 +2990,21 @@ STDMETHODIMP CTextService::OnPreservedKey(ITfContext* /*pic*/, REFGUID rguid, BO
     }
     else if (IsEqualGUID(rguid, c_guidKeyImeOn))
     {
-        // ひらがな key on JP keyboards (the unshifted form of the
-        // カタカナひらがなローマ字 key): switch to hiragana mode and
-        // make sure the IME is on. We treat this as a mode pick rather
-        // than just an on-switch so subsequent typing renders correctly
-        // even when the previous session left us in カタカナ.
-        SetImeMode(ImeMode::Hiragana);
-        if (!m_isImeOn) SetImeOpenClose(TRUE);
+        // VK_OEM_AUTO (0xF3): the "activate IME" half of the 半角/全角 key's
+        // alternating trigger on Japanese keyboards. NOT the カタカナひらがな
+        // key — that one emits VK_DBE_HIRAGANA (0xF2) and is handled in
+        // OnKeyDown. Turning IME on here (without changing the conversion
+        // mode) matches MS-IME behavior; the previous implementation forced
+        // Hiragana mode and never let IME go off, producing 全角かな⇄全角カナ
+        // instead of the expected 全角かな⇄半角英数 toggle.
+        SetImeOpenClose(TRUE);
         *pfEaten = TRUE;
     }
     else if (IsEqualGUID(rguid, c_guidKeyImeOff))
     {
-        // カタカナ key (the shifted form of the same physical key).
-        // Mirrors the ひらがな branch: switch to 全角カタカナ mode and
-        // ensure IME is on. The legacy "OFF" name is kept on the GUID /
-        // variable for ABI / preserved-key continuity.
-        SetImeMode(ImeMode::FullKatakana);
-        if (!m_isImeOn) SetImeOpenClose(TRUE);
+        // VK_OEM_ENLW (0xF4): the "deactivate IME" half of the 半角/全角 key's
+        // alternating trigger — sends the IME to 半角英数 passthrough.
+        SetImeOpenClose(FALSE);
         *pfEaten = TRUE;
     }
     return S_OK;
