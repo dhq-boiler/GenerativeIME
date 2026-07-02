@@ -1,0 +1,196 @@
+# kanazawa-triples.tsv - Japanese medical vocabulary with English + Latin combining form
+# source: kt.kanazawa-med.ac.jp/english/2-1.pdf
+# columns: reading<TAB>japanese<TAB>english<TAB>latin<TAB>section
+い	胃	stomach	gastr/o	医学用語の基本構造 The Structure of Medical Terms
+かんぞう	肝臓	liver	hepat/o	医学用語の基本構造 The Structure of Medical Terms
+じんぞう	腎臓	kidney	nephr/o	医学用語の基本構造 The Structure of Medical Terms
+しんぞう	心臓	heart	cardi/o	医学用語の基本構造 The Structure of Medical Terms
+のう	脳	brain	encephal/o	医学用語の基本構造 The Structure of Medical Terms
+せん	腺	gland	aden/o	医学用語の基本構造 The Structure of Medical Terms
+ひふ	皮膚	skin	derm/o, dermato/o	医学用語の基本構造 The Structure of Medical Terms
+がん	癌	cancer	carcin/o	医学用語の基本構造 The Structure of Medical Terms
+くち	口	mouth	stomat/o, or/o	消化器系の用語 The Digestive System
+くちびる	唇	lips	cheil/o, labi/o	消化器系の用語 The Digestive System
+は	歯	teeth	odont/o, dent/o	消化器系の用語 The Digestive System
+しぎん	歯齦	gum	gingiv/o	消化器系の用語 The Digestive System
+はにく	歯肉	gum	gingiv/o	消化器系の用語 The Digestive System
+こうがい	口蓋	palate	palat/o	消化器系の用語 The Digestive System
+した	舌	tongue	gloss/o	消化器系の用語 The Digestive System
+いんとう	咽頭	pharynx	pharyng/o	消化器系の用語 The Digestive System
+しょくどう	食道	esophagus	esophag/o	消化器系の用語 The Digestive System
+じゅうにしちょう	十二指腸	duodenum	duoden/o	消化器系の用語 The Digestive System
+しょうちょう	小腸	small intestine	enter/o	消化器系の用語 The Digestive System
+そらちょう	空腸	jejunum	jejun/o	消化器系の用語 The Digestive System
+かいちょう	回腸	ileum	ile/o	消化器系の用語 The Digestive System
+けっちょう	結腸	colon, large intestine	col/o	消化器系の用語 The Digestive System
+だいちょう	大腸	colon, large intestine	col/o	消化器系の用語 The Digestive System
+ちゅうすい	虫垂	appendix	append/o, appendic/o	消化器系の用語 The Digestive System
+じょうけっちょう	S状結腸	sigmoid colon	sigmoid/o	消化器系の用語 The Digestive System
+ちょくちょう	直腸	rectum	rect/o	消化器系の用語 The Digestive System
+こうもん	肛門		proct/o, an/o	消化器系の用語 The Digestive System
+すいぞう	膵臓	pancreas	pancreat/o	消化器系の用語 The Digestive System
+たんのう	胆嚢	gallbladder	cholecyst/o	消化器系の用語 The Digestive System
+はやい	速い	fast	tach/y	接尾辞（２） Suffix(2)
+おそい	遅い	slow	brad/y	接尾辞（２） Suffix(2)
+じんう	腎盂	renal pelvis	pyel/o	泌尿器および男性生殖器系の用語           The Genito-Urinary System
+にょうかん	尿管	ureter	ureter/o	泌尿器および男性生殖器系の用語           The Genito-Urinary System
+にょうどう	尿道	urethra	urethr/o	泌尿器および男性生殖器系の用語           The Genito-Urinary System
+ぼうこう	膀胱	urinary bladder	cyst/o, vesic/o	泌尿器および男性生殖器系の用語           The Genito-Urinary System
+こうがん	睾丸	testicle	orchi/o, orchid/o	泌尿器および男性生殖器系の用語           The Genito-Urinary System
+いんけい	陰茎	penis	phall/o, pen/o	泌尿器および男性生殖器系の用語           The Genito-Urinary System
+ぜんりつせん	前立腺	prostate	prostat/o	泌尿器および男性生殖器系の用語           The Genito-Urinary System
+にょう	尿	urine	ur/o	尿など体に関する物質の用語         Urine and Other Biochemical Substances
+とう	糖	sugar	glyc/o, gluc/o	尿など体に関する物質の用語         Urine and Other Biochemical Substances
+たんぱく	蛋白	protein	albumin/o	尿など体に関する物質の用語         Urine and Other Biochemical Substances
+しぼう	脂肪	fat	lip/o	尿など体に関する物質の用語         Urine and Other Biochemical Substances
+さいぼう	細胞	cell	cyt/o	尿など体に関する物質の用語         Urine and Other Biochemical Substances
+たんじゅう	胆汁	gall, bile	chol/e	尿など体に関する物質の用語         Urine and Other Biochemical Substances
+にゅうじゅう	乳汁	milk	lact/o	尿など体に関する物質の用語         Urine and Other Biochemical Substances
+せいえき	精液	sperm	sperm/o, spermat/o	尿など体に関する物質の用語         Urine and Other Biochemical Substances
+ねんえき	粘液	mucus	muc/o	尿など体に関する物質の用語         Urine and Other Biochemical Substances
+せんい	線維	fiber	fibr/o	尿など体に関する物質の用語         Urine and Other Biochemical Substances
+もうはつ	毛髪	hair	trich/o	尿など体に関する物質の用語         Urine and Other Biochemical Substances
+うみ	膿	pus	py/o	尿など体に関する物質の用語         Urine and Other Biochemical Substances
+だえき	唾液	saliva	sial/o	尿など体に関する物質の用語         Urine and Other Biochemical Substances
+あせ	汗	sweat	hidr/o	尿など体に関する物質の用語         Urine and Other Biochemical Substances
+けっせき	結石	stone	lith/o	尿など体に関する物質の用語         Urine and Other Biochemical Substances
+どく	毒	toxin	tox/o	尿など体に関する物質の用語         Urine and Other Biochemical Substances
+せいめい	生命	life	bi/o	尿など体に関する物質の用語         Urine and Other Biochemical Substances
+こうじょうせん	甲状腺		thyr/o, thyroid/o	尿など体に関する物質の用語         Urine and Other Biochemical Substances
+ふくじん	副腎		adren/o	尿など体に関する物質の用語         Urine and Other Biochemical Substances
+さいきん	細菌	bacterium	bacteri/o	尿など体に関する物質の用語         Urine and Other Biochemical Substances
+まきん	真菌	fungus	myc/o	尿など体に関する物質の用語         Urine and Other Biochemical Substances
+かんきん	桿菌	bacillus	bacill/o	尿など体に関する物質の用語         Urine and Other Biochemical Substances
+きゅうきん	球菌	coccus	cocc/o	尿など体に関する物質の用語         Urine and Other Biochemical Substances
+たまご	卵	ovum	o/o, ov/o, ov/i	女性生殖器系の用語     The Female Reproductive System
+らんそう	卵巣	ovary	oophor/o	女性生殖器系の用語     The Female Reproductive System
+たまごかん	卵管	salpinx, fallopian tube	salping/o	女性生殖器系の用語     The Female Reproductive System
+しきゅう	子宮	uterus	hyster/o, metr/o, uter/o	女性生殖器系の用語     The Female Reproductive System
+ちつ	膣	vagina	colp/o, vagin/o	女性生殖器系の用語     The Female Reproductive System
+ちぶさ	乳房	breast	mast/o, mamm/o	女性生殖器系の用語     The Female Reproductive System
+こつばん	骨盤	pelvis	pelv/i	女性生殖器系の用語     The Female Reproductive System
+じょせい	女性	woman, female	gynec/o	女性生殖器系の用語     The Female Reproductive System
+げっけい	月経	menstruation	men/o	女性生殖器系の用語     The Female Reproductive System
+さんぷ	産婦		para	女性生殖器系の用語     The Female Reproductive System
+にんぷ	妊婦		gravida	女性生殖器系の用語     The Female Reproductive System
+みゃくかん	脈管	vessel	angi/o, vas/o	心臓・循環器・リンパ系の用語           The Cardiovascular and Lymphatic Systems
+けっかん	血管	vessel	angi/o, vas/o	心臓・循環器・リンパ系の用語           The Cardiovascular and Lymphatic Systems
+どうみゃく	動脈	artery	arteri/o	心臓・循環器・リンパ系の用語           The Cardiovascular and Lymphatic Systems
+じょうみゃく	静脈	vein	phleb/o, ven/o	心臓・循環器・リンパ系の用語           The Cardiovascular and Lymphatic Systems
+もうさいけっかん	毛細血管	capillary	capillar/o	心臓・循環器・リンパ系の用語           The Cardiovascular and Lymphatic Systems
+ひぞう	脾臓	spleen	splen/o	心臓・循環器・リンパ系の用語           The Cardiovascular and Lymphatic Systems
+こつづい	骨髄	bone marrow	myel/o	心臓・循環器・リンパ系の用語           The Cardiovascular and Lymphatic Systems
+けつえき	血液	blood	hem/o, hemat/o	心臓・循環器・リンパ系の用語           The Cardiovascular and Lymphatic Systems
+りんぱ	リンパ	lymph	lymph/o	心臓・循環器・リンパ系の用語           The Cardiovascular and Lymphatic Systems
+けっせい	血清	serum	ser/o	心臓・循環器・リンパ系の用語           The Cardiovascular and Lymphatic Systems
+けっしょう	血漿	plasma	plasm/o	心臓・循環器・リンパ系の用語           The Cardiovascular and Lymphatic Systems
+けっきゅう	血球	globule	globul/o	心臓・循環器・リンパ系の用語           The Cardiovascular and Lymphatic Systems
+けっせん	血栓	thrombus, clot	thromb/o	心臓・循環器・リンパ系の用語           The Cardiovascular and Lymphatic Systems
+めさいぼう	芽細胞	embryonic cell	blast/o	心臓・循環器・リンパ系の用語           The Cardiovascular and Lymphatic Systems
+りんぱかん	リンパ管	lymph duct	lymphangi/o	心臓・循環器・リンパ系の用語           The Cardiovascular and Lymphatic Systems
+りんぱぶし	リンパ節		lymphaden/o	心臓・循環器・リンパ系の用語           The Cardiovascular and Lymphatic Systems
+はな	鼻	nose	rhin/o, nas/o	呼吸器系の用語 The Respiratory System
+こうとう	喉頭	larynx	laryng/o	呼吸器系の用語 The Respiratory System
+きかん	気管	trachea	trache/o	呼吸器系の用語 The Respiratory System
+きかんし	気管支	bronchus	bronch/o, bronch/i	呼吸器系の用語 The Respiratory System
+おうかくまく	横隔膜	diaphragm	phren/o	呼吸器系の用語 The Respiratory System
+きょうまく	胸膜	pleura	pleur/o	呼吸器系の用語 The Respiratory System
+ほら	洞	sinus	sin/o, sinus/o	呼吸器系の用語 The Respiratory System
+むね	胸	thorax	thorac/o	呼吸器系の用語 The Respiratory System
+くうき	空気	air	aer/o, pneum/o	呼吸器系の用語 The Respiratory System
+こきゅう	呼吸	breath	pne/o, pneum/o	呼吸器系の用語 The Respiratory System
+だい	大	large	meg/a, megal/o	大小・形状・色・数量の用語         Size, Shape, Color, Quantity and Other Properties
+しょう	小	small	micr/o	大小・形状・色・数量の用語         Size, Shape, Color, Quantity and Other Properties
+どう	同	same	hom/o	大小・形状・色・数量の用語         Size, Shape, Color, Quantity and Other Properties
+あや	異	different	heter/o	大小・形状・色・数量の用語         Size, Shape, Color, Quantity and Other Properties
+ひとし	等	equal	is/o	大小・形状・色・数量の用語         Size, Shape, Color, Quantity and Other Properties
+ふとう	不等	unequal	anis/o	大小・形状・色・数量の用語         Size, Shape, Color, Quantity and Other Properties
+にせ	偽	false	pseud/o	大小・形状・色・数量の用語         Size, Shape, Color, Quantity and Other Properties
+しろ	白	white	leuk/o, leuc/o	大小・形状・色・数量の用語         Size, Shape, Color, Quantity and Other Properties
+くろ	黒	black	melan/o	大小・形状・色・数量の用語         Size, Shape, Color, Quantity and Other Properties
+あか	赤	red	erythr/o	大小・形状・色・数量の用語         Size, Shape, Color, Quantity and Other Properties
+あお	青	blue	cyan/o	大小・形状・色・数量の用語         Size, Shape, Color, Quantity and Other Properties
+みどり	緑	green	chlor/o	大小・形状・色・数量の用語         Size, Shape, Color, Quantity and Other Properties
+き	黄	yellow	xanth/o	大小・形状・色・数量の用語         Size, Shape, Color, Quantity and Other Properties
+はいみどり	灰緑	bluish green	glauk/o, glauc/o	大小・形状・色・数量の用語         Size, Shape, Color, Quantity and Other Properties
+はいしろ	灰白	whitish gray	poli/o	大小・形状・色・数量の用語         Size, Shape, Color, Quantity and Other Properties
+いろ	色	color	chrom/o, chromat/o	大小・形状・色・数量の用語         Size, Shape, Color, Quantity and Other Properties
+おお	多	many	pol/y; mult/i	大小・形状・色・数量の用語         Size, Shape, Color, Quantity and Other Properties
+はんぶん	半分	half	hemi-; semi;	大小・形状・色・数量の用語         Size, Shape, Color, Quantity and Other Properties
+む	無	none	null/i	大小・形状・色・数量の用語         Size, Shape, Color, Quantity and Other Properties
+とも	乏	little	olig/o	大小・形状・色・数量の用語         Size, Shape, Color, Quantity and Other Properties
+しんけい	神経	nerve	neur/o, nerv/i, nerv/o	脳神経系の用語 The Nervous System
+だいのう	大脳	cerebrum	cerebr/o	脳神経系の用語 The Nervous System
+しょうのう	小脳	cerebellum	cerebell/o	脳神経系の用語 The Nervous System
+せきずい	脊髄	spinal cord	myel/o	脳神経系の用語 The Nervous System
+ずいまく	髄膜	meninx	mening/o	脳神経系の用語 The Nervous System
+せいしん	精神	mind	psych/o, phren/o, -phrenia	脳神経系の用語 The Nervous System
+こころ	心	mind	psych/o, phren/o, -phrenia	脳神経系の用語 The Nervous System
+ほね	骨	bone	oste/o	脳神経系の用語 The Nervous System
+なんこつ	軟骨	cartilage	chondr/o	脳神経系の用語 The Nervous System
+かんせつ	関節	joint	arthr/o, articul/o	脳神経系の用語 The Nervous System
+きんにく	筋肉	muscle	my/o	脳神経系の用語 The Nervous System
+ずがいこつ	頭蓋骨	cranium, skull	crani/o	脳神経系の用語 The Nervous System
+せきつい	脊椎	spine	rach/i, rachi/o, spin/o	脳神経系の用語 The Nervous System
+せきちゅう	脊柱	spine	rach/i, rachi/o, spin/o	脳神経系の用語 The Nervous System
+ついこつ	椎骨	vertebra	vertebr/o	脳神経系の用語 The Nervous System
+かたこうこつ	肩甲骨	scapula	scapul/o	脳神経系の用語 The Nervous System
+さこつ	鎖骨	clavicle	clavic/o, clavicul/o	脳神経系の用語 The Nervous System
+かたほう	肩峰	acromion	acromi/o	脳神経系の用語 The Nervous System
+きょうこつ	胸骨	sternum	stern/o	脳神経系の用語 The Nervous System
+ろっこつ	肋骨	rib	cost/o	脳神経系の用語 The Nervous System
+ちょうぼね	腸骨	ilium	ili/o	脳神経系の用語 The Nervous System
+ざこつ	坐骨	ischium	ischi/o	脳神経系の用語 The Nervous System
+せんこつ	仙骨	sacrum	sacr/o	脳神経系の用語 The Nervous System
+ちこつ	恥骨	pubis	pub/o, pubi/o	脳神経系の用語 The Nervous System
+じょうわんぼね	上腕骨	humerus	humer/o	脳神経系の用語 The Nervous System
+しゃくぼね	尺骨	ulna	uln/o	脳神経系の用語 The Nervous System
+てねぼね	手根骨	carpus	carp/o	脳神経系の用語 The Nervous System
+ゆびぶしぼね	指節骨	phalanx	phalang/o	脳神経系の用語 The Nervous System
+だいたいぼね	大腿骨	femur	femor/o	脳神経系の用語 The Nervous System
+ひこつ	腓骨	fibula	fibul/o	脳神経系の用語 The Nervous System
+けいこつ	脛骨	tibia	tibi/o	脳神経系の用語 The Nervous System
+しつがいこつ	膝蓋骨	patella	patell/o	脳神経系の用語 The Nervous System
+かかとぼね	踵骨	calcaneus	calcane/o	脳神経系の用語 The Nervous System
+おんど	温度	heat	therm/o	撮影・検査・測定・治療の用語 Terms Describing Imaging, Tests, Measurement and Treatment
+ひ	火	fire, fever	pyr/o	撮影・検査・測定・治療の用語 Terms Describing Imaging, Tests, Measurement and Treatment
+ひかり	光	light	phot/o	撮影・検査・測定・治療の用語 Terms Describing Imaging, Tests, Measurement and Treatment
+いし	石	stone	lith/o	撮影・検査・測定・治療の用語 Terms Describing Imaging, Tests, Measurement and Treatment
+おと	音	sound	phon/o, son/o	撮影・検査・測定・治療の用語 Terms Describing Imaging, Tests, Measurement and Treatment
+でんき	電気	electricity	electr/o	撮影・検査・測定・治療の用語 Terms Describing Imaging, Tests, Measurement and Treatment
+みず	水	water	hydr/o, aque/o	撮影・検査・測定・治療の用語 Terms Describing Imaging, Tests, Measurement and Treatment
+ほうしゃせん	放射線	radiation	radi/o	撮影・検査・測定・治療の用語 Terms Describing Imaging, Tests, Measurement and Treatment
+かがく	化学	chemical, chemistry	chem/o	撮影・検査・測定・治療の用語 Terms Describing Imaging, Tests, Measurement and Treatment
+め	眼	eye	ophthalm/o, ocul/o	撮影・検査・測定・治療の用語 Terms Describing Imaging, Tests, Measurement and Treatment
+どうこう	瞳孔	pupil	cor/e, core/o, pupill/o	撮影・検査・測定・治療の用語 Terms Describing Imaging, Tests, Measurement and Treatment
+かくまく	角膜	cornea	kerat/o, corne/o	撮影・検査・測定・治療の用語 Terms Describing Imaging, Tests, Measurement and Treatment
+つよまく	強膜	sclera	scler/o	撮影・検査・測定・治療の用語 Terms Describing Imaging, Tests, Measurement and Treatment
+こうさい	虹彩	iris	ir/o, irid/o	撮影・検査・測定・治療の用語 Terms Describing Imaging, Tests, Measurement and Treatment
+もうまく	網膜	retina	retin/o	撮影・検査・測定・治療の用語 Terms Describing Imaging, Tests, Measurement and Treatment
+もうさまたい	毛様体	ciliary body	cycl/o	撮影・検査・測定・治療の用語 Terms Describing Imaging, Tests, Measurement and Treatment
+なみだ	涙	tear, tear sac	dacry/o, lacrim/o	撮影・検査・測定・治療の用語 Terms Describing Imaging, Tests, Measurement and Treatment
+なみだ	涙嚢	tear, tear sac	dacry/o, lacrim/o	撮影・検査・測定・治療の用語 Terms Describing Imaging, Tests, Measurement and Treatment
+けつまく	結膜	conjunctiva	conjunctiv/i, conjunctiv/o	撮影・検査・測定・治療の用語 Terms Describing Imaging, Tests, Measurement and Treatment
+がんけん	眼瞼	eyelid	blephar/o	撮影・検査・測定・治療の用語 Terms Describing Imaging, Tests, Measurement and Treatment
+みみ	耳	ear	ot/o, aur/o	撮影・検査・測定・治療の用語 Terms Describing Imaging, Tests, Measurement and Treatment
+こまく	鼓膜	eardrum	tympan/o	撮影・検査・測定・治療の用語 Terms Describing Imaging, Tests, Measurement and Treatment
+しかく	視覚	vision	opt/o	撮影・検査・測定・治療の用語 Terms Describing Imaging, Tests, Measurement and Treatment
+しゅよう	腫瘍	tumor	onc/o	撮影・検査・測定・治療の用語 Terms Describing Imaging, Tests, Measurement and Treatment
+にく	肉	flesh	sarc/o	撮影・検査・測定・治療の用語 Terms Describing Imaging, Tests, Measurement and Treatment
+あたま	頭	head	cephal/o	体の各部分と方向・場所・動きの用語 The Body Regions and Derectional Terms
+せ	背	back	dors/o	体の各部分と方向・場所・動きの用語 The Body Regions and Derectional Terms
+はら	腹	abdomen	abdomin/o	体の各部分と方向・場所・動きの用語 The Body Regions and Derectional Terms
+がわふくぶ	側腹部	flank	lapar/o	体の各部分と方向・場所・動きの用語 The Body Regions and Derectional Terms
+ないぞう	内臓		viscer/o	体の各部分と方向・場所・動きの用語 The Body Regions and Derectional Terms
+こし	腰	loin	lumb/o	体の各部分と方向・場所・動きの用語 The Body Regions and Derectional Terms
+ゆび	指	finger	dactyl/o	体の各部分と方向・場所・動きの用語 The Body Regions and Derectional Terms
+あし	足	foot	pod/o, ped/o	体の各部分と方向・場所・動きの用語 The Body Regions and Derectional Terms
+しし	四肢	extremities	acr/o	体の各部分と方向・場所・動きの用語 The Body Regions and Derectional Terms
+せんたん	先端	extremities	acr/o	体の各部分と方向・場所・動きの用語 The Body Regions and Derectional Terms
+はらがわの	腹側の	belly	ventr/o	体の各部分と方向・場所・動きの用語 The Body Regions and Derectional Terms
+おへ	尾へ	tail	caud/o	体の各部分と方向・場所・動きの用語 The Body Regions and Derectional Terms
+ぜんぽうの	前方の	forward	anter/o	体の各部分と方向・場所・動きの用語 The Body Regions and Derectional Terms
+こうほうの	後方の	backward	poster/o	体の各部分と方向・場所・動きの用語 The Body Regions and Derectional Terms
+そとがわの	外側の	side	later/o	体の各部分と方向・場所・動きの用語 The Body Regions and Derectional Terms
+みぎがわ	右側	right	dextr/o	体の各部分と方向・場所・動きの用語 The Body Regions and Derectional Terms
+ひだりがわ	左側	left	sinistr/o	体の各部分と方向・場所・動きの用語 The Body Regions and Derectional Terms
