@@ -186,17 +186,25 @@ TEST(romaji_uppercase_passthrough)
 TEST(masks_sensitive_reading_returns_variants)
 {
     auto v = masks::Variants(L"ちんぽ");
-    // 3 hira positions + 3 kata positions = 6 masked variants.
-    EXPECT_TRUE(v.size() == 6);
-    // First three are hiragana masks at each position.
-    if (v.size() >= 6) {
+    // 3 hira positions × 3 mask chars + 3 kata positions × 3 mask chars = 18.
+    EXPECT_TRUE(v.size() == 18);
+    if (v.size() >= 18) {
+        // Hiragana - primary〇 first, then ●, then ＊.
         EXPECT_EQ_W(v[0], L"〇んぽ");
         EXPECT_EQ_W(v[1], L"ち〇ぽ");
         EXPECT_EQ_W(v[2], L"ちん〇");
-        // Then katakana masks.
-        EXPECT_EQ_W(v[3], L"〇ンポ");
-        EXPECT_EQ_W(v[4], L"チ〇ポ");
-        EXPECT_EQ_W(v[5], L"チン〇");
+        EXPECT_EQ_W(v[3], L"●んぽ");
+        EXPECT_EQ_W(v[4], L"ち●ぽ");
+        EXPECT_EQ_W(v[5], L"ちん●");
+        EXPECT_EQ_W(v[6], L"＊んぽ");
+        EXPECT_EQ_W(v[7], L"ち＊ぽ");
+        EXPECT_EQ_W(v[8], L"ちん＊");
+        // Katakana - same char order.
+        EXPECT_EQ_W(v[9],  L"〇ンポ");
+        EXPECT_EQ_W(v[10], L"チ〇ポ");
+        EXPECT_EQ_W(v[11], L"チン〇");
+        EXPECT_EQ_W(v[12], L"●ンポ");
+        EXPECT_EQ_W(v[15], L"＊ンポ");
     }
 }
 
@@ -207,28 +215,35 @@ TEST(masks_sensitive_reading_returns_variants)
 TEST(masks_kanji_surface_only_for_shijuhatte)
 {
     auto v = masks::Variants(L"まつばくずし");
-    // "松葉くずし" is 5 chars, all non-〇 non-space, so 5 variants.
-    EXPECT_TRUE(v.size() == 5);
-    if (v.size() >= 5) {
+    // "松葉くずし" is 5 chars × 3 mask chars = 15 variants (no katakana
+    // for kanji-target entries).
+    EXPECT_TRUE(v.size() == 15);
+    if (v.size() >= 15) {
+        // First 5 use the primary〇.
         EXPECT_EQ_W(v[0], L"〇葉くずし");
         EXPECT_EQ_W(v[1], L"松〇くずし");
         EXPECT_EQ_W(v[2], L"松葉〇ずし");
         EXPECT_EQ_W(v[3], L"松葉く〇し");
         EXPECT_EQ_W(v[4], L"松葉くず〇");
+        // Next 5 use ●.
+        EXPECT_EQ_W(v[5], L"●葉くずし");
+        EXPECT_EQ_W(v[9], L"松葉くず●");
+        // Last 5 use ＊.
+        EXPECT_EQ_W(v[10], L"＊葉くずし");
+        EXPECT_EQ_W(v[14], L"松葉くず＊");
     }
     // No hiragana-of-reading masks (「〇つばくずし」 etc.) should appear.
     for (const auto& m : v) {
         EXPECT_TRUE(m.find(L"つばくずし") == std::wstring::npos);
     }
 
-    // Same shape for 抱き地蔵 / 撞木反り / etc.
+    // Same shape for 抱き地蔵 (4 chars × 3 = 12 variants).
     auto d = masks::Variants(L"だきじぞう");
-    EXPECT_TRUE(d.size() == 4);  // 抱き地蔵 = 4 chars
-    if (d.size() >= 4) {
+    EXPECT_TRUE(d.size() == 12);
+    if (d.size() >= 12) {
         EXPECT_EQ_W(d[0], L"〇き地蔵");
-        EXPECT_EQ_W(d[1], L"抱〇地蔵");
-        EXPECT_EQ_W(d[2], L"抱き〇蔵");
-        EXPECT_EQ_W(d[3], L"抱き地〇");
+        EXPECT_EQ_W(d[4], L"●き地蔵");
+        EXPECT_EQ_W(d[8], L"＊き地蔵");
     }
 }
 

@@ -244,21 +244,38 @@ namespace masks
         return k;
     }
 
-    // Generate one-per-position mask variants of `s` using the mask
-    // character 〇 (U+3007).
+    // Set of mask characters we offer as variants for every sensitive
+    // reading. 〇 (U+3007) is the primary; 「●」 (U+25CF) and「＊」
+    // (U+FF0A) are common alternates users request in chat contexts.
+    // Order matters - it's the order variants land in the candidate
+    // window, so the primary appears first.
+    static constexpr wchar_t kMaskChars[] = { L'〇', L'●', L'＊' };
+    static constexpr size_t  kMaskCharCount = sizeof(kMaskChars) / sizeof(kMaskChars[0]);
+
+    // Generate one-per-position mask variants of `s` for every mask
+    // character in kMaskChars. All variants for the first mask char
+    // land first (so「〇んぽ」/「ち〇ぽ」/「ちん〇」come before their
+    // ● / ＊ counterparts), then the second, etc.
     static std::vector<std::wstring> MaskEachPosition(const std::wstring& s)
     {
-        constexpr wchar_t kMask = L'〇';
         std::vector<std::wstring> out;
-        out.reserve(s.size());
-        for (size_t i = 0; i < s.size(); ++i) {
-            // Don't waste a variant on masking a position that's already
-            // 〇 (would be a no-op) or on ASCII space (some kanji surfaces
-            // like「お っぱい」use it as a placeholder).
-            if (s[i] == kMask || s[i] == L' ') continue;
-            std::wstring m = s;
-            m[i] = kMask;
-            out.push_back(std::move(m));
+        out.reserve(s.size() * kMaskCharCount);
+        for (size_t ci = 0; ci < kMaskCharCount; ++ci) {
+            wchar_t mc = kMaskChars[ci];
+            for (size_t i = 0; i < s.size(); ++i) {
+                // Skip masking a position already occupied by any of our
+                // mask chars (would be a no-op / duplicate) or by ASCII
+                // space (some kanji surfaces like「お っぱい」use it as a
+                // placeholder).
+                bool alreadyMask = false;
+                for (size_t k = 0; k < kMaskCharCount; ++k) {
+                    if (s[i] == kMaskChars[k]) { alreadyMask = true; break; }
+                }
+                if (alreadyMask || s[i] == L' ') continue;
+                std::wstring m = s;
+                m[i] = mc;
+                out.push_back(std::move(m));
+            }
         }
         return out;
     }
