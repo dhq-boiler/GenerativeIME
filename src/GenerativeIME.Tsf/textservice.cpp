@@ -861,7 +861,13 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
     // 漢字/幹事/監事 for that reading. Only fav is guaranteed at 0.
     if (m_pLearning && m_pCandWnd)
     {
-        std::wstring fav = m_pLearning->GetFav(reading);
+        // AppContext scopes the fav to the current process+window so a
+        // learned「かんじ→感じ」in a chat window doesn't shadow
+        //「かんじ→漢字」 in a code editor. Empty ctx (e.g. no
+        // foreground window) falls back to the pre-2026-07-02 global
+        // behavior via the cascade in LearningStore::GetFav.
+        AppContext ctx = AppContext::Capture();
+        std::wstring fav = m_pLearning->GetFav(reading, ctx);
         if (!fav.empty())
         {
             std::vector<std::wstring> cands = { fav };
@@ -1739,11 +1745,12 @@ void CTextService::CommitConvertedIfAny(ITfContext* pContext)
         std::wstring text = bunsetsu::JoinSelected(m_bunsetsuList);
         if (m_pLearning)
         {
+            AppContext ctx = AppContext::Capture();
             for (const auto& b : m_bunsetsuList)
             {
                 if (b.reading.empty() || b.candidates.empty()) continue;
                 if (b.selected >= b.candidates.size())          continue;
-                m_pLearning->Record(b.reading, b.candidates[b.selected]);
+                m_pLearning->Record(b.reading, b.candidates[b.selected], ctx);
             }
         }
         AppendCommittedText(text);
@@ -1755,7 +1762,7 @@ void CTextService::CommitConvertedIfAny(ITfContext* pContext)
         std::wstring picked = m_pCandWnd->GetSelected();
         if (m_pLearning && !m_lastReading.empty())
         {
-            m_pLearning->Record(m_lastReading, picked);
+            m_pLearning->Record(m_lastReading, picked, AppContext::Capture());
         }
         AppendCommittedText(picked);
         if (pContext) RequestEditSession(pContext, EditAction::EndCommit, L"");
@@ -2596,11 +2603,12 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
             // same reading promote what the user picked this time.
             if (m_pLearning)
             {
+                AppContext ctx = AppContext::Capture();
                 for (const auto& b : m_bunsetsuList)
                 {
                     if (b.reading.empty() || b.candidates.empty()) continue;
                     if (b.selected >= b.candidates.size())          continue;
-                    m_pLearning->Record(b.reading, b.candidates[b.selected]);
+                    m_pLearning->Record(b.reading, b.candidates[b.selected], ctx);
                 }
             }
             AppendCommittedText(text);
@@ -2622,7 +2630,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
             if (!picked.empty())
             {
                 if (m_pLearning && !m_lastReading.empty())
-                    m_pLearning->Record(m_lastReading, picked);
+                    m_pLearning->Record(m_lastReading, picked, AppContext::Capture());
                 AppendCommittedText(picked);
             }
             if (pic) RequestEditSession(pic, EditAction::EndCommit, L"");
@@ -2980,7 +2988,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
             std::wstring picked = m_pCandWnd->GetSelected();
             if (m_pLearning && !m_lastReading.empty())
             {
-                m_pLearning->Record(m_lastReading, picked);
+                m_pLearning->Record(m_lastReading, picked, AppContext::Capture());
             }
             AppendCommittedText(picked);
             if (pic) RequestEditSession(pic, EditAction::EndCommit, L"");

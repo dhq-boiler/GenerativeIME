@@ -347,6 +347,72 @@ TEST(learning_reorder_preserves_non_fav_order)
     }
 }
 
+// 2026-07-02: per-context learning. Same reading in two different apps
+// should learn independently — a 感じ pick in a chat window doesn't
+// override 漢字 in a code editor.
+TEST(learning_ctx_scoped_isolated_between_procs)
+{
+    LearningStore ls;
+    AppContext ctxCode;   ctxCode.procName = L"Code.exe"; ctxCode.windowClass = L"Chrome_WidgetWin_1"; ctxCode.titleNorm = L"main.ts";
+    AppContext ctxChat;   ctxChat.procName = L"Slack.exe"; ctxChat.windowClass = L"Chrome_WidgetWin_1"; ctxChat.titleNorm = L"#general";
+    ls.Record(L"k_test", L"漢字", ctxCode);
+    ls.Record(L"k_test", L"感じ", ctxChat);
+    EXPECT_EQ_W(ls.GetFav(L"k_test", ctxCode), L"漢字");
+    EXPECT_EQ_W(ls.GetFav(L"k_test", ctxChat), L"感じ");
+}
+
+// Cascade: exact ctx wins over broader. If nothing matches at proc level,
+// fall back to global (empty-ctx) latest.
+TEST(learning_ctx_cascade_falls_back_to_global)
+{
+    LearningStore ls;
+    AppContext ctxA; ctxA.procName = L"appA.exe"; ctxA.windowClass = L"AClass"; ctxA.titleNorm = L"Alpha";
+    AppContext ctxB; ctxB.procName = L"appB.exe"; ctxB.windowClass = L"BClass"; ctxB.titleNorm = L"Beta";
+    // First a global (empty-ctx) record, then a ctxA-scoped record.
+    ls.Record(L"c_test", L"global_pick", AppContext{});
+    ls.Record(L"c_test", L"a_pick",      ctxA);
+    // ctxA sees its own pick.
+    EXPECT_EQ_W(ls.GetFav(L"c_test", ctxA), L"a_pick");
+    // ctxB has no scoped pick; falls back to global.
+    EXPECT_EQ_W(ls.GetFav(L"c_test", ctxB), L"global_pick");
+    // Empty ctx also gets global.
+    EXPECT_EQ_W(ls.GetFav(L"c_test", AppContext{}), L"global_pick");
+}
+
+// Cascade narrower→broader: if (proc, class, title) misses but (proc, class)
+// has a match, we return that; then (proc) alone, then global.
+TEST(learning_ctx_cascade_partial_match)
+{
+    LearningStore ls;
+    AppContext exact;      exact.procName      = L"proc.exe"; exact.windowClass      = L"Cls"; exact.titleNorm      = L"Doc1";
+    AppContext sameClass;  sameClass.procName  = L"proc.exe"; sameClass.windowClass  = L"Cls"; sameClass.titleNorm  = L"OtherDoc";
+    AppContext sameProc;   sameProc.procName   = L"proc.exe"; sameProc.windowClass   = L"OtherCls"; sameProc.titleNorm   = L"OtherDoc";
+    AppContext otherProc;  otherProc.procName  = L"other.exe"; otherProc.windowClass = L"Cls"; otherProc.titleNorm  = L"Doc1";
+    // Record only at (proc, class) — no title.
+    AppContext pc;         pc.procName         = L"proc.exe"; pc.windowClass         = L"Cls";
+    ls.Record(L"p_test", L"pc_pick", pc);
+    // exact query cascades: exact miss → (proc, class) hit.
+    EXPECT_EQ_W(ls.GetFav(L"p_test", exact), L"pc_pick");
+    // sameClass also cascades to (proc, class).
+    EXPECT_EQ_W(ls.GetFav(L"p_test", sameClass), L"pc_pick");
+    // sameProc has no class match; nothing global recorded → empty.
+    EXPECT_EQ_W(ls.GetFav(L"p_test", sameProc), L"");
+    // otherProc: no match anywhere.
+    EXPECT_EQ_W(ls.GetFav(L"p_test", otherProc), L"");
+}
+
+// Legacy 2-arg Record/GetFav still work — they're forwarding overloads
+// that pass an empty ctx.
+TEST(learning_ctx_legacy_overloads_still_work)
+{
+    LearningStore ls;
+    ls.Record(L"legacy_test", L"legacy_pick");
+    EXPECT_EQ_W(ls.GetFav(L"legacy_test"), L"legacy_pick");
+    // A scoped query with no scoped record falls back to global.
+    AppContext ctx; ctx.procName = L"any.exe";
+    EXPECT_EQ_W(ls.GetFav(L"legacy_test", ctx), L"legacy_pick");
+}
+
 // ---------------------------------------------------------------------
 // SkkDictionary — depends on SKK-JISYO.L.utf8 being staged next to the
 // test EXE (build_tests.ps1 routes output there for this reason).

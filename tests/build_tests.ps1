@@ -46,7 +46,7 @@ $compile = "`"$vcvars`" >nul && cl /nologo /EHsc /std:c++20 /utf-8 " +
            "/I `"$mecabInc`" " +
            "/Fe:`"$out`" `"$tests\test_runner.cpp`" " +
            ($srcs | ForEach-Object { "`"$_`" " }) + " " +
-           "/link /LIBPATH:`"$mecabLib`" mecab.lib shlwapi.lib shell32.lib ole32.lib"
+           "/link /LIBPATH:`"$mecabLib`" mecab.lib shlwapi.lib shell32.lib ole32.lib user32.lib"
 
 cmd /c $compile
 if ($LASTEXITCODE -ne 0) { Write-Host "Compile failed"; exit 1 }

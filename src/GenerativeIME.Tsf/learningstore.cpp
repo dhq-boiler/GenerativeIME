@@ -1,10 +1,85 @@
 #include "learningstore.h"
 #include <windows.h>
 #include <shlobj.h>
+#include <psapi.h>
 #include <fstream>
 #include <sstream>
 
 #pragma comment(lib, "shell32.lib")
+
+// -- AppContext -----------------------------------------------------------
+
+AppContext AppContext::Capture(HWND hwnd)
+{
+    AppContext c;
+    if (!hwnd) hwnd = GetForegroundWindow();
+    if (!hwnd) return c;
+
+    wchar_t cls[256] = { 0 };
+    if (GetClassNameW(hwnd, cls, ARRAYSIZE(cls)) > 0) c.windowClass = cls;
+
+    wchar_t title[512] = { 0 };
+    if (GetWindowTextW(hwnd, title, ARRAYSIZE(title)) > 0)
+    {
+        std::wstring t = title;
+        // De-tab / de-newline / de-RS so storage stays parseable.
+        for (auto& ch : t) {
+            if (ch == L'\t' || ch == L'\r' || ch == L'\n' || ch == L'\x1E')
+                ch = L' ';
+        }
+        // Trim trailing whitespace.
+        while (!t.empty() && iswspace(t.back())) t.pop_back();
+        // Trim leading whitespace.
+        size_t start = 0;
+        while (start < t.size() && iswspace(t[start])) ++start;
+        if (start) t.erase(0, start);
+        // Truncate: 60 wchar_t is enough to distinguish e.g. Chrome tabs
+        // ("ChatGPT — foo bar" vs "GitLab · project · main") without
+        // storing per-file title variations (line numbers, dirty flags).
+        if (t.size() > 60) t.resize(60);
+        c.titleNorm = std::move(t);
+    }
+
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    if (pid)
+    {
+        HANDLE hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        if (hProc)
+        {
+            wchar_t path[MAX_PATH] = { 0 };
+            DWORD sz = MAX_PATH;
+            if (QueryFullProcessImageNameW(hProc, 0, path, &sz))
+            {
+                std::wstring p(path, sz);
+                auto slash = p.find_last_of(L"\\/");
+                c.procName = (slash != std::wstring::npos) ? p.substr(slash + 1) : p;
+            }
+            CloseHandle(hProc);
+        }
+    }
+    return c;
+}
+
+namespace
+{
+    // Serialize an AppContext + reading into a lookup key. Uses RS (0x1E)
+    // as the separator since real titles / class names / process names
+    // never contain it (we sanitize titles at capture time).
+    std::wstring MakeCtxKey(const std::wstring& proc,
+                            const std::wstring& cls,
+                            const std::wstring& title,
+                            const std::wstring& reading)
+    {
+        std::wstring k;
+        k.reserve(proc.size() + cls.size() + title.size() + reading.size() + 4);
+        k += proc;    k.push_back(L'\x1E');
+        k += cls;     k.push_back(L'\x1E');
+        k += title;   k.push_back(L'\x1E');
+        k += reading;
+        return k;
+    }
+}
 
 namespace
 {
@@ -82,6 +157,7 @@ namespace
 HRESULT LearningStore::Load()
 {
     m_lastPicked.clear();
+    m_ctxPicked.clear();
     m_blacklist.clear();
 
     std::wstring path = StorePath();
@@ -94,13 +170,52 @@ HRESULT LearningStore::Load()
             while (std::getline(f, line))
             {
                 if (!line.empty() && line.back() == '\r') line.pop_back();
-                auto tab = line.find('\t');
-                if (tab == std::string::npos) continue;
-                std::wstring reading = FromUtf8(line.substr(0, tab));
-                std::wstring picked  = FromUtf8(line.substr(tab + 1));
-                if (!reading.empty() && !picked.empty())
+                // Split by tab. Format is either:
+                //   reading\tpicked                            (legacy)
+                //   reading\tpicked\tproc\tclass\ttitleNorm    (2026-07-02+)
+                // Anything else (0 or 3-4 tabs) is a corrupt row; skip.
+                std::vector<std::string> parts;
                 {
+                    size_t start = 0;
+                    while (true) {
+                        auto pos = line.find('\t', start);
+                        if (pos == std::string::npos) {
+                            parts.push_back(line.substr(start));
+                            break;
+                        }
+                        parts.push_back(line.substr(start, pos - start));
+                        start = pos + 1;
+                    }
+                }
+                if (parts.size() != 2 && parts.size() != 5) continue;
+
+                std::wstring reading = FromUtf8(parts[0]);
+                std::wstring picked  = FromUtf8(parts[1]);
+                if (reading.empty() || picked.empty()) continue;
+
+                if (parts.size() == 2)
+                {
+                    // Legacy row → global map.
                     m_lastPicked[reading] = picked;
+                }
+                else // parts.size() == 5
+                {
+                    std::wstring proc  = FromUtf8(parts[2]);
+                    std::wstring cls   = FromUtf8(parts[3]);
+                    std::wstring title = FromUtf8(parts[4]);
+                    if (proc.empty() && cls.empty() && title.empty())
+                    {
+                        // 5-field with empty ctx: an explicit global record.
+                        m_lastPicked[reading] = picked;
+                    }
+                    else
+                    {
+                        // Scoped record — does NOT touch the global map.
+                        // Cross-context leakage was the whole reason for
+                        // this rework; keeping the two maps disjoint is
+                        // what makes GetFav's cascade correct.
+                        m_ctxPicked[MakeCtxKey(proc, cls, title, reading)] = picked;
+                    }
                 }
             }
         }
@@ -157,10 +272,21 @@ HRESULT LearningStore::Load()
     return S_OK;
 }
 
-HRESULT LearningStore::Record(const std::wstring& reading, const std::wstring& picked)
+HRESULT LearningStore::Record(const std::wstring& reading, const std::wstring& picked,
+                               const AppContext& ctx)
 {
     if (reading.empty() || picked.empty()) return E_INVALIDARG;
-    m_lastPicked[reading] = picked;
+    // Disjoint maps: a scoped record does NOT bump the global map, otherwise
+    // a Code.exe「かんじ→漢字」pick would overwrite the global fallback
+    // and re-leak into every other context on the very next lookup.
+    if (ctx.Empty())
+    {
+        m_lastPicked[reading] = picked;
+    }
+    else
+    {
+        m_ctxPicked[MakeCtxKey(ctx.procName, ctx.windowClass, ctx.titleNorm, reading)] = picked;
+    }
 
     std::wstring path = StorePath();
     if (path.empty()) return E_FAIL;
@@ -169,7 +295,13 @@ HRESULT LearningStore::Record(const std::wstring& reading, const std::wstring& p
     // a future enhancement when the file gets unwieldy.
     std::ofstream f(path, std::ios::binary | std::ios::app);
     if (!f.is_open()) return E_FAIL;
-    f << ToUtf8(reading) << '\t' << ToUtf8(picked) << '\n';
+    // 5-field format even for empty ctx — always the same column count
+    // simplifies grepping / awking, and a Load() picks up either.
+    f << ToUtf8(reading)  << '\t'
+      << ToUtf8(picked)   << '\t'
+      << ToUtf8(ctx.procName)    << '\t'
+      << ToUtf8(ctx.windowClass) << '\t'
+      << ToUtf8(ctx.titleNorm)   << '\n';
     return S_OK;
 }
 
@@ -213,17 +345,40 @@ bool LearningStore::IsBoundaryBlacklisted(const std::wstring& reading,
     return it->second.count(JoinBoundary(endOffsets)) > 0;
 }
 
-std::wstring LearningStore::GetFav(const std::wstring& reading) const
+std::wstring LearningStore::GetFav(const std::wstring& reading, const AppContext& ctx) const
 {
+    // Cascade: full (proc, class, title) → (proc, class) → proc → global.
+    // Each narrower scope wins if it has a match; falls back to the
+    // wider scope otherwise. Blacklist is applied at every stage —
+    // opting out a fav in one context shouldn't resurface it because
+    // a broader-scope entry happened to survive.
+    auto blHit = [&](const std::wstring& picked) -> bool {
+        auto blIt = m_blacklist.find(reading);
+        return blIt != m_blacklist.end() && blIt->second.count(picked) > 0;
+    };
+    auto tryLookup = [&](const std::wstring& proc,
+                         const std::wstring& cls,
+                         const std::wstring& title) -> std::wstring {
+        if (proc.empty() && cls.empty() && title.empty()) return {};
+        auto it = m_ctxPicked.find(MakeCtxKey(proc, cls, title, reading));
+        if (it == m_ctxPicked.end()) return {};
+        if (blHit(it->second)) return {};
+        return it->second;
+    };
+
+    if (!ctx.Empty())
+    {
+        if (auto r = tryLookup(ctx.procName, ctx.windowClass, ctx.titleNorm); !r.empty())
+            return r;
+        if (auto r = tryLookup(ctx.procName, ctx.windowClass, L""); !r.empty())
+            return r;
+        if (auto r = tryLookup(ctx.procName, L"", L""); !r.empty())
+            return r;
+    }
+
     auto it = m_lastPicked.find(reading);
     if (it == m_lastPicked.end()) return {};
-
-    // Honor the blacklist: a fav that was later opted out shouldn't
-    // resurface via the fav-fast-path.
-    auto blIt = m_blacklist.find(reading);
-    if (blIt != m_blacklist.end() && blIt->second.count(it->second) > 0)
-        return {};
-
+    if (blHit(it->second)) return {};
     return it->second;
 }
 
