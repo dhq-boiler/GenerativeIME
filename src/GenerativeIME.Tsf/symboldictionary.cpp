@@ -612,6 +612,7 @@ namespace symbols
     std::vector<std::wstring> LookupAll(std::wstring_view reading)
     {
         if (auto v = Lookup(reading); !v.empty()) return v;
+        if (auto v = LetterVariants(reading); !v.empty()) return v;
         std::wstring expanded = ExpandChoonpu(reading);
         if (expanded != reading)
         {
@@ -672,5 +673,38 @@ namespace symbols
             if (kv.first == c) return kv.second;
         }
         return {};
+    }
+
+    std::vector<std::wstring> LetterVariants(std::wstring_view typed)
+    {
+        if (typed.size() != 1) return {};
+        wchar_t c = typed[0];
+        bool lower = (c >= L'a' && c <= L'z');
+        bool upper = (c >= L'A' && c <= L'Z');
+        if (!lower && !upper) return {};
+
+        int idx = lower ? (c - L'a') : (c - L'A');
+        wchar_t lo = (wchar_t)(L'a' + idx);
+        wchar_t up = (wchar_t)(L'A' + idx);
+        std::wstring fwLo(1, (wchar_t)(0xFF41 + idx));  // ｗ
+        std::wstring fwUp(1, (wchar_t)(0xFF21 + idx));  // Ｗ
+        // REGIONAL INDICATOR SYMBOL LETTER A..Z = U+1F1E6..U+1F1FF,
+        // encoded as the surrogate pair D83C DDE6+idx. A lone indicator
+        // renders as a boxed letter; two in a row form a flag (🇯🇵).
+        std::wstring regional = { (wchar_t)0xD83C, (wchar_t)(0xDDE6 + idx) };
+        std::wstring circUp(1, (wchar_t)(0x24B6 + idx)); // Ⓦ
+        std::wstring circLo(1, (wchar_t)(0x24D0 + idx)); // ⓦ
+
+        // Typed form first so a bare Enter keeps what the user typed,
+        // then its full-width twin, then the opposite case pair.
+        std::vector<std::wstring> v;
+        if (lower)
+            v = { std::wstring(1, lo), fwLo, std::wstring(1, up), fwUp };
+        else
+            v = { std::wstring(1, up), fwUp, std::wstring(1, lo), fwLo };
+        v.push_back(std::move(regional));
+        v.push_back(std::move(circUp));
+        v.push_back(std::move(circLo));
+        return v;
     }
 }

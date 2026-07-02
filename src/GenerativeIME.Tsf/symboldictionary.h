@@ -28,4 +28,11 @@ namespace symbols
     // what the user got, while ↓/Space picks the other form. Empty for
     // anything that isn't a known punctuation pair.
     std::vector<std::wstring> PunctPairs(std::wstring_view typed);
+
+    // Single ASCII letter -> glyph variants (typed form first, then the
+    // full-width / opposite-case / regional-indicator 🇼 / circled Ⓦ
+    // forms). Same idea as the digit entries ("5" → Ⅴ/⑤/五) but generated
+    // arithmetically for all 26 letters instead of hand-listed. Empty for
+    // anything that isn't exactly one ASCII letter.
+    std::vector<std::wstring> LetterVariants(std::wstring_view typed);
 }

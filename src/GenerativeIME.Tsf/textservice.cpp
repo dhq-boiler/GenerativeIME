@@ -934,6 +934,12 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
                 if (std::find(cands.begin(), cands.end(), a) == cands.end())
                     cands.push_back(std::move(a));
             }
+            // Letter-glyph variants (ｗ/W/Ｗ/🇼/Ⓦ/…) so a learned pick like
+            // 「w→🇼」 doesn't lock the other forms out of reach.
+            for (auto& lv : symbols::LetterVariants(reading)) {
+                if (std::find(cands.begin(), cands.end(), lv) == cands.end())
+                    cands.push_back(std::move(lv));
+            }
             m_lastReading = reading;
             m_pCandWnd->SetCandidates(cands);
             POINT pt = QueryCandidateAnchorPos(pContext);
@@ -3091,7 +3097,9 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         *pfEaten = TRUE;
     }
     else if (wParam >= '0' && wParam <= '9' && !m_romajiBuffer.empty()
-             && GetKeyState(VK_SHIFT) >= 0)
+             && GetKeyState(VK_SHIFT) >= 0
+             && (wParam == '0' || m_predictionActive ||
+                 !m_pCandWnd || !m_pCandWnd->IsVisible()))
     {
         // UNSHIFTED digit inside an active composition (ShouldEat gate
         // above matches the same condition). Pushed as its literal ASCII
@@ -3102,6 +3110,13 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         // here — it's number-row punctuation (! " # …) and belongs to the
         // IsSymbolKey branch below; without the shift check, the second
         // key of「!!」was swallowed as「1」(「！１」bug).
+        //
+        // Conversion-candidate window visible (and not a prediction popup,
+        // where the user is mid-typing and digits are still input): defer
+        // to the 1-9 candidate-pick branch further down — this else-if
+        // chain used to swallow the digit into the buffer first, so
+        // number-row candidate selection never fired for romaji input.
+        // '0' has no pick row, so it stays buffer input either way.
         CommitConvertedIfAny(pic);
         m_romajiBuffer.push_back(static_cast<wchar_t>(wParam));
         m_compositionConverted = FALSE;
