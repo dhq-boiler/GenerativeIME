@@ -659,11 +659,93 @@ TEST(skk_lookup_okuri_recovers_verb_stem_kanji)
 }
 
 // ---------------------------------------------------------------------
+// PredictCompletions — 投機的変換 (speculative conversion) prefix search.
+// ---------------------------------------------------------------------
+TEST(skk_predict_completions_basic)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // 「こんにち」 must predict the greeting 「こんにちは」. Every hit's
+    // reading must start with the prefix and be strictly longer than it.
+    auto preds = skk->PredictCompletions(L"こんにち", 9);
+    EXPECT_TRUE(!preds.empty());
+    bool hasGreeting = false;
+    for (const auto& p : preds)
+    {
+        EXPECT_TRUE(p.reading.size() > 4);
+        EXPECT_TRUE(p.reading.compare(0, 4, L"こんにち") == 0);
+        EXPECT_TRUE(!p.word.empty());
+        if (p.reading == L"こんにちは") hasGreeting = true;
+    }
+    EXPECT_TRUE(hasGreeting);
+}
+
+TEST(skk_predict_excludes_exact_reading)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // 「あめ」 itself is in the dict, but predictions are completions —
+    // the exact reading is what Space conversion already covers.
+    auto preds = skk->PredictCompletions(L"あめ", 9);
+    for (const auto& p : preds) EXPECT_TRUE(p.reading != L"あめ");
+}
+
+TEST(skk_predict_shorter_readings_first)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // Nearest completion first: reading lengths must be non-decreasing.
+    auto preds = skk->PredictCompletions(L"けいたい", 9);
+    for (size_t i = 1; i < preds.size(); ++i)
+        EXPECT_TRUE(preds[i - 1].reading.size() <= preds[i].reading.size());
+}
+
+TEST(skk_predict_respects_max_results)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto preds = skk->PredictCompletions(L"かん", 5);
+    EXPECT_TRUE(preds.size() <= 5);
+    EXPECT_TRUE(!preds.empty());  // かん〜 is a huge family; must find some
+}
+
+TEST(skk_predict_miss_returns_empty)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto preds = skk->PredictCompletions(L"ぁぁぁぁぁ", 9);
+    EXPECT_TRUE(preds.empty());
+}
+
+// ---------------------------------------------------------------------
 // SKK dict extensions added 2026-07-02 (loanwords + IT terms).
 // Regression guard: these MUST return the katakana form as the top
 // candidate. If any of these fail, the dict Edit didn't parse the
 // way we expected (annotation stripping, dedup order, etc.).
 // ---------------------------------------------------------------------
+TEST(skk_lookup_tadotadoshii_top_is_kanji)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // 畳語形容詞 block added 2026-07-02: full-reading entries for 〇々しい
+    // adjectives that SKK only carries as okuri-ari stems.
+    auto cands = skk->Lookup(L"たどたどしい");
+    EXPECT_TRUE(!cands.empty());
+    if (!cands.empty()) EXPECT_TRUE(cands[0] == L"辿々しい");
+    auto ku = skk->Lookup(L"たどたどしく");
+    EXPECT_TRUE(!ku.empty());
+    if (!ku.empty()) EXPECT_TRUE(ku[0] == L"辿々しく");
+}
+
+TEST(skk_lookup_zuuzuushii_top_is_kanji)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto cands = skk->Lookup(L"ずうずうしい");
+    EXPECT_TRUE(!cands.empty());
+    if (!cands.empty()) EXPECT_TRUE(cands[0] == L"図々しい");
+}
+
 TEST(skk_lookup_loanword_tesuto_top_is_katakana)
 {
     auto* skk = SkkDictionary::GetGlobal();

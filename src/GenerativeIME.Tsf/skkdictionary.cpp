@@ -3,6 +3,7 @@
 
 #include <Windows.h>
 #include <Shlwapi.h>
+#include <algorithm>
 #include <fstream>
 #include <mutex>
 
@@ -193,8 +194,67 @@ HRESULT SkkDictionary::Load(const std::wstring& path)
         m_okuri[kv.first] = std::move(kv.second);
     }
 
+    // Sorted key index for PredictCompletions' prefix-range scan. Built
+    // AFTER the deferred-okuri flush above so every m_entries node exists;
+    // no inserts happen past this point, so the key pointers stay valid.
+    m_sortedReadings.clear();
+    m_sortedReadings.reserve(m_entries.size());
+    for (const auto& kv : m_entries) m_sortedReadings.push_back(&kv.first);
+    std::sort(m_sortedReadings.begin(), m_sortedReadings.end(),
+              [](const std::wstring* a, const std::wstring* b) { return *a < *b; });
+
     m_loaded = true;
     return S_OK;
+}
+
+std::vector<SkkDictionary::Prediction> SkkDictionary::PredictCompletions(
+    const std::wstring& prefix, size_t maxResults) const
+{
+    std::vector<Prediction> out;
+    if (!m_loaded || prefix.empty() || maxResults == 0) return out;
+
+    auto it = std::lower_bound(
+        m_sortedReadings.begin(), m_sortedReadings.end(), prefix,
+        [](const std::wstring* a, const std::wstring& b) { return *a < b; });
+
+    // Collect readings in the prefix range. The scan cap keeps a very common
+    // 2-char prefix (しょ / かん / …) from walking thousands of long-tail
+    // keys on every keystroke; lexicographic order means the cap biases
+    // toward the front of the range, which is acceptable for prediction.
+    constexpr size_t kScanCap = 3000;
+    std::vector<const std::wstring*> hits;
+    size_t scanned = 0;
+    for (; it != m_sortedReadings.end() && scanned < kScanCap; ++it, ++scanned)
+    {
+        const std::wstring& key = **it;
+        if (key.compare(0, prefix.size(), prefix) != 0) break;
+        if (key.size() == prefix.size()) continue;  // exact hit → Space handles it
+        if (m_directReadings.find(key) == m_directReadings.end()) continue;
+        hits.push_back(*it);
+    }
+
+    // Nearest completion first: fewer remaining chars beats lexicographic
+    // order (こんにちは above こんにちわ+α for prefix こんに). stable_sort
+    // keeps the lexicographic order as the tie-break within a length.
+    std::stable_sort(hits.begin(), hits.end(),
+                     [](const std::wstring* a, const std::wstring* b)
+                     { return a->size() < b->size(); });
+
+    for (const auto* key : hits)
+    {
+        const auto& cands = m_entries.at(*key);
+        if (cands.empty()) continue;
+        const std::wstring& word = cands.front();
+        bool dup = false;
+        for (const auto& p : out)
+        {
+            if (p.word == word) { dup = true; break; }
+        }
+        if (dup) continue;
+        out.push_back({ *key, word });
+        if (out.size() >= maxResults) break;
+    }
+    return out;
 }
 
 std::vector<std::wstring> SkkDictionary::LookupOkuri(const std::wstring& stemReading) const

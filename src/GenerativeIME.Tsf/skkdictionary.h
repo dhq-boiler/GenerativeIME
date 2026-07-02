@@ -43,6 +43,24 @@ public:
     // hiragana run like "あしたはいやらしい" into "あした" + "は" + "いやらしい".
     PrefixMatch FindLongestPrefix(const std::wstring& reading, size_t start) const;
 
+    // A speculative-completion hit: `reading` is the full dictionary key
+    // that starts with the user's typed prefix, `word` the candidate shown
+    // in the prediction popup.
+    struct Prediction
+    {
+        std::wstring reading;
+        std::wstring word;
+    };
+
+    // Predictive completion (投機的変換): returns up to `maxResults` words
+    // whose reading starts with — and is strictly longer than — `prefix`
+    // (the exact reading is what Space conversion already covers). Nearer
+    // completions (shorter readings) rank first. Only okuri-nashi direct
+    // entries participate: okuri-ari flatten-through keys would surface
+    // truncated stems like 送り出 (from 送り出s).
+    std::vector<Prediction> PredictCompletions(const std::wstring& prefix,
+                                               size_t maxResults) const;
+
     // Looks up an okuri-ari verb / adjective stem by the stripped reading
     // (the reading WITHOUT the trailing ASCII letter that SKK uses to mark
     // the inflection class — "ふr /振/触/降/" is keyed by "ふ"). Returns
@@ -83,5 +101,11 @@ private:
     // Uses a `set`-shaped unordered_map to reuse the same allocator hint;
     // membership is the only thing we care about.
     std::unordered_map<std::wstring, char> m_directReadings;
+    // Readings of m_entries sorted lexicographically, as pointers into the
+    // map's keys (unordered_map nodes are stable so the pointers stay valid
+    // for the dictionary's lifetime). Built once at the end of Load; gives
+    // PredictCompletions the lower_bound prefix-range scan the hash map
+    // alone can't do.
+    std::vector<const std::wstring*> m_sortedReadings;
     bool m_loaded = false;
 };
