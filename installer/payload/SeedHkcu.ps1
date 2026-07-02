@@ -2,7 +2,7 @@
 # Invoked once per user by Active Setup (StubPath) at first logon after install.
 # Writes the HKCU registry state Windows 11 requires before a TSF text service
 # can actually be activated (HKLM registration + regsvr32 alone leave the TIP
-# "registered but dormant"). See docs/wdac-feedback-tsf-profile-activation.md.
+# "registered but dormant").
 #
 # 2026-07-02 update (v0.1.9): switched from KLID E0210411 substitute path to
 # direct 04110411 preload. Rationale: v0.1.8 shipped BOTH a KLID keyboard

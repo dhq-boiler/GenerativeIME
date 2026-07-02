@@ -1819,8 +1819,8 @@ TEST(any_hit_single_kanji_counts)
 // い音便 verbs that UniDic-Lite analyzes correctly — KanjifyByReading
 // composes the kanji + い ending from lemma_stem alignment. Locks the
 // happy path; misanalyses (「かいた → 掻く」, 「ないた → ない(助動詞)」,
-// 「あるいた → 或る居た」) are tracked in docs/SESSION-STATE.md as a
-// future Trigger F candidate, not asserted here.
+// 「あるいた → 或る居た」) are tracked as a future Trigger F
+// candidate, not asserted here.
 TEST(split_mecab_ion_kiita)
 {
     auto* m = MecabAnalyzer::GetGlobal();

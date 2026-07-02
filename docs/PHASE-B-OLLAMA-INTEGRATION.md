@@ -1,7 +1,7 @@
 # Phase B + Ollama Integration — 設計メモ
 
 ステータス: ドラフト (2026-06-29)
-スコープ: docs/SESSION-STATE.md の Pending 「Phase B + Ollama 統合」の実装方針案。実装は別 PR。
+スコープ: Pending タスク「Phase B + Ollama 統合」の実装方針案。実装は別 PR。
 
 ## 問題定義
 
@@ -217,5 +217,4 @@ WDAC-MCP の `screenshot_diff` を使えば「Ollama 補完前 / 後」の候補
 2. `MakeFocusedBunsetsuPrompt` を bunsetsu.cpp に切り出して unit test 1 件
 3. `StartFocusedBunsetsuOllamaAsync` + `HandleFocusedBunsetsuOllamaDone` を textservice.cpp に追加
 4. WM_OLLAMA_BUNSETSU_DONE を StaticWndProc に dispatch
-5. WDAC-MCP E2E で挙動確認
-6. SESSION-STATE.md の Pending から移動
+5. E2E で挙動確認
