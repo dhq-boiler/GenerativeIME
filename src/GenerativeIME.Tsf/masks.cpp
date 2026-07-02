@@ -56,6 +56,9 @@ namespace masks
             {L"ぎゃくはーれむ", L""}, {L"こすぷれ", L""},
             {L"ちんぐりがえし", L""},
             {L"おなほ", L""}, {L"ばいぶ", L""}, {L"でぃるど", L""},
+            // === 女性向け / BL / やおい (kana-only) ===
+            {L"やおい", L""}, {L"ぼーいずらぶ", L""}, {L"びーえる", L""},
+            {L"じーえる", L""}, {L"がーるずらぶ", L""},
             // === 解剖学的な部位 (mask the kanji form so 睾丸/亀頭/etc.
             //     stays partly readable and the mask target is what SKK
             //     converts the reading to. Bracketing everyday senses
@@ -113,6 +116,18 @@ namespace masks
             {L"りょうじょく", L"凌辱"},
             {L"ぎゃくあなる", L"逆アナル"},
             {L"おもちゃぜめ", L"玩具責め"},
+            // === 女性向け / BL kanji surface (visual anchor preserved) ===
+            {L"ふじょし",       L"腐女子"},
+            {L"ふだんし",       L"腐男子"},
+            {L"ゆめじょし",     L"夢女子"},
+            {L"そううけ",       L"総受け"},
+            {L"そうぜめ",       L"総攻め"},
+            {L"わんこぜめ",     L"ワンコ攻め"},
+            {L"おれさまぜめ",   L"俺様攻め"},
+            {L"できあいぜめ",   L"溺愛攻め"},
+            {L"しゅうちゃくぜめ", L"執着攻め"},
+            {L"どくせんぜめ",   L"独占攻め"},
+            {L"かんきんもの",   L"監禁もの"},
             // === 分泌物 ===
             {L"ざーめん", L""}, {L"せいえき", L""}, {L"ちんぽじる", L""},
             {L"あいえき", L""}, {L"ちつえき", L""}, {L"おしっこ", L""},
