@@ -1,0 +1,3 @@
+# build artifacts - regenerable via build_msi.ps1
+build/
+*.wixpdb
