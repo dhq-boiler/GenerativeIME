@@ -896,7 +896,12 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
         // reading SKK path pins 出過 at bare-Enter default for「です」
         // and blocks MeCab's saner「です」kana-passthrough. If NO hits
         // read cleanly, drop the whole set and fall through to MeCab.
-        if (!skkHits.empty())
+        //
+        // Exception: if `reading` has an explicit okuri-nashi entry in
+        // SKK-JISYO, skip the filter — the dict maintainer wrote it on
+        // purpose. Otherwise greetings like 「こんにちわ /今日は/」 get
+        // dropped because MeCab reads 今日は as きょうは, not こんにちわ.
+        if (!skkHits.empty() && !skk->HasDirectEntry(reading))
         {
             if (auto* mecab = MecabAnalyzer::GetGlobal(); mecab && mecab->IsReady())
             {

@@ -430,6 +430,125 @@ TEST(skk_lookup_okuri_recovers_verb_stem_kanji)
 }
 
 // ---------------------------------------------------------------------
+// SKK dict extensions added 2026-07-02 (loanwords + IT terms).
+// Regression guard: these MUST return the katakana form as the top
+// candidate. If any of these fail, the dict Edit didn't parse the
+// way we expected (annotation stripping, dedup order, etc.).
+// ---------------------------------------------------------------------
+TEST(skk_lookup_loanword_tesuto_top_is_katakana)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // Newly appended: てすと /テスト/ — no prior entry conflict.
+    auto cands = skk->Lookup(L"てすと");
+    EXPECT_TRUE(!cands.empty());
+    if (!cands.empty()) EXPECT_TRUE(cands[0] == L"テスト");
+}
+
+TEST(skk_lookup_loanword_chikin_top_is_katakana_after_edit)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // Existing entry edited from "ちきん /遅筋;slow muscle. =赤筋/" to
+    // "ちきん /チキン/遅筋;slow muscle. =赤筋/". The annotation MUST NOT
+    // interfere with candidate parsing — the leading /チキン/ should be
+    // read first and become the top candidate.
+    auto cands = skk->Lookup(L"ちきん");
+    EXPECT_TRUE(!cands.empty());
+    if (!cands.empty()) EXPECT_TRUE(cands[0] == L"チキン");
+}
+
+TEST(skk_lookup_loanword_bagu_top_is_katakana_after_edit)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // Existing "ばぐ /馬具/" edited to "ばぐ /バグ/馬具/".
+    auto cands = skk->Lookup(L"ばぐ");
+    EXPECT_TRUE(!cands.empty());
+    if (!cands.empty()) EXPECT_TRUE(cands[0] == L"バグ");
+}
+
+TEST(skk_lookup_loanword_wain_top_is_katakana_after_edit)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // Existing "わいん /和韻/" edited to "わいん /ワイン/和韻/". Note the
+    // E2E test showed 「Σ∈」 as top — that came from symbol dict, not
+    // from SKK. The SKK lookup MUST have ワイン first.
+    auto cands = skk->Lookup(L"わいん");
+    EXPECT_TRUE(!cands.empty());
+    if (!cands.empty()) EXPECT_TRUE(cands[0] == L"ワイン");
+}
+
+TEST(skk_lookup_konnichiwa_reading_returns_kyou_ha)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // Newly appended: こんにちわ /今日は/こんにちは/. Guards the fix for
+    // BUG-1 where the romaji "wa" produces わ (not the 助詞 は), so
+    // the classic こんにちは→今日は entry was unreachable.
+    auto cands = skk->Lookup(L"こんにちわ");
+    EXPECT_TRUE(!cands.empty());
+    if (!cands.empty()) EXPECT_TRUE(cands[0] == L"今日は");
+}
+
+TEST(skk_lookup_loanword_computer_top_is_katakana)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // Newly appended: こんぴゅーたー /コンピューター/. Long-vowel katakana
+    // reading must survive the loader as-is.
+    auto cands = skk->Lookup(L"こんぴゅーたー");
+    EXPECT_TRUE(!cands.empty());
+    if (!cands.empty()) EXPECT_TRUE(cands[0] == L"コンピューター");
+}
+
+TEST(skk_lookup_it_term_file_top_is_katakana)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // Newly appended: ふぁいる /ファイル/. There's a pre-existing
+    // "ファイル-file" hybrid form elsewhere; our new standalone entry
+    // must land as the top candidate.
+    auto cands = skk->Lookup(L"ふぁいる");
+    EXPECT_TRUE(!cands.empty());
+    if (!cands.empty()) EXPECT_TRUE(cands[0] == L"ファイル");
+}
+
+TEST(skk_lookup_it_term_commit_top_is_katakana)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // Newly appended: こみっと /コミット/.
+    auto cands = skk->Lookup(L"こみっと");
+    EXPECT_TRUE(!cands.empty());
+    if (!cands.empty()) EXPECT_TRUE(cands[0] == L"コミット");
+}
+
+TEST(skk_lookup_it_term_json_top_is_json_ascii)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // Newly appended: じぇいそん /JSON/. Guards ASCII-word candidates
+    // (not just kanji/katakana) in the loader.
+    auto cands = skk->Lookup(L"じぇいそん");
+    EXPECT_TRUE(!cands.empty());
+    if (!cands.empty()) EXPECT_TRUE(cands[0] == L"JSON");
+}
+
+TEST(skk_lookup_it_term_youken_teigi_top_is_kanji)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // Newly appended: ようけんていぎ /要件定義/. Also guards the case
+    // where the added entry is kanji (not katakana) but still novel
+    // (no prior ようけんていぎ entry existed).
+    auto cands = skk->Lookup(L"ようけんていぎ");
+    EXPECT_TRUE(!cands.empty());
+    if (!cands.empty()) EXPECT_TRUE(cands[0] == L"要件定義");
+}
+
+// ---------------------------------------------------------------------
 // MeCab + bunsetsu integration. These depend on UniDic-Lite being
 // resident next to the test EXE — build_tests.ps1 outputs to the IME
 // build/x64/Debug dir where the dict is already staged.
@@ -453,6 +572,28 @@ TEST(reads_as_matches_typed_reading)
     // matches as "は" (not pronunciation "わ"), so the joined
     // pronunciation of 「私は学生」 equals the typed reading.
     EXPECT_TRUE(bunsetsu::ReadsAs(L"私は学生", L"わたくしはがくせい", *m));
+}
+
+TEST(skk_has_direct_entry_konnichiwa)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // Guards BUG-1 fix path: 「こんにちわ」 was added as an explicit
+    // okuri-nashi entry, so HasDirectEntry must report true. The
+    // textservice.cpp SKK direct-hit path uses this to bypass the
+    // ReadsAs filter (which would otherwise drop 「今日は」 because
+    // MeCab pronounces it きょうは, not こんにちわ).
+    EXPECT_TRUE(skk->HasDirectEntry(L"こんにちわ"));
+}
+
+TEST(skk_has_direct_entry_reports_false_for_okuri_ari_only)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // 「です」 has NO okuri-nashi entry — the SKK dict only knows it
+    // via 「ですg /出過/」 (okuri-ari stem). HasDirectEntry must return
+    // false so the ReadsAs filter still fires and drops 「出過」.
+    EXPECT_TRUE(!skk->HasDirectEntry(L"です"));
 }
 
 TEST(reads_as_rejects_drift)

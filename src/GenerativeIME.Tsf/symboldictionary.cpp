@@ -577,7 +577,12 @@ namespace symbols
         const auto& d = GetDict();
 
         // Longest-prefix match: walk down from full length.
-        for (size_t len = reading.size(); len >= 1; --len)
+        // Skip single-char segments so 「わいん」 doesn't split into
+        // 「わ」(→Σ) + 「いん」(→∈) = 「Σ∈」 and shadow SKK's ワイン.
+        // Single-char kana readings that happen to be symbols (わ, ど,
+        // に, し, ご, く) still hit via the exact `Lookup` path — this
+        // only prevents them from being COMBINED into a longer word.
+        for (size_t len = reading.size(); len >= 2; --len)
         {
             std::wstring prefix(reading.substr(0, len));
             auto it = d.find(prefix);

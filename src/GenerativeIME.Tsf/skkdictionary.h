@@ -52,6 +52,17 @@ public:
     // okuri-nashi entry only carries "古".
     std::vector<std::wstring> LookupOkuri(const std::wstring& stemReading) const;
 
+    // True iff `reading` was seen as an okuri-NASHI entry in SKK-JISYO.
+    // Not merely present in m_entries (which also includes okuri-ari
+    // flatten-through) — the reading must have appeared as an explicit
+    // entry the dict maintainer wrote. Callers use this to decide
+    // whether the ReadsAs filter should apply: for direct entries the
+    // filter must be bypassed (SKK-explicit greetings like
+    // 「こんにちわ /今日は/」 don't pass MeCab's pronunciation check),
+    // for okuri-ari-only readings it must stay in force to drop
+    // synthesized garbage like 「ですg /出過/」 -> 「出過」.
+    bool HasDirectEntry(const std::wstring& reading) const;
+
 private:
     SkkDictionary() = default;
 
@@ -67,5 +78,10 @@ private:
     // 普 from the okuri-nashi side, plus the okuri-ari kanji stems used
     // for verb inflection reconstruction).
     std::unordered_map<std::wstring, std::vector<std::wstring>> m_okuri;
+    // Set of readings that appeared as okuri-NASHI entries in the dict
+    // (as opposed to okuri-ari flatten-through). See HasDirectEntry.
+    // Uses a `set`-shaped unordered_map to reuse the same allocator hint;
+    // membership is the only thing we care about.
+    std::unordered_map<std::wstring, char> m_directReadings;
     bool m_loaded = false;
 };

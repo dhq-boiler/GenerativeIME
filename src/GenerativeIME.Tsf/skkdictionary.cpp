@@ -157,6 +157,12 @@ HRESULT SkkDictionary::Load(const std::wstring& path)
             }
         }
 
+        // Track okuri-nashi origin so HasDirectEntry can distinguish
+        // dict-maintainer-explicit entries from okuri-ari flatten-through.
+        // Called before the slot merge below so we mark the reading even
+        // when candidate dedup drops the actual new candidate.
+        if (!okuriAri) m_directReadings[reading] = 1;
+
         // okuri-nashi entries merge directly into m_entries. okuri-ari
         // stems get held in deferredOkuri so they end up at the TAIL of
         // their candidate lists rather than the head.
@@ -203,6 +209,11 @@ std::vector<std::wstring> SkkDictionary::Lookup(const std::wstring& reading) con
     auto it = m_entries.find(reading);
     if (it == m_entries.end()) return {};
     return it->second;
+}
+
+bool SkkDictionary::HasDirectEntry(const std::wstring& reading) const
+{
+    return m_directReadings.find(reading) != m_directReadings.end();
 }
 
 namespace

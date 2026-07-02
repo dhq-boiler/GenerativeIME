@@ -476,7 +476,19 @@ bool ReadsAs(const std::wstring& candidate,
         if (!m.pronunciation.empty()) reading += m.pronunciation;
         else                          reading += m.surface;
     }
-    return reading == expectedReading;
+
+    // Sentence-final は ↔ わ equivalence: greetings like
+    // 「こんにちわ /今日は/」 spell the 助詞 as は in the candidate but
+    // users type it as わ (romaji "wa"). Treat the two as equivalent
+    // when they appear at the sentence end so this SKK entry survives
+    // the direct-hit path's ReadsAs filter. Applies only to the LAST
+    // character so 「はな→わな」 style shifts don't leak into normal
+    // homophone lookups.
+    auto normalizeTailHaWa = [](std::wstring s) {
+        if (!s.empty() && s.back() == L'わ') s.back() = L'は';
+        return s;
+    };
+    return normalizeTailHaWa(reading) == normalizeTailHaWa(expectedReading);
 }
 
 bool LooksSuspect(const std::wstring& reading,
