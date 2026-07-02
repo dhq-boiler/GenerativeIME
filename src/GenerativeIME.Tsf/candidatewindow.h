@@ -65,9 +65,12 @@ private:
     // One line of `text` into `rect`, vertically centered, left-aligned,
     // clipped, with color-font (emoji) glyph runs enabled.
     void    DrawLine(const std::wstring& text, const D2D1_RECT_F& rect, COLORREF color);
+    // Small right-edge annotation ("(emoji)") in the given row rect.
+    void    DrawAnnotation(const std::wstring& text, const D2D1_RECT_F& rect, COLORREF color);
     // Pixel width of one rendered line (measured via IDWriteTextLayout so
     // emoji fallback runs measure correctly).
     float   MeasureLineWidth(const std::wstring& text);
+    float   MeasureAnnotationWidth(const std::wstring& text);
 
     HWND        m_hwnd;
     int         m_rowHeight;
@@ -82,6 +85,7 @@ private:
     ID2D1Factory*          m_pD2DFactory = nullptr;
     IDWriteFactory*        m_pDWriteFactory = nullptr;
     IDWriteTextFormat*     m_pTextFormat = nullptr;
+    IDWriteTextFormat*     m_pAnnotFormat = nullptr;  // small "(emoji)" tag
     // Device-dependent (recreated after D2DERR_RECREATE_TARGET).
     ID2D1HwndRenderTarget* m_pRT = nullptr;
     ID2D1SolidColorBrush*  m_pBrush = nullptr;

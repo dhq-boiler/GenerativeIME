@@ -1,4 +1,5 @@
 #include "candidatewindow.h"
+#include "emojitext.h"
 #include "globals.h"
 #include <algorithm>
 
@@ -16,6 +17,12 @@ namespace
 
     constexpr float kFontSize = 18.0f;             // DIP == px (RT pinned to 96 DPI)
     constexpr wchar_t kFontName[] = L"Yu Gothic UI"; // readable Japanese, Win10+ stock
+
+    // Right-edge type annotation for emoji rows. Small + gray so it reads
+    // as metadata, not as part of the candidate.
+    constexpr float kAnnotFontSize = 11.0f;
+    constexpr wchar_t kEmojiAnnot[] = L"(emoji)";
+    constexpr int kAnnotGap = 10;   // min space between candidate and annotation
 
     // MS-IME-ish palette tuned for Win11 light theme.
     constexpr COLORREF kBgColor       = RGB(255, 255, 255);
@@ -88,6 +95,15 @@ HRESULT CCandidateWindow::Create()
     }
     if (SUCCEEDED(hr))
     {
+        hr = m_pDWriteFactory->CreateTextFormat(kFontName, nullptr,
+            DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL, kAnnotFontSize, L"ja-jp", &m_pAnnotFormat);
+    }
+    if (SUCCEEDED(hr))
+    {
+        m_pAnnotFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        m_pAnnotFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
         // One candidate per row; DWrite vertically centers within the row
         // rect, and NO_WRAP + our clip rect handles overlong candidates.
         m_pTextFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
@@ -120,6 +136,7 @@ void CCandidateWindow::ApplyRoundedRegion()
 void CCandidateWindow::Destroy()
 {
     DiscardRenderTarget();
+    if (m_pAnnotFormat)   { m_pAnnotFormat->Release();   m_pAnnotFormat = nullptr; }
     if (m_pTextFormat)    { m_pTextFormat->Release();    m_pTextFormat = nullptr; }
     if (m_pDWriteFactory) { m_pDWriteFactory->Release(); m_pDWriteFactory = nullptr; }
     if (m_pD2DFactory)    { m_pD2DFactory->Release();    m_pD2DFactory = nullptr; }
@@ -170,6 +187,19 @@ float CCandidateWindow::MeasureLineWidth(const std::wstring& text)
     return tm.widthIncludingTrailingWhitespace;
 }
 
+float CCandidateWindow::MeasureAnnotationWidth(const std::wstring& text)
+{
+    if (!m_pDWriteFactory || !m_pAnnotFormat || text.empty()) return 0.0f;
+    IDWriteTextLayout* layout = nullptr;
+    HRESULT hr = m_pDWriteFactory->CreateTextLayout(text.c_str(), (UINT32)text.size(),
+                                                    m_pAnnotFormat, 100000.0f, 100.0f, &layout);
+    if (FAILED(hr)) return 0.0f;
+    DWRITE_TEXT_METRICS tm{};
+    layout->GetMetrics(&tm);
+    layout->Release();
+    return tm.widthIncludingTrailingWhitespace;
+}
+
 void CCandidateWindow::SetCandidates(const std::vector<std::wstring>& candidates)
 {
     m_candidates = candidates;
@@ -184,11 +214,15 @@ void CCandidateWindow::Resize()
     if (!m_hwnd) return;
 
     int widest = kMinWidth;
+    // Emoji rows carry a right-edge "(emoji)" tag; reserve its width so
+    // the annotation never overlaps a long candidate.
+    const int annotSpan = (int)(MeasureAnnotationWidth(kEmojiAnnot) + 0.5f) + kAnnotGap;
     for (size_t i = 0; i < m_candidates.size(); ++i)
     {
         // Prefix " N. " (or "    " when index > 9) so we can render index hints later.
         std::wstring line = std::to_wstring(i + 1) + L". " + m_candidates[i];
         int w = (int)(MeasureLineWidth(line) + 0.5f);
+        if (emojitext::IsEmoji(m_candidates[i])) w += annotSpan;
         if (w > widest) widest = w;
     }
     m_width = widest + kPaddingX * 2;
@@ -369,6 +403,14 @@ void CCandidateWindow::DrawLine(const std::wstring& text, const D2D1_RECT_F& rec
                      D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT | D2D1_DRAW_TEXT_OPTIONS_CLIP);
 }
 
+void CCandidateWindow::DrawAnnotation(const std::wstring& text, const D2D1_RECT_F& rect, COLORREF color)
+{
+    if (text.empty() || !m_pAnnotFormat) return;
+    m_pBrush->SetColor(ToColorF(color));
+    m_pRT->DrawTextW(text.c_str(), (UINT32)text.size(), m_pAnnotFormat, rect, m_pBrush,
+                     D2D1_DRAW_TEXT_OPTIONS_CLIP);
+}
+
 void CCandidateWindow::Paint()
 {
     if (FAILED(EnsureRenderTarget())) return;
@@ -416,6 +458,17 @@ void CCandidateWindow::Paint()
                  D2D1::RectF((float)(kPaddingX + 26), (float)y,
                              rc.right - kPaddingX, (float)(y + m_rowHeight)),
                  selected ? kSelTextColor : kTextColor);
+
+        // Right-edge type tag so 16px glyphs are identifiable at a glance
+        // (❕ vs ❗) and it's obvious the row commits an emoji character.
+        if (emojitext::IsEmoji(m_candidates[globalIdx]))
+        {
+            float annotW = MeasureAnnotationWidth(kEmojiAnnot);
+            DrawAnnotation(kEmojiAnnot,
+                           D2D1::RectF(rc.right - kPaddingX - annotW, (float)y,
+                                       rc.right - kPaddingX, (float)(y + m_rowHeight)),
+                           selected ? kSelIndexColor : kIndexColor);
+        }
 
         if (row + 1 < rowsThisPage && !selected && (globalIdx + 1) != m_selected)
         {

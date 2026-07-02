@@ -138,6 +138,7 @@ xcopy /Y /D "$(ProjectDir)..\..\third_party\mecab\unidic-lite\*" "$(OutDir)unidi
     <ClCompile Include="bunsetsu.cpp" />
     <ClCompile Include="masks.cpp" />
     <ClCompile Include="alphaspell.cpp" />
+    <ClCompile Include="emojitext.cpp" />
     <ClCompile Include="mecabanalyzer.cpp" />
     <ClCompile Include="modernranking.cpp" />
     <ClCompile Include="register.cpp" />
@@ -158,6 +159,7 @@ xcopy /Y /D "$(ProjectDir)..\..\third_party\mecab\unidic-lite\*" "$(OutDir)unidi
     <ClInclude Include="bunsetsu.h" />
     <ClInclude Include="masks.h" />
     <ClInclude Include="alphaspell.h" />
+    <ClInclude Include="emojitext.h" />
     <ClInclude Include="mecabanalyzer.h" />
     <ClInclude Include="modernranking.h" />
     <ClInclude Include="register.h" />

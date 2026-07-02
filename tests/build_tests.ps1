@@ -39,6 +39,7 @@ $srcs = @(
     "$src\bunsetsu.cpp",
     "$src\masks.cpp",
     "$src\alphaspell.cpp",
+    "$src\emojitext.cpp",
     "$src\modernranking.cpp"
 )
 

@@ -52,6 +52,7 @@ extern const wchar_t c_szInfoKeyPrefix[]   = L"CLSID\\";
 #include "../src/GenerativeIME.Tsf/modernranking.h"
 #include "../src/GenerativeIME.Tsf/masks.h"
 #include "../src/GenerativeIME.Tsf/alphaspell.h"
+#include "../src/GenerativeIME.Tsf/emojitext.h"
 
 // ---------------------------------------------------------------------
 // Minimal test framework
@@ -1010,6 +1011,31 @@ TEST(skk_loanword_only_reading_still_converts)
     }
     EXPECT_TRUE(hasKata);
     EXPECT_TRUE(hasWord);
+}
+
+// ---------------------------------------------------------------------
+// emojitext — emoji classification for the candidate-window "(emoji)"
+// annotation.
+// ---------------------------------------------------------------------
+TEST(emojitext_detects_emoji_forms)
+{
+    EXPECT_TRUE(emojitext::IsEmoji(L"😀"));            // non-BMP pictograph
+    EXPECT_TRUE(emojitext::IsEmoji(L"‼\xFE0F"));       // BMP + VS16
+    EXPECT_TRUE(emojitext::IsEmoji(L"⭐"));            // 2B00 block, no VS16
+    EXPECT_TRUE(emojitext::IsEmoji(L"☕"));            // 2600 block
+    EXPECT_TRUE(emojitext::IsEmoji(L"🐕\x200D🦺"));    // ZWJ sequence
+}
+
+TEST(emojitext_rejects_text_candidates)
+{
+    EXPECT_TRUE(!emojitext::IsEmoji(L"笑顔"));
+    EXPECT_TRUE(!emojitext::IsEmoji(L"コーヒー"));
+    EXPECT_TRUE(!emojitext::IsEmoji(L"coffee"));
+    EXPECT_TRUE(!emojitext::IsEmoji(L"!!"));           // half-width ASCII run
+    EXPECT_TRUE(!emojitext::IsEmoji(L"→"));            // symbol-dict arrow
+    EXPECT_TRUE(!emojitext::IsEmoji(L"★"));            // text star
+    EXPECT_TRUE(!emojitext::IsEmoji(L"½"));
+    EXPECT_TRUE(!emojitext::IsEmoji(L""));
 }
 
 // ---------------------------------------------------------------------
