@@ -36,6 +36,7 @@ $srcs = @(
     "$src\skkdictionary.cpp",
     "$src\mecabanalyzer.cpp",
     "$src\bunsetsu.cpp",
+    "$src\masks.cpp",
     "$src\modernranking.cpp"
 )
 

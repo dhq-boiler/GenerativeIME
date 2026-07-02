@@ -11,6 +11,7 @@
 #include "mecabanalyzer.h"
 #include "learningstore.h"
 #include "modernranking.h"
+#include "masks.h"
 #include <algorithm>
 #include <stdio.h>
 #include <thread>
@@ -903,6 +904,14 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
                         cands.push_back(std::move(c));
                 }
             }
+            // Sensitive-reading mask variants (opt-in per-reading via
+            // masks::Variants) appended at the end so a user can pick
+            // ち〇ぽ / 〇んぽ / ちん〇 without leaving the composition.
+            // Non-sensitive readings return empty and are unaffected.
+            for (auto& m : masks::Variants(reading)) {
+                if (std::find(cands.begin(), cands.end(), m) == cands.end())
+                    cands.push_back(std::move(m));
+            }
             m_lastReading = reading;
             m_pCandWnd->SetCandidates(cands);
             POINT pt = QueryCandidateAnchorPos(pContext);
@@ -998,6 +1007,13 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
                 }
             }
             if (m_pLearning) skkHits = m_pLearning->Reorder(reading, skkHits);
+            // Append sensitive-reading mask variants after learning/reorder
+            // so masks land at the tail of the candidate list, out of the way
+            // of the primary conversion but reachable via ↓/Space cycling.
+            for (auto& m : masks::Variants(reading)) {
+                if (std::find(skkHits.begin(), skkHits.end(), m) == skkHits.end())
+                    skkHits.push_back(std::move(m));
+            }
             m_lastReading = reading;
             m_pCandWnd->SetCandidates(skkHits);
             POINT pt = QueryCandidateAnchorPos(pContext);
@@ -1013,6 +1029,41 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
                 StartReorderAsync(pContext, reading, skkHits);
             }
             return;
+        }
+
+        // Sensitive-reading fallback. For adult-vocabulary readings
+        // (masks::Variants returns non-empty) whose whole-reading SKK
+        // lookup came back empty, offer a minimal candidate window built
+        // from hira surface + katakana + mask variants. This gives
+        // 「ちんぽ」 / 「チンポ」 / 「ち〇ぽ」 / 「〇んぽ」 / 「ちん〇」
+        // + katakana masks even though the SKK dict has no direct entry
+        // for these words (adding them explicitly would land in a data
+        // file we'd rather keep license-clean).
+        {
+            auto maskCands = masks::Variants(reading);
+            if (!maskCands.empty() && m_pCandWnd)
+            {
+                std::vector<std::wstring> cands = { reading };
+                // Katakana equivalent as second option, then all masks.
+                std::wstring kata;
+                kata.reserve(reading.size());
+                for (wchar_t c : reading) {
+                    int u = (int)c;
+                    if (u >= 0x3041 && u <= 0x3096) kata.push_back((wchar_t)(u + 0x60));
+                    else kata.push_back(c);
+                }
+                if (kata != reading) cands.push_back(kata);
+                for (auto& m : maskCands) {
+                    if (std::find(cands.begin(), cands.end(), m) == cands.end())
+                        cands.push_back(std::move(m));
+                }
+                m_lastReading = reading;
+                m_pCandWnd->SetCandidates(cands);
+                POINT pt = QueryCandidateAnchorPos(pContext);
+                m_pCandWnd->ShowAt(pt);
+                ApplyCandidateSelection(pContext);
+                return;
+            }
         }
 
         // No whole-reading match. Try MeCab morphological analysis first —

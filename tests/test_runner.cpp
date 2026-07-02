@@ -50,6 +50,7 @@ extern const wchar_t c_szInfoKeyPrefix[]   = L"CLSID\\";
 #include "../src/GenerativeIME.Tsf/mecabanalyzer.h"
 #include "../src/GenerativeIME.Tsf/bunsetsu.h"
 #include "../src/GenerativeIME.Tsf/modernranking.h"
+#include "../src/GenerativeIME.Tsf/masks.h"
 
 // ---------------------------------------------------------------------
 // Minimal test framework
@@ -152,6 +153,36 @@ TEST(romaji_digit_passthrough)
 // 2026-07-02: y-series i/e columns (tyi/tye/kyi/kye/sye/…) were missing.
 // Typing "tye" left the ASCII "tye" in the buffer and blocked SKK direct
 // entries like「ちぇっく /チェック/」. This test guards the full pattern.
+// 2026-07-02: mask variants for sensitive readings. User asked for
+// softer variants like「ち〇ぽ」/「〇んぽ」/「ちん〇」to appear in the
+// candidate list beside the raw form. Non-sensitive readings return
+// empty so the mechanism doesn't leak into ordinary conversions.
+TEST(masks_sensitive_reading_returns_variants)
+{
+    auto v = masks::Variants(L"ちんぽ");
+    // 3 hira positions + 3 kata positions = 6 masked variants.
+    EXPECT_TRUE(v.size() == 6);
+    // First three are hiragana masks at each position.
+    if (v.size() >= 6) {
+        EXPECT_EQ_W(v[0], L"〇んぽ");
+        EXPECT_EQ_W(v[1], L"ち〇ぽ");
+        EXPECT_EQ_W(v[2], L"ちん〇");
+        // Then katakana masks.
+        EXPECT_EQ_W(v[3], L"〇ンポ");
+        EXPECT_EQ_W(v[4], L"チ〇ポ");
+        EXPECT_EQ_W(v[5], L"チン〇");
+    }
+}
+
+TEST(masks_non_sensitive_returns_empty)
+{
+    // 「かんじ」 is a plain everyday reading -- masks must NOT fire, or
+    // every kanji conversion picks up bogus candidates.
+    EXPECT_TRUE(masks::Variants(L"かんじ").empty());
+    EXPECT_TRUE(masks::Variants(L"きょう").empty());
+    EXPECT_TRUE(masks::Variants(L"にほん").empty());
+}
+
 TEST(romaji_y_series_i_e_columns)
 {
     EXPECT_EQ_W(romaji::Convert(L"tye").hira, L"ちぇ");
