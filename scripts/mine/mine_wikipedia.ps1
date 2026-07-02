@@ -25,7 +25,12 @@ param(
     [int]$MaxArticles = 10,
     [string]$MecabExe = 'C:\Program Files\MeCab\bin\mecab.exe',
     [switch]$Random,
-    [int]$RandomBatchSize = 20
+    [int]$RandomBatchSize = 20,
+    # Category-mode: iterate articles under the given ja.wikipedia
+    # Category: pages instead of the random-page endpoint. Useful for
+    # targeted domain coverage (e.g. -Category '性の文化','料理' picks
+    # up register-specific vocabulary the random sample misses).
+    [string[]]$Category = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -69,7 +74,44 @@ function Get-RandomTitles([int]$Count) {
     return $titles | Select-Object -First $Count
 }
 
-if ($Random) {
+# Category-mode enumeration. For each category, hits the categorymembers
+# endpoint (cmtype=page filters out subcategories, cmlimit=500 is the API
+# hard cap; we paginate via cmcontinue for longer categories).
+function Get-CategoryTitles([string[]]$Cats, [int]$Cap) {
+    $titles = New-Object System.Collections.Generic.List[string]
+    foreach ($cat in $Cats) {
+        if ($titles.Count -ge $Cap) { break }
+        $cont = $null
+        while ($titles.Count -lt $Cap) {
+            $encoded = [uri]::EscapeDataString("Category:$cat")
+            $url = "https://ja.wikipedia.org/w/api.php?action=query&format=json&list=categorymembers&cmtitle=$encoded&cmlimit=500&cmtype=page&formatversion=2"
+            if ($cont) { $url += "&cmcontinue=$([uri]::EscapeDataString($cont))" }
+            try {
+                $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 30 -UserAgent 'GenerativeIME-corpus-mining/0.1 (contact: dhq_boiler@live.jp)'
+            } catch {
+                Write-Warning ("category fetch failed for {0}: {1}" -f $cat, $_.Exception.Message)
+                break
+            }
+            $j = $r.Content | ConvertFrom-Json
+            foreach ($m in $j.query.categorymembers) {
+                if ($titles.Count -ge $Cap) { break }
+                $titles.Add($m.title) | Out-Null
+            }
+            if ($j.continue -and $j.continue.cmcontinue) {
+                $cont = $j.continue.cmcontinue
+            } else {
+                break
+            }
+        }
+    }
+    return $titles
+}
+
+if ($Category.Count -gt 0) {
+    Write-Host ("[category] enumerating articles from {0} categories..." -f $Category.Count)
+    $titles = Get-CategoryTitles -Cats $Category -Cap $MaxArticles
+    Write-Host ("[category] got {0} unique titles from categories: {1}" -f $titles.Count, ($Category -join ', '))
+} elseif ($Random) {
     Write-Host ("[random] fetching {0} random article titles..." -f $MaxArticles)
     $titles = Get-RandomTitles -Count $MaxArticles
     Write-Host ("[random] got {0} titles: {1}..." -f $titles.Count, ($titles[0..([Math]::Min(4, $titles.Count - 1))] -join ', '))
@@ -192,11 +234,24 @@ Write-Host ("Total raw pairs:    {0}" -f $totalPairs)
 Write-Host ("Raw output:         {0}" -f (Resolve-Path $Out))
 
 # Aggregation: dedupe (reading, kanji) pairs, sum counts, write sorted
-# TSV to corpus/goldens/wikipedia-top.tsv. This file is the actual
-# regression-test fixture; raw is kept for reproducibility only.
+# TSV to corpus/goldens/. Golden filename is derived from -Out so
+# different mining runs (general random, category-specific, aozora,
+# ...) don't clobber each other. wikipedia-top.tsv stays the canonical
+# name for the primary general run.
 $goldenDir = Join-Path $PSScriptRoot '..\..\corpus\goldens'
 if (-not (Test-Path $goldenDir)) { New-Item -ItemType Directory -Force -Path $goldenDir | Out-Null }
-$goldenFile = Join-Path $goldenDir 'wikipedia-top.tsv'
+$outBase = [System.IO.Path]::GetFileNameWithoutExtension($Out)
+if ($outBase -eq 'pairs-raw') {
+    $goldenFile = Join-Path $goldenDir 'wikipedia-top.tsv'
+} else {
+    # e.g. pairs-raw-10000 -> wikipedia-top-10000.tsv, pairs-raw-adult -> wikipedia-top-adult.tsv
+    $suffix = $outBase -replace '^pairs-raw-?', ''
+    if ($suffix) {
+        $goldenFile = Join-Path $goldenDir ("wikipedia-top-" + $suffix + ".tsv")
+    } else {
+        $goldenFile = Join-Path $goldenDir 'wikipedia-top.tsv'
+    }
+}
 
 $rows = Get-Content $Out -Encoding UTF8
 $rawCount = $rows.Count
