@@ -150,6 +150,7 @@ STDMETHODIMP CEditSession::DoEditSession(TfEditCookie ec)
     case EditAction::Update:         return DoUpdate(ec);
     case EditAction::EndCommit:      return DoEnd(ec, false);
     case EditAction::EndCancel:      return DoEnd(ec, true);
+    case EditAction::InsertDirect:   return DoInsertDirect(ec);
     }
     return E_UNEXPECTED;
 }
@@ -195,6 +196,35 @@ HRESULT CEditSession::DoStartAndUpdate(TfEditCookie ec)
     else
         ApplyInputAttributeToComposition(ec, m_pContext, pComposition);
     pComposition->Release();
+    return S_OK;
+}
+
+// F4 repeat-paste: drop the text straight into the document at the caret
+// with NO composition — the text is already final (it's the previous
+// commit), so opening a composition would just add an underline flash and
+// an extra Enter for the user.
+HRESULT CEditSession::DoInsertDirect(TfEditCookie ec)
+{
+    if (m_text.empty()) return S_OK;
+
+    ITfInsertAtSelection* pInsertAtSelection = nullptr;
+    HRESULT hr = m_pContext->QueryInterface(IID_ITfInsertAtSelection, (void**)&pInsertAtSelection);
+    if (FAILED(hr)) return hr;
+
+    ITfRange* pRange = nullptr;
+    hr = pInsertAtSelection->InsertTextAtSelection(ec, 0, m_text.c_str(), (LONG)m_text.length(), &pRange);
+    pInsertAtSelection->Release();
+    if (FAILED(hr) || !pRange) return hr;
+
+    // Caret to the end of the inserted text so repeated presses chain
+    // (‼️‼️‼️ …) instead of inserting in front of the previous paste.
+    pRange->Collapse(ec, TF_ANCHOR_END);
+    TF_SELECTION sel = {};
+    sel.range = pRange;
+    sel.style.ase = TF_AE_END;
+    sel.style.fInterimChar = FALSE;
+    m_pContext->SetSelection(ec, 1, &sel);
+    pRange->Release();
     return S_OK;
 }
 

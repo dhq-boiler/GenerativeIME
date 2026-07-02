@@ -11,7 +11,8 @@ enum class EditAction
     StartAndUpdate, // start composition + set text
     Update,         // update existing composition text
     EndCommit,      // end composition keeping current text
-    EndCancel       // end composition with empty text
+    EndCancel,      // end composition with empty text
+    InsertDirect    // insert text at the caret, no composition (F4 repeat-paste)
 };
 
 // Read-only session: queries the composition range's screen rect so the
@@ -67,6 +68,7 @@ private:
     HRESULT DoStartAndUpdate(TfEditCookie ec);
     HRESULT DoUpdate(TfEditCookie ec);
     HRESULT DoEnd(TfEditCookie ec, bool cancel);
+    HRESULT DoInsertDirect(TfEditCookie ec);
 
     LONG          m_cRef;
     CTextService* m_pService;   // weak ref; owns this session's lifetime indirectly via RequestEditSession

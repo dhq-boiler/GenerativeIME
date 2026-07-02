@@ -143,6 +143,11 @@ private:
     std::wstring        m_recentContext;
     void                AppendCommittedText(const std::wstring& text);
 
+    // The most recent single commit, verbatim. F4 (with the IME on and no
+    // composition open) re-inserts it, so symbol/emoji spam like ‼️‼️‼️
+    // doesn't need a full convert round-trip per repeat.
+    std::wstring        m_lastCommittedText;
+
     // Monotonically increasing counter bumped whenever we start a SKK
     // lookup. The reorder worker stamps the active counter into its request;
     // by the time it returns, if the counter has moved (the user typed more,

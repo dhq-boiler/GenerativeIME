@@ -2709,6 +2709,9 @@ void CTextService::ResizeFocusedBunsetsu(int delta, ITfContext* pContext)
 void CTextService::AppendCommittedText(const std::wstring& text)
 {
     if (text.empty()) return;
+    // Every commit path funnels through here, which makes it the one spot
+    // that reliably sees "the previous conversion result" for F4 repeat.
+    m_lastCommittedText = text;
     m_recentContext.append(text);
     if (m_recentContext.size() > kRecentContextMax)
     {
@@ -2963,6 +2966,11 @@ bool CTextService::ShouldEat(WPARAM wParam) const
         if (wParam == VK_DELETE && (GetKeyState(VK_SHIFT) < 0)) return true;
     }
     if (m_pComposition && wParam >= VK_F6 && wParam <= VK_F10) return true;
+    // F4 repeat-paste: with no composition open, re-insert the previous
+    // commit (symbol/emoji spam: ‼️‼️‼️…). Only claimed while there IS a
+    // previous commit, so a fresh session leaves F4 to the host app.
+    if (wParam == VK_F4 && !m_pComposition && !m_lastCommittedText.empty()
+        && GetKeyState(VK_MENU) >= 0) return true;   // Alt+F4 stays the host's
     // 変換 / 無変換 keys (Japanese keyboards). 変換 acts as a convert
     // trigger / re-convert; 無変換 cycles the composition's kana form.
     // Outside a live composition 変換 still applies when the host has a
@@ -3639,6 +3647,17 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         m_lastReading             = hira;  // learning key for the F-key form
         m_predictionActive        = false; // F-key form supersedes predictions
         m_predictionReadings.clear();
+        *pfEaten = TRUE;
+    }
+    else if (wParam == VK_F4 && !m_pComposition && !m_lastCommittedText.empty()
+             && GetKeyState(VK_MENU) >= 0)
+    {
+        // Repeat-paste (記号連打): re-insert the previous commit verbatim,
+        // no composition round-trip. AppendCommittedText keeps the LLM
+        // context buffer in sync (m_lastCommittedText is overwritten with
+        // the same string, so repeats keep repeating).
+        if (pic) RequestEditSession(pic, EditAction::InsertDirect, m_lastCommittedText);
+        AppendCommittedText(m_lastCommittedText);
         *pfEaten = TRUE;
     }
     else if (wParam >= '1' && wParam <= '9' && m_pCandWnd && m_pCandWnd->IsVisible())
