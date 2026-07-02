@@ -2606,7 +2606,17 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         // out first so this alpha key starts a NEW composition rather than
         // mutating m_romajiBuffer underneath the kanji.
         CommitConvertedIfAny(pic);
-        m_romajiBuffer.push_back(static_cast<wchar_t>(wParam - 'A' + 'a'));
+        // Preserve the Shift state so「Gsupotto」→ buffer becomes
+        // "Gsupotto" (mixed case) which Convert passes uppercase letters
+        // through unchanged, yielding「Gすぽっと」on the display and
+        // matching the SKK direct entry「Gすぽっと /Gスポット/」. Without
+        // this, everything got lowercased and Shift+G produced「g」in
+        // 全角かな mode - impossible to type an uppercase Roman letter
+        // mid-composition.
+        wchar_t ch = (GetKeyState(VK_SHIFT) < 0)
+            ? static_cast<wchar_t>(wParam)               // 'A'-'Z' verbatim
+            : static_cast<wchar_t>(wParam - 'A' + 'a');  // canonical lowercase
+        m_romajiBuffer.push_back(ch);
         m_compositionConverted = FALSE;
         if (m_pCandWnd) m_pCandWnd->Hide();
         std::wstring display = DisplayForMode(m_romajiBuffer, m_imeMode);

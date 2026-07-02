@@ -189,6 +189,20 @@ namespace romaji
                 continue;
             }
 
+            // Uppercase Roman letters pass through unchanged. Every entry
+            // in the table above is keyed on lowercase, so an uppercase
+            // char is a deliberate "keep this letter as-is" signal from
+            // the caller ("Gsupotto" → "Gすぽっと" which SKK converts to
+            // 「Gスポット」via its Gすぽっと direct entry). Without this,
+            // Shift+G in 全角かな mode was impossible to type because
+            // the letter fell to the "unmatched" branch and stalled.
+            if (romaji[i] >= L'A' && romaji[i] <= L'Z')
+            {
+                hira.push_back(romaji[i]);
+                i += 1;
+                continue;
+            }
+
             // Unmatched: leave the rest as romaji for the caller to keep typing.
             return { hira, std::wstring(romaji.substr(i)) };
         }

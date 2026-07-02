@@ -150,6 +150,32 @@ TEST(romaji_digit_passthrough)
     EXPECT_EQ_W(r2.remaining, L"n");
 }
 
+// 2026-07-02: uppercase Roman letters pass through unchanged so mixed
+// input like「Gsupotto」→「Gすぽっと」stays as one composition and
+// hits the SKK direct entry「Gすぽっと /Gスポット/」. Without this,
+// the Shift+G tried to lowercase and Convert stalled at "gs" (no key
+// starts with g in the table).
+TEST(romaji_uppercase_passthrough)
+{
+    auto r1 = romaji::Convert(L"Gsupotto");
+    EXPECT_EQ_W(r1.hira, L"Gすぽっと");
+    EXPECT_EQ_W(r1.remaining, L"");
+
+    // Bare uppercase letter at end also survives (no lookahead can make
+    // "G" match anything since all keys are lowercase).
+    auto r2 = romaji::Convert(L"G");
+    EXPECT_EQ_W(r2.hira, L"G");
+    EXPECT_EQ_W(r2.remaining, L"");
+
+    // Lowercase i still matches to い, so「iPhone」 becomes「いPほね」-
+    // the lowercase table entries fire independently of the uppercase-
+    // passthrough. Users who want a literal「iPhone」 would type Shift+I
+    // to keep the leading letter uppercase too.
+    auto r3 = romaji::Convert(L"iPhone");
+    EXPECT_EQ_W(r3.hira, L"いPほね");
+    EXPECT_EQ_W(r3.remaining, L"");
+}
+
 // 2026-07-02: y-series i/e columns (tyi/tye/kyi/kye/sye/…) were missing.
 // Typing "tye" left the ASCII "tye" in the buffer and blocked SKK direct
 // entries like「ちぇっく /チェック/」. This test guards the full pattern.
