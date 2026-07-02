@@ -1,4 +1,5 @@
 #include "bunsetsu.h"
+#include "modernranking.h"
 #include "skkdictionary.h"
 #include "mecabanalyzer.h"
 
@@ -474,6 +475,15 @@ std::vector<Bunsetsu> SplitMecab(const std::wstring& reading,
                 b.candidates.push_back(m.surface);
             }
             if (b.candidates.empty()) b.candidates.push_back(m.surface);
+
+            // 5. Modern-usage top override. Corpus mining (see
+            //    scripts/mine/probe_skk_coverage.ps1) shows raw SKK ranks
+            //    single-mora suffix readings by standalone-word frequency
+            //    (だい→大, し→死, けん→件), while modern IME users almost
+            //    always want them as suffixes (だい→第, し→市, けん→県).
+            //    Applied only in the noun branch so 助詞 kana tops (は/を/に)
+            //    aren't disturbed.
+            b.candidates = modernranking::PromoteToTop(m.surface, std::move(b.candidates));
         }
         result.push_back(std::move(b));
     }

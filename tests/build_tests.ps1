@@ -35,7 +35,8 @@ $srcs = @(
     "$src\learningstore.cpp",
     "$src\skkdictionary.cpp",
     "$src\mecabanalyzer.cpp",
-    "$src\bunsetsu.cpp"
+    "$src\bunsetsu.cpp",
+    "$src\modernranking.cpp"
 )
 
 $mecabInc = 'C:\vcpkg\installed\x64-windows\include'

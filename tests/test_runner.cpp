@@ -49,6 +49,7 @@ extern const wchar_t c_szInfoKeyPrefix[]   = L"CLSID\\";
 #include "../src/GenerativeIME.Tsf/skkdictionary.h"
 #include "../src/GenerativeIME.Tsf/mecabanalyzer.h"
 #include "../src/GenerativeIME.Tsf/bunsetsu.h"
+#include "../src/GenerativeIME.Tsf/modernranking.h"
 
 // ---------------------------------------------------------------------
 // Minimal test framework
@@ -1191,6 +1192,127 @@ TEST(split_mecab_noun_skk_top_beats_pronoun_lemma)
 // into きが(名詞) because SKK has「きが /飢餓/」, and the top-candidate
 // path served 違う飢餓為る. The guard now refuses to merge if any
 // span member is 助詞/助動詞/記号.
+// 2026-07-02 corpus regression: for every wikipedia-top.tsv entry above
+// the min-count threshold, run bunsetsu::SplitMecab and check whether
+// the top candidate of the FIRST bunsetsu matches the corpus-expected
+// kanji. This is an integration test on the actual IME pipeline (SKK
+// direct-hit path + MeCab tokenization + ModernRanking promotion),
+// which is the closest we can get to "does the IME hit top-first?"
+// without running the whole TSF host. Reports pass / fail counts and
+// samples of misses. Does NOT fail on any individual miss because the
+// corpus tail has legitimate ambiguity (し = 市 or 氏; か = 家 or 化) --
+// we track pass rate as a trend metric, not a hard gate.
+TEST(corpus_top_100plus_pass_rate)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+
+    // Resolve corpus/goldens/wikipedia-top.tsv relative to the test EXE
+    // location (which is src/GenerativeIME.Tsf/build/x64/Debug/) rather
+    // than the possibly-elsewhere cwd. Walk 5 levels up to the repo root.
+    std::wstring goldenPath;
+    {
+        wchar_t exe[MAX_PATH] = { 0 };
+        if (GetModuleFileNameW(NULL, exe, MAX_PATH) > 0) {
+            std::wstring dir = exe;
+            auto slash = dir.find_last_of(L"\\/");
+            if (slash != std::wstring::npos) dir.resize(slash);
+            // dir = ...\build\x64\Debug
+            for (int i = 0; i < 5; ++i) {
+                slash = dir.find_last_of(L"\\/");
+                if (slash == std::wstring::npos) break;
+                dir.resize(slash);
+            }
+            std::wstring candidate = dir + L"\\corpus\\goldens\\wikipedia-top.tsv";
+            FILE* fh = nullptr;
+            if (_wfopen_s(&fh, candidate.c_str(), L"rb") == 0 && fh) {
+                goldenPath = candidate;
+                std::fclose(fh);
+            }
+        }
+    }
+    if (goldenPath.empty()) { std::printf("  SKIP (no wikipedia-top.tsv found)\n"); return; }
+
+    FILE* f = nullptr;
+    if (_wfopen_s(&f, goldenPath.c_str(), L"rb") != 0 || !f) { std::printf("  SKIP\n"); return; }
+
+    constexpr int kMinCount = 100;
+    int total = 0, pass = 0;
+    int missSampled = 0;
+    const int kMissSamples = 10;
+
+    char buf[512];
+    while (std::fgets(buf, sizeof(buf), f)) {
+        std::string line(buf);
+        if (!line.empty() && line.back() == '\n') line.pop_back();
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.empty() || line[0] == '#') continue;
+
+        // Parse reading\texpected\tcount
+        auto t1 = line.find('\t'); if (t1 == std::string::npos) continue;
+        auto t2 = line.find('\t', t1 + 1); if (t2 == std::string::npos) continue;
+        int count = std::atoi(line.substr(t2 + 1).c_str());
+        if (count < kMinCount) break;
+
+        // UTF-8 -> wstring
+        auto toW = [](const std::string& s) {
+            int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0);
+            std::wstring w(n, L'\0');
+            MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), w.data(), n);
+            return w;
+        };
+        std::wstring reading  = toW(line.substr(0, t1));
+        std::wstring expected = toW(line.substr(t1 + 1, t2 - t1 - 1));
+
+        // Mimic textservice.cpp's whole-reading flow: SKK direct-hit path
+        // FIRST (with ModernRanking promotion), then fall through to
+        // bunsetsu::SplitMecab only when SKK returned nothing.
+        std::wstring actualTop;
+        auto skkHits = skk->Lookup(reading);
+        skkHits = modernranking::PromoteToTop(reading, std::move(skkHits));
+        if (!skkHits.empty()) {
+            actualTop = skkHits[0];
+        } else {
+            auto parts = bunsetsu::SplitMecab(reading, *m, skk);
+            if (!parts.empty() && !parts[0].candidates.empty()) {
+                actualTop = parts[0].candidates[0];
+            }
+        }
+        total++;
+        if (actualTop == expected) {
+            pass++;
+        } else if (missSampled < kMissSamples) {
+            std::printf("    miss: reading=");
+            std::string r; r.resize(reading.size() * 3);
+            int rn = WideCharToMultiByte(CP_UTF8, 0, reading.c_str(), (int)reading.size(), r.data(), (int)r.size(), nullptr, nullptr);
+            r.resize(rn);
+            std::string e; e.resize(expected.size() * 3);
+            int en = WideCharToMultiByte(CP_UTF8, 0, expected.c_str(), (int)expected.size(), e.data(), (int)e.size(), nullptr, nullptr);
+            e.resize(en);
+            std::string a; a.resize(actualTop.size() * 3);
+            int an = WideCharToMultiByte(CP_UTF8, 0, actualTop.c_str(), (int)actualTop.size(), a.data(), (int)a.size(), nullptr, nullptr);
+            a.resize(an);
+            std::printf("%s  expected=%s  got=%s\n", r.c_str(), e.c_str(), a.c_str());
+            missSampled++;
+        }
+    }
+    std::fclose(f);
+
+    if (total > 0) {
+        double rate = 100.0 * pass / total;
+        std::printf("  corpus stats: %d/%d passed (%.1f%%)\n", pass, total, rate);
+    }
+    // Guardrail: don't let the pass rate regress below the current known-good
+    // baseline. When ModernRanking landed (auto-generated from a 1000-article
+    // corpus mining) the rate was 89.7%; the theoretical ceiling with a 1:1
+    // (reading → kanji) map is ~90% because ~40 of the 387 golden entries are
+    // duplicate readings with different expected kanji (かい→回 vs かい→会,
+    // だい→大 vs だい→第, か→家 vs か→化 all coexist in the 100+ band).
+    // Threshold set to 85% to catch real regressions with a small buffer.
+    EXPECT_TRUE(total == 0 || pass * 100 >= total * 85);
+}
+
 TEST(split_mecab_kigasuru_not_flattened_to_kiga)
 {
     auto* m = MecabAnalyzer::GetGlobal();

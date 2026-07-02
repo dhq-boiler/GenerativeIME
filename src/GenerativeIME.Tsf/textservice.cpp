@@ -10,6 +10,7 @@
 #include "bunsetsu.h"
 #include "mecabanalyzer.h"
 #include "learningstore.h"
+#include "modernranking.h"
 #include <algorithm>
 #include <stdio.h>
 #include <thread>
@@ -959,6 +960,12 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
                 skkHits = std::move(clean);
             }
         }
+
+        // Corpus-derived top-candidate override. Applied here (before the
+        // !empty check) so no-SKK-entry readings that we DO have a modern
+        // preferred kanji for (行わ, 呼ば, に対して, ...) get promoted
+        // via front-insert instead of falling through to MeCab bunsetsu.
+        skkHits = modernranking::PromoteToTop(reading, std::move(skkHits));
 
         if (!skkHits.empty() && m_pCandWnd)
         {
