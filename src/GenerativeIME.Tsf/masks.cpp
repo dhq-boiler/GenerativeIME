@@ -43,6 +43,19 @@ namespace masks
             {L"わぎな", L""}, {L"びらびら", L""}, {L"くりとりす", L""},
             {L"くりちゃん", L""}, {L"にくひだ", L""}, {L"いんもう", L""},
             {L"あそこ", L""},
+            {L"ぽるちお", L""},
+            {L"じーすぽっと", L""},
+            {L"じーすぽ", L""},
+            // === 解剖学的な部位 (mask the kanji form so 睾丸/亀頭/etc.
+            //     stays partly readable and the mask target is what SKK
+            //     converts the reading to. Bracketing everyday senses
+            //     is fine because the masks land at the tail of the
+            //     candidate list, not the top.) ===
+            {L"きとう",   L"亀頭"},
+            {L"こうがん", L"睾丸"},
+            {L"いんのう", L"陰嚢"},
+            {L"いんかく", L"陰核"},
+            {L"えいん",   L"会陰"},
             // === 胸部 ===
             {L"おっぱい", L""}, {L"おっぱいちゃん", L""}, {L"ちくび", L""},
             {L"ぱいぱい", L""}, {L"ぱいずり", L""}, {L"にゅうりん", L""},
@@ -60,6 +73,13 @@ namespace masks
             {L"ぐらいんど", L""}, {L"ろーたー", L""},
             {L"ちんぽさわり", L""}, {L"はなあくめ", L""},
             {L"ちんぽおしゃぶり", L""}, {L"みずぜめ", L""},
+            // Kanji-surface targets so 中出し/種付け/淫乱 etc. stay
+            // visually anchored in the masked variant.
+            {L"なかだし",   L"中出し"},
+            {L"たねつけ",   L"種付け"},
+            {L"いんらん",   L"淫乱"},
+            {L"しおふき",   L"潮吹き"},
+            {L"せいかんたい", L"性感帯"},
             // === 分泌物 ===
             {L"ざーめん", L""}, {L"せいえき", L""}, {L"ちんぽじる", L""},
             {L"あいえき", L""}, {L"ちつえき", L""}, {L"おしっこ", L""},
