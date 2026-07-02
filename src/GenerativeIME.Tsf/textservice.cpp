@@ -2878,6 +2878,47 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         *pfEaten = TRUE;
     }
     else if ((wParam == VK_LEFT || wParam == VK_RIGHT) &&
+             !InBunsetsuMode() &&
+             m_pCandWnd && m_pCandWnd->IsVisible() &&
+             (GetKeyState(VK_SHIFT) < 0) &&
+             !m_lastReading.empty() &&
+             m_lastReading.size() >= 2)
+    {
+        // Shift+←/→ pressed while showing a whole-reading single candidate
+        // (SKK direct hit for「パーキンソン病」/「アルツハイマー病」/loan
+        // words / etc.) - auto-enter Phase B by splitting the reading into
+        // two bunsetsu at (len-1, 1). ResizeFocusedBunsetsu then handles
+        // any further shrink/grow the user requests. Without this, whole-
+        // reading matches short-circuited past bunsetsu mode and Shift+
+        // ←/→ silently no-op'd on those inputs.
+        auto* mecab = MecabAnalyzer::GetGlobal();
+        auto* skk   = SkkDictionary::GetGlobal();
+        size_t cut = m_lastReading.size() - 1;
+        std::wstring headR = m_lastReading.substr(0, cut);
+        std::wstring tailR = m_lastReading.substr(cut);
+        std::vector<Bunsetsu> parts;
+        parts.push_back(bunsetsu::MakeBunsetsuFromReading(headR, mecab, skk));
+        parts.push_back(bunsetsu::MakeBunsetsuFromReading(tailR, mecab, skk));
+        if (m_pLearning)
+        {
+            for (auto& b : parts) {
+                if (!b.candidates.empty()) {
+                    b.candidates = m_pLearning->Reorder(b.reading, b.candidates);
+                    b.selected = 0;
+                }
+            }
+        }
+        EnterBunsetsuMode(std::move(parts), pic);
+        // If the user pressed Shift+Right (grow), the split we just made
+        // is by 1 char too small - fold the tail char back in. Shift+Left
+        // (shrink) needs no follow-up because "split off 1 to tail" IS the
+        // shrink for a single-bunsetsu source.
+        if (wParam == VK_RIGHT) {
+            ResizeFocusedBunsetsu(+1, pic);
+        }
+        *pfEaten = TRUE;
+    }
+    else if ((wParam == VK_LEFT || wParam == VK_RIGHT) &&
              InBunsetsuMode() &&
              m_pCandWnd && m_pCandWnd->IsVisible())
     {
