@@ -1453,6 +1453,17 @@ void CTextService::HandleOllamaDone(PendingOllamaRequest* pending)
         delete pending;
         return;
     }
+    // Phase B is showing the focused bunsetsu's list; replacing the window
+    // with a whole-reading answer desyncs the window index from the
+    // bunsetsu's own candidates and JoinSelected would run off the vector
+    // (this is how the 🇼-hunting Tab-cycle crash took Chrome down). Same
+    // policy as HandleOllamaFallbackDone: drop the response.
+    if (InBunsetsuMode())
+    {
+        OutputDebugStringW(L"[GenerativeIME] Ollama: skipping in Phase B mode\n");
+        delete pending;
+        return;
+    }
     if (m_pComposition && SUCCEEDED(pending->hr) && !pending->candidates.empty() && m_pCandWnd)
     {
         auto cands = pending->candidates;
@@ -1940,6 +1951,16 @@ POINT CTextService::QueryBunsetsuAnchorPos(ITfContext* pContext, size_t offset, 
 
 // Replace the composition range with whatever's currently selected in the
 // candidate window. Called on initial show and whenever Up/Down moves the cursor.
+void CTextService::SyncFocusedBunsetsuSelection()
+{
+    if (!m_pCandWnd || !InBunsetsuMode()) return;
+    int sel = m_pCandWnd->GetSelectedIndex();
+    if (sel < 0) return;
+    auto& b = m_bunsetsuList[m_focusedBunsetsu];
+    if ((size_t)sel < b.candidates.size())
+        b.selected = (size_t)sel;
+}
+
 void CTextService::ApplyCandidateSelection(ITfContext* pContext)
 {
     if (!pContext || !m_pCandWnd) return;
@@ -1949,9 +1970,7 @@ void CTextService::ApplyCandidateSelection(ITfContext* pContext)
     // joining every bunsetsu's currently-selected candidate.
     if (InBunsetsuMode())
     {
-        int sel = m_pCandWnd->GetSelectedIndex();
-        if (sel < 0) sel = 0;
-        m_bunsetsuList[m_focusedBunsetsu].selected = (size_t)sel;
+        SyncFocusedBunsetsuSelection();
         std::wstring combined = bunsetsu::JoinSelected(m_bunsetsuList);
         if (!combined.empty())
         {
@@ -2236,12 +2255,7 @@ void CTextService::CommitConvertedIfAny(ITfContext* pContext)
         // the multi-bunsetsu composition. Commit the current join as a
         // single block, learning each bunsetsu's pick, then drop Phase B
         // state so the new keystroke starts a fresh composition.
-        if (m_pCandWnd)
-        {
-            int sel = m_pCandWnd->GetSelectedIndex();
-            if (sel >= 0)
-                m_bunsetsuList[m_focusedBunsetsu].selected = (size_t)sel;
-        }
+        SyncFocusedBunsetsuSelection();
         std::wstring text = bunsetsu::JoinSelected(m_bunsetsuList);
         if (m_pLearning)
         {
@@ -3150,12 +3164,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         {
             // Sync the focused bunsetsu's pick from whatever the candidate
             // window is showing, then commit the joined-selected text.
-            if (m_pCandWnd)
-            {
-                int sel = m_pCandWnd->GetSelectedIndex();
-                if (sel >= 0)
-                    m_bunsetsuList[m_focusedBunsetsu].selected = (size_t)sel;
-            }
+            SyncFocusedBunsetsuSelection();
             std::wstring text = bunsetsu::JoinSelected(m_bunsetsuList);
             // Per-bunsetsu learning: each (reading, chosen kanji) pair gets
             // recorded independently so future SKK/MeCab lookups of that
@@ -3369,9 +3378,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
             // Phase B: Tab moves bunsetsu focus, not candidate selection.
             // Save the current focus's pick first so re-entering this
             // bunsetsu later restores what the user landed on.
-            int sel = m_pCandWnd->GetSelectedIndex();
-            if (sel >= 0)
-                m_bunsetsuList[m_focusedBunsetsu].selected = (size_t)sel;
+            SyncFocusedBunsetsuSelection();
 
             size_t n = m_bunsetsuList.size();
             if (GetKeyState(VK_SHIFT) < 0)
@@ -3454,9 +3461,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         }
         else if (m_bunsetsuList.size() > 1)
         {
-            int sel = m_pCandWnd->GetSelectedIndex();
-            if (sel >= 0)
-                m_bunsetsuList[m_focusedBunsetsu].selected = (size_t)sel;
+            SyncFocusedBunsetsuSelection();
 
             size_t n = m_bunsetsuList.size();
             if (wParam == VK_LEFT)

@@ -1982,6 +1982,26 @@ TEST(join_selected_respects_selected_index)
     EXPECT_EQ_W(bunsetsu::JoinSelected({a}), L"飴");
 }
 
+// Regression: `selected` mirrors the candidate window's index, which can
+// outrun this bunsetsu's own list when an async Ollama result swaps the
+// window contents mid-Phase-B. The unchecked candidates[selected] read
+// garbage heap as a wstring and crashed the host process (Chrome) inside
+// memcpy. Out-of-range must fall back to the top candidate, not UB.
+TEST(join_selected_out_of_range_selected_falls_back)
+{
+    Bunsetsu a;
+    a.reading = L"w";
+    a.candidates = { L"w" };
+    a.selected = 7;  // window was showing a longer (Ollama) list
+    EXPECT_EQ_W(bunsetsu::JoinSelected({a}), L"w");
+
+    Bunsetsu b;
+    b.reading = L"あめ";
+    b.candidates = {};   // "guaranteed non-empty" — but don't trust it
+    b.selected = 3;
+    EXPECT_EQ_W(bunsetsu::JoinSelected({b}), L"あめ");
+}
+
 TEST(any_hit_pure_kana_passthrough)
 {
     Bunsetsu a; a.reading = L"を"; a.candidates = { L"を" };

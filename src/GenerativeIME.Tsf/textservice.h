@@ -199,6 +199,12 @@ private:
     // window at the focused bunsetsu's candidate set. Called whenever a
     // Tab moves focus or a candidate is picked in Phase B mode.
     void                  RepaintBunsetsu(ITfContext* pContext);
+    // Mirror the candidate window's selection index into the focused
+    // bunsetsu, clamped to that bunsetsu's own candidate count. The window
+    // can be showing a longer list than the bunsetsu owns (async Ollama
+    // results landing mid-Phase-B), and an unclamped index would send
+    // JoinSelected reading past the candidates vector into raw heap.
+    void                  SyncFocusedBunsetsuSelection();
     // Grow (delta=+1) or shrink (delta=-1) the focused bunsetsu by one
     // character, redistributing across the boundary with the next
     // bunsetsu. Regenerates candidates for the affected bunsetsu via

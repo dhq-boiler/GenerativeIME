@@ -17,7 +17,17 @@ struct Bunsetsu
     std::vector<std::wstring> candidates;
     size_t                    selected = 0;
 
-    const std::wstring& Selected() const { return candidates[selected]; }
+    // `selected` mirrors the candidate window's index, and async list swaps
+    // (Ollama results landing mid-Phase-B) can leave it pointing past this
+    // bunsetsu's own list. An unchecked candidates[selected] then reads
+    // whatever the heap holds next — real crash: reinterpreted garbage as a
+    // 65k-char wstring and took Chrome down inside memcpy. Fall back to the
+    // reading (== candidates.front() shape) instead of trusting the index.
+    const std::wstring& Selected() const
+    {
+        if (selected < candidates.size()) return candidates[selected];
+        return candidates.empty() ? reading : candidates.front();
+    }
 };
 
 namespace bunsetsu
