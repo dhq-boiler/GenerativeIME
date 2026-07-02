@@ -1,69 +1,122 @@
 #include "masks.h"
-#include <unordered_set>
+#include <unordered_map>
 #include <algorithm>
 
 namespace masks
 {
-    // Curated sensitive-reading set. Kept small on purpose: every entry
-    // here fires masked-variant expansion on every candidate window that
-    // hits this reading, so a false positive is annoying (imagine
-    // 「せいこう」→ ○いこう being offered when the user typed for 成功).
-    // Readings on this list must be almost-always adult/vulgar in
-    // context; ambiguous ones (せいこう / いく / etc.) stay off.
-    static const std::unordered_set<std::wstring>& Sensitive()
+    // Curated sensitive-reading table. Each entry maps a reading (what
+    // fires the mask expansion) to an OPTIONAL preferred mask target:
+    //   maskTarget = L""       → mask the reading itself and its
+    //                            katakana equivalent. Right for kana-
+    //                            only vocabulary like「ちんぽ」/「おっぱい」
+    //                            where the raw kana IS the word.
+    //   maskTarget = L"松葉くずし" → mask ONLY this kanji form. The
+    //                                reading itself doesn't get masked
+    //                                because a masked hiragana version
+    //                                (「〇つばくずし」) loses the visual
+    //                                anchor the kanji provides. Right
+    //                                for 四十八手 style vocabulary where
+    //                                the kanji surface carries semantic
+    //                                weight that a reading-only mask
+    //                                would erase. This was the whole
+    //                                「漢字を含んだ状態でマスクするのがいい」
+    //                                user request.
+    // Every entry here fires on every candidate window that hits this
+    // reading, so a false positive is annoying (imagine「せいこう」→
+    // 〇いこう being offered when the user typed for 成功). Readings on
+    // this list must be almost-always adult/vulgar in context;
+    // ambiguous ones (せいこう / いく / etc.) stay off.
+    static const std::unordered_map<std::wstring, std::wstring>& SensitiveMap()
     {
-        static const auto* s = new std::unordered_set<std::wstring>{
-            // === 男性器 ===
-            L"ちんぽ", L"ちんこ", L"ちんちん", L"おちんちん",
-            L"ちんぽこ", L"ちんぽう", L"ちんちく", L"ちんとり",
-            L"ぺにす", L"ぽこちん", L"まら", L"ふぐり",
-            L"きんたま", L"たまたま", L"いんけい", L"だんこん",
-            L"ずるむけ", L"ほうけい", L"ぱっく",
+        static const auto* m = new std::unordered_map<std::wstring, std::wstring>{
+            // === 男性器 (kana-only, mask the reading itself) ===
+            {L"ちんぽ", L""}, {L"ちんこ", L""}, {L"ちんちん", L""},
+            {L"おちんちん", L""}, {L"ちんぽこ", L""}, {L"ちんぽう", L""},
+            {L"ちんちく", L""}, {L"ちんとり", L""},
+            {L"ぺにす", L""}, {L"ぽこちん", L""}, {L"まら", L""},
+            {L"ふぐり", L""}, {L"きんたま", L""}, {L"たまたま", L""},
+            {L"いんけい", L""}, {L"だんこん", L""},
+            {L"ずるむけ", L""}, {L"ほうけい", L""}, {L"ぱっく", L""},
             // === 女性器 ===
-            L"まんこ", L"おまんこ", L"おめこ", L"おそそ",
-            L"ぼぼ", L"ちゃむ", L"わぎな", L"びらびら",
-            L"くりとりす", L"くりちゃん", L"にくひだ", L"いんもう",
-            L"あそこ",  // context-dependent but often 下ネタ
+            {L"まんこ", L""}, {L"おまんこ", L""}, {L"おめこ", L""},
+            {L"おそそ", L""}, {L"ぼぼ", L""}, {L"ちゃむ", L""},
+            {L"わぎな", L""}, {L"びらびら", L""}, {L"くりとりす", L""},
+            {L"くりちゃん", L""}, {L"にくひだ", L""}, {L"いんもう", L""},
+            {L"あそこ", L""},
             // === 胸部 ===
-            L"おっぱい", L"おっぱいちゃん", L"ちくび", L"ぱいぱい",
-            L"ぱいずり", L"にゅうりん", L"にゅうとう", L"ばすと",
-            L"おちち",
+            {L"おっぱい", L""}, {L"おっぱいちゃん", L""}, {L"ちくび", L""},
+            {L"ぱいぱい", L""}, {L"ぱいずり", L""}, {L"にゅうりん", L""},
+            {L"にゅうとう", L""}, {L"ばすと", L""}, {L"おちち", L""},
             // === 尻 / 肛門 ===
-            L"けつ", L"けつあな", L"おしり", L"あなる",
-            L"こうもん", L"あなるふぁっく",
+            {L"けつ", L""}, {L"けつあな", L""}, {L"おしり", L""},
+            {L"あなる", L""}, {L"こうもん", L""}, {L"あなるふぁっく", L""},
             // === 性行為 ===
-            L"せっくす", L"はめる", L"ふぇらちお", L"くんに",
-            L"くんにり", L"くんにりんぐす", L"あなる", L"ぶっかけ",
-            L"ぱいずり", L"ちんぽしゃぶり", L"すまた", L"ちくびあまえ",
-            L"にゅうりんふぇらちお", L"あくめ", L"えっち", L"ばっく",
-            L"きしゅたい", L"ぐらいんど", L"ろーたー",
-            L"ちんぽさわり", L"はなあくめ", L"ちんぽおしゃぶり",
-            L"みずぜめ",
+            {L"せっくす", L""}, {L"はめる", L""}, {L"ふぇらちお", L""},
+            {L"くんに", L""}, {L"くんにり", L""}, {L"くんにりんぐす", L""},
+            {L"ぶっかけ", L""}, {L"ちんぽしゃぶり", L""},
+            {L"すまた", L""}, {L"ちくびあまえ", L""},
+            {L"にゅうりんふぇらちお", L""}, {L"あくめ", L""},
+            {L"えっち", L""}, {L"ばっく", L""}, {L"きしゅたい", L""},
+            {L"ぐらいんど", L""}, {L"ろーたー", L""},
+            {L"ちんぽさわり", L""}, {L"はなあくめ", L""},
+            {L"ちんぽおしゃぶり", L""}, {L"みずぜめ", L""},
             // === 分泌物 ===
-            L"ざーめん", L"せいえき", L"ちんぽじる", L"あいえき",
-            L"ちつえき", L"おしっこ", L"しょんべん",
-            L"かんちょう",
+            {L"ざーめん", L""}, {L"せいえき", L""}, {L"ちんぽじる", L""},
+            {L"あいえき", L""}, {L"ちつえき", L""}, {L"おしっこ", L""},
+            {L"しょんべん", L""}, {L"かんちょう", L""},
             // === 自慰 ===
-            L"せんずり", L"おなにー", L"しこしこ", L"しこる",
-            L"じくり", L"ちんぽしごき", L"ふぇら",
-            // === 四十八手 (traditional 48 sexual positions - well-known subset) ===
-            L"ほんて", L"ちゃうす", L"さかさちゃうす", L"すわりちゃうす",
-            L"ほかけちゃうす", L"まつばくずし", L"たちまつば", L"ちどり",
-            L"てまくら", L"だきじぞう", L"だきあげ", L"だきしめ",
-            L"しがらみ", L"みやま", L"わけいり", L"たちがなえ",
-            L"すわりがなえ", L"うぐいすのたにわたり", L"しゅもくぞり",
-            L"いわしみず", L"つばめがえし", L"おしぐるま", L"あじろ",
-            L"でふね", L"いりふね", L"そりばし", L"はなびし",
-            L"たちはなびし", L"ふかなさけ", L"しのび", L"うらばしご",
-            L"くびひきれんぼ", L"にしきえのよう", L"つばくらお",
-            L"いすかのはし", L"うのくちばし", L"にだんがえし",
+            {L"せんずり", L""}, {L"おなにー", L""}, {L"しこしこ", L""},
+            {L"しこる", L""}, {L"じくり", L""}, {L"ちんぽしごき", L""},
+            {L"ふぇら", L""},
             // === いく / 絶頂 ===
-            L"いくいく", L"いっちゃう", L"あくめ",
+            {L"いくいく", L""}, {L"いっちゃう", L""},
             // === 罵倒 / 卑語 ===
-            L"くそ", L"くそったれ", L"くそやろう",
-            L"やりまん", L"やりちん", L"びっち",
+            {L"くそ", L""}, {L"くそったれ", L""}, {L"くそやろう", L""},
+            {L"やりまん", L""}, {L"やりちん", L""}, {L"びっち", L""},
+
+            // === 四十八手 (mask target is the KANJI surface so the visual
+            //     anchor 松葉/抱き/立ち/etc. stays visible in the mask.
+            //     The reading itself isn't masked - user gets a clean
+            //     [kanji form + kanji-with-one-char-masked] progression.) ===
+            {L"ほんて",                L"本手"},
+            {L"ちゃうす",              L"茶臼"},
+            {L"さかさちゃうす",        L"逆さ茶臼"},
+            {L"すわりちゃうす",        L"座り茶臼"},
+            {L"ほかけちゃうす",        L"帆掛け茶臼"},
+            {L"まつばくずし",          L"松葉くずし"},
+            {L"たちまつば",            L"立ち松葉"},
+            {L"ちどり",                L"千鳥"},
+            {L"てまくら",              L"手枕"},
+            {L"だきじぞう",            L"抱き地蔵"},
+            {L"だきあげ",              L"抱き上げ"},
+            {L"だきしめ",              L"抱き締め"},
+            {L"しがらみ",              L"しがらみ"},
+            {L"みやま",                L"深山"},
+            {L"わけいり",              L"分け入り"},
+            {L"たちがなえ",            L"立ち鼎"},
+            {L"すわりがなえ",          L"座り鼎"},
+            {L"うぐいすのたにわたり",  L"鶯の谷渡り"},
+            {L"しゅもくぞり",          L"撞木反り"},
+            {L"いわしみず",            L"岩清水"},
+            {L"つばめがえし",          L"燕返し"},
+            {L"おしぐるま",            L"押し車"},
+            {L"あじろ",                L"網代"},
+            {L"でふね",                L"出船"},
+            {L"いりふね",              L"入船"},
+            {L"そりばし",              L"反り橋"},
+            {L"はなびし",              L"花菱"},
+            {L"たちはなびし",          L"立ち花菱"},
+            {L"ふかなさけ",            L"深情け"},
+            {L"しのび",                L"忍び"},
+            {L"うらばしご",            L"裏梯子"},
+            {L"くびひきれんぼ",        L"首引き恋慕"},
+            {L"にしきえのよう",        L"錦絵の陽"},
+            {L"つばくらお",            L"燕尾"},
+            {L"いすかのはし",          L"鶍の嘴"},
+            {L"うのくちばし",          L"鵜の嘴"},
+            {L"にだんがえし",          L"二段返し"},
         };
-        return *s;
+        return *m;
     }
 
     // Hiragana → Katakana of a whole reading. Table walk instead of the
@@ -81,30 +134,47 @@ namespace masks
         return k;
     }
 
-    std::vector<std::wstring> Variants(const std::wstring& reading)
+    // Generate one-per-position mask variants of `s` using the mask
+    // character 〇 (U+3007).
+    static std::vector<std::wstring> MaskEachPosition(const std::wstring& s)
     {
-        const auto& s = Sensitive();
-        if (s.find(reading) == s.end()) return {};
-
-        constexpr wchar_t kMask = L'〇';  // U+3007 IDEOGRAPHIC NUMBER ZERO
+        constexpr wchar_t kMask = L'〇';
         std::vector<std::wstring> out;
-        // One variant per character position, first the hiragana forms.
-        for (size_t i = 0; i < reading.size(); ++i) {
-            std::wstring m = reading;
+        out.reserve(s.size());
+        for (size_t i = 0; i < s.size(); ++i) {
+            // Don't waste a variant on masking a position that's already
+            // 〇 (would be a no-op) or on ASCII space (some kanji surfaces
+            // like「お っぱい」use it as a placeholder).
+            if (s[i] == kMask || s[i] == L' ') continue;
+            std::wstring m = s;
             m[i] = kMask;
             out.push_back(std::move(m));
         }
-        // Then the katakana equivalents. Some users prefer カタカナ for
-        // this class of vocabulary regardless of typing habit, so we
-        // offer both and let the user pick.
-        std::wstring kata = HiraToKata(reading);
-        if (kata != reading) {
-            for (size_t i = 0; i < kata.size(); ++i) {
-                std::wstring m = kata;
-                m[i] = kMask;
-                out.push_back(std::move(m));
-            }
-        }
         return out;
+    }
+
+    std::vector<std::wstring> Variants(const std::wstring& reading)
+    {
+        const auto& m = SensitiveMap();
+        auto it = m.find(reading);
+        if (it == m.end()) return {};
+
+        const std::wstring& target = it->second;
+        if (target.empty()) {
+            // Kana-only entry: mask the reading, then also offer masked
+            // katakana forms since the user might prefer カタカナ in this
+            // register (「チンポ」 / 「〇ンポ」…).
+            auto out = MaskEachPosition(reading);
+            std::wstring kata = HiraToKata(reading);
+            if (kata != reading) {
+                for (auto& v : MaskEachPosition(kata))
+                    out.push_back(std::move(v));
+            }
+            return out;
+        }
+        // Kanji-surface entry (四十八手 etc.): mask ONLY the kanji form
+        // so the kanji visual anchor stays intact. Reading + katakana
+        // masks would just look like garbled hiragana here.
+        return MaskEachPosition(target);
     }
 }

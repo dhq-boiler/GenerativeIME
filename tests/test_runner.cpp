@@ -174,6 +174,38 @@ TEST(masks_sensitive_reading_returns_variants)
     }
 }
 
+// 四十八手 entries mask the kanji surface, not the hiragana reading, so
+// the visual anchor of the position name (松葉 / 抱き / 立ち …) stays
+// visible. Regression for the「漢字を含んだ状態でマスクするのがいい」
+// user request.
+TEST(masks_kanji_surface_only_for_shijuhatte)
+{
+    auto v = masks::Variants(L"まつばくずし");
+    // "松葉くずし" is 5 chars, all non-〇 non-space, so 5 variants.
+    EXPECT_TRUE(v.size() == 5);
+    if (v.size() >= 5) {
+        EXPECT_EQ_W(v[0], L"〇葉くずし");
+        EXPECT_EQ_W(v[1], L"松〇くずし");
+        EXPECT_EQ_W(v[2], L"松葉〇ずし");
+        EXPECT_EQ_W(v[3], L"松葉く〇し");
+        EXPECT_EQ_W(v[4], L"松葉くず〇");
+    }
+    // No hiragana-of-reading masks (「〇つばくずし」 etc.) should appear.
+    for (const auto& m : v) {
+        EXPECT_TRUE(m.find(L"つばくずし") == std::wstring::npos);
+    }
+
+    // Same shape for 抱き地蔵 / 撞木反り / etc.
+    auto d = masks::Variants(L"だきじぞう");
+    EXPECT_TRUE(d.size() == 4);  // 抱き地蔵 = 4 chars
+    if (d.size() >= 4) {
+        EXPECT_EQ_W(d[0], L"〇き地蔵");
+        EXPECT_EQ_W(d[1], L"抱〇地蔵");
+        EXPECT_EQ_W(d[2], L"抱き〇蔵");
+        EXPECT_EQ_W(d[3], L"抱き地〇");
+    }
+}
+
 TEST(masks_non_sensitive_returns_empty)
 {
     // 「かんじ」 is a plain everyday reading -- masks must NOT fire, or
