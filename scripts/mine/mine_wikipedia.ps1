@@ -23,7 +23,9 @@
 param(
     [string]$Out = (Join-Path $PSScriptRoot '..\..\corpus\wikipedia\raw\pairs-raw.tsv'),
     [int]$MaxArticles = 10,
-    [string]$MecabExe = 'C:\Program Files\MeCab\bin\mecab.exe'
+    [string]$MecabExe = 'C:\Program Files\MeCab\bin\mecab.exe',
+    [switch]$Random,
+    [int]$RandomBatchSize = 20
 )
 
 $ErrorActionPreference = 'Stop'
@@ -34,15 +36,46 @@ if (-not (Test-Path $MecabExe)) {
 }
 
 # Seed article titles: chosen to cover general modern registers -- urban
-# geography, common nouns, everyday tech, business. Not exhaustive; Phase 0
-# is about verifying the pipeline. Later phases will use random-page or
-# by-category iteration.
-$titles = @(
+# geography, common nouns, everyday tech, business. Also the fallback
+# when -Random is not set.
+$seedTitles = @(
     '東京', '京都', '大阪', '横浜', '名古屋',
     '会社', '学校', '電車', '天気', '時間',
     'パソコン', 'スマートフォン', 'インターネット', 'アプリケーション',
     '料理', '音楽', '映画', '本', 'ゲーム', '旅行'
 )
+
+# -Random mode fetches random article titles from the MediaWiki random-page
+# endpoint (rnnamespace=0 = main article namespace only, no talk/user/etc.).
+# We batch-request rnlimit=up-to-20 per call and loop until we have
+# $MaxArticles titles. This is way better than a hardcoded seed for coverage:
+# a random sample covers registers we'd never think to enumerate (sports
+# players, chemistry, geography, media franchises, ...).
+function Get-RandomTitles([int]$Count) {
+    $titles = @()
+    while ($titles.Count -lt $Count) {
+        $limit = [Math]::Min(20, $Count - $titles.Count)
+        $url = "https://ja.wikipedia.org/w/api.php?action=query&format=json&list=random&rnnamespace=0&rnlimit=$limit&formatversion=2"
+        try {
+            $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 30 -UserAgent 'GenerativeIME-corpus-mining/0.1 (contact: dhq_boiler@live.jp)'
+        } catch {
+            Write-Warning ("random fetch failed: {0}" -f $_.Exception.Message)
+            Start-Sleep -Seconds 2
+            continue
+        }
+        $j = $r.Content | ConvertFrom-Json
+        foreach ($t in $j.query.random) { $titles += $t.title }
+    }
+    return $titles | Select-Object -First $Count
+}
+
+if ($Random) {
+    Write-Host ("[random] fetching {0} random article titles..." -f $MaxArticles)
+    $titles = Get-RandomTitles -Count $MaxArticles
+    Write-Host ("[random] got {0} titles: {1}..." -f $titles.Count, ($titles[0..([Math]::Min(4, $titles.Count - 1))] -join ', '))
+} else {
+    $titles = $seedTitles
+}
 
 $outDir = Split-Path -Parent $Out
 if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Force -Path $outDir | Out-Null }
@@ -157,3 +190,31 @@ Write-Host ''
 Write-Host ("Articles processed: {0}" -f $articlesProcessed)
 Write-Host ("Total raw pairs:    {0}" -f $totalPairs)
 Write-Host ("Raw output:         {0}" -f (Resolve-Path $Out))
+
+# Aggregation: dedupe (reading, kanji) pairs, sum counts, write sorted
+# TSV to corpus/goldens/wikipedia-top.tsv. This file is the actual
+# regression-test fixture; raw is kept for reproducibility only.
+$goldenDir = Join-Path $PSScriptRoot '..\..\corpus\goldens'
+if (-not (Test-Path $goldenDir)) { New-Item -ItemType Directory -Force -Path $goldenDir | Out-Null }
+$goldenFile = Join-Path $goldenDir 'wikipedia-top.tsv'
+
+$rows = Get-Content $Out -Encoding UTF8
+$rawCount = $rows.Count
+$agg = @{}
+foreach ($row in $rows) {
+    $parts = $row -split "`t"
+    if ($parts.Length -lt 2) { continue }
+    $key = "$($parts[0])`t$($parts[1])"
+    if ($agg.ContainsKey($key)) { $agg[$key] += 1 } else { $agg[$key] = 1 }
+}
+
+$sb = New-Object System.Text.StringBuilder
+[void]$sb.AppendLine("# wikipedia-top.tsv  -- aggregated (reading, kanji, count) from mine_wikipedia.ps1")
+[void]$sb.AppendLine(("# generated from {0} raw rows, {1} distinct pairs" -f $rawCount, $agg.Count))
+[void]$sb.AppendLine("# columns: reading<TAB>kanji<TAB>count")
+foreach ($k in $agg.Keys | Sort-Object { -$agg[$_] }) {
+    [void]$sb.Append($k); [void]$sb.Append("`t"); [void]$sb.AppendLine([string]$agg[$k])
+}
+[System.IO.File]::WriteAllText($goldenFile, $sb.ToString(), [System.Text.UTF8Encoding]::new($false))
+Write-Host ("Aggregated golden:  {0}" -f $goldenFile)
+Write-Host ("  distinct pairs:   {0}" -f $agg.Count)
