@@ -438,3 +438,44 @@ MSI 初回ビルドで `Package.wxs` が **前回セッションの scratchpad p
 ## 結論
 
 **SKK 辞書追加の効果は 59% の BUG に即効性あり**。カタカナ語変換の 8-9 割は末尾追加した外来語で救えている (テスト/データ/ホテル以外の基本外来語は全て解決)。残 41% は SKK 辞書だけでは解決できず、コード側 (symbol dict 優先度・SKK longest-prefix・romaji table 拡張) の修正が必要。今回の commit は「効果が確実な範囲」の即効改善として妥当。
+
+---
+
+# 追記 (v0.1.8) : SegmentedLookup 制限 + HasDirectEntry で 3 BUG 追加解決
+
+## 変更内容 (commit `63b58e3`)
+
+1. `symboldictionary.cpp` の `SegmentedLookup` を **1 char セグメント除外** に変更 (`len >= 2`)
+2. `SkkDictionary::HasDirectEntry(reading)` を新規追加 — okuri-nashi 由来の明示 entry を判別
+3. `textservice.cpp` の SKK direct-hit path で HasDirectEntry true なら ReadsAs フィルタをバイパス
+4. `bunsetsu::ReadsAs` に末尾 は/わ 等価扱い (副次改善)
+5. unit test +13 (Lookup 10 + HasDirectEntry 2 + ReadsAs 1)。**91 tests all pass**
+
+## v0.1.8 E2E 結果 (6/6 全 PASS ✅)
+
+| Input | v0.1.7 | v0.1.8 | 判定 |
+|---|---|---|---|
+| wain | Σ∈ | **ワイン** | ✅ (SegmentedLookup 制限) |
+| konnnichiwa | (v0.1.7 未検証) | **今日は** | ✅ (HasDirectEntry で ReadsAs バイパス) |
+| chikin | 遅筋 | **チキン** | ✅ (v0.1.7 は MSI mixup が原因、既存 Edit 実は反映済) |
+| tesuto | テスト | **テスト** | ✅ (継続) |
+| bagu | バグ | **バグ** | ✅ (継続) |
+| desu | です | **です** | ✅ (regression なし、「出過」に戻っていない) |
+
+## 判定訂正 (ユーザー指摘反映)
+
+前回「未改善 BUG」と判定した多くはテスト設計側の romaji ミス:
+
+- **`konnichiwa` は「こんいちわ」**: `nn` は「ん」で flush されるため、末尾の `n+i` は「にい」ではなく「い」。**「こんにちわ」を入力するには `konnnichiwa` (n を 3 つ) が必要**。
+- **`tii` → 「ちい」**: 正常。「ティー」入力は `teli-`。
+- **`paatii` → 「ぱあちい」**: 正常。「パーティー」入力は `pa-teli-`。
+- **`kukkii` → 「くっきい」**: 正常。「クッキー」入力は `kukki-`。
+- **`pokketto` → 「ぽっけっと」**: 正常 (pp が促音)。「ポケット」入力は `poketto`。
+
+BUG 判定の前に romaji 展開規則を確認する原則を [[romaji-expansion-check-before-bug-judgment]] memory に残しました。
+
+## 総合 (v0.1.6→v0.1.7→v0.1.8)
+
+- v0.1.6 → v0.1.7 (SKK 辞書 190+ 語追加): 27 中 16 PASS (59%)
+- v0.1.7 → v0.1.8 (Symbol/HasDirectEntry 修正 + 判定訂正): 追加 3 BUG (wain/konnichiwa/chikin) 解決
+- 残 romaji-side の課題: BUG-44 の `konnichiwa` F7 「コンイチワ」は **romaji table のバグではなく仕様** (`nn` は「ん」で flush する慣習に合致)。「こんにちわ」を意図するなら `konnnichiwa` を打つ。ドキュメントで説明すべき。
