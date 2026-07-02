@@ -1,0 +1,11 @@
+# Raw dumps and intermediate files — regenerable from mining scripts.
+aozora/raw/
+wikipedia/raw/
+*.bak
+
+# Downloaded external dictionaries.
+neologd/
+unidic-csj/
+zipcode/
+
+# Only commit designed goldens/*.tsv, README.md, and .gitignore.
