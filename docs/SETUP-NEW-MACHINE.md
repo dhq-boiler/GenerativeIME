@@ -5,8 +5,8 @@ GenerativeIME を別マシンで開発再開するための手順。
 ## 1. 前提ツール
 
 - **Windows 10/11 64bit**
-- **Visual Studio 2026 Community v18** (C++ workload + Windows SDK 10.0.28000 以降)
-  - 標準パス: `C:\Program Files\Microsoft Visual Studio\18\Community\`
+- **Visual Studio 2026 v18** (C++ workload + Windows SDK 10.0.28000 以降)
+  - エディション/インストール先は任意 — ビルドスクリプトは `vswhere` で自動解決する (`scripts/buildenv.ps1`)
   - vcxproj の `<PlatformToolset>` は **v145** (cl 14.50.x)。v143 (VS 2022) や v180 ではビルド不可。
 - **Git for Windows** (もしくは PowerShell 経由で `git`)
 - **GitHub CLI (`gh`)** — `gh auth login` 済み (private repo を pull するため)
@@ -31,7 +31,6 @@ clone 直後の構成:
 - `third_party/skk/SKK-JISYO.L.utf8` — SKK 辞書 (6 MB、commit 済)
 - `third_party/skk/SKK-JISYO.emoji.utf8` — 絵文字辞書 (commit 済。再生成は `scripts/mine/fetch_emoji_dict.ps1`)
 - `third_party/mecab/unidic-lite/` — **存在しない** (gitignore、次の手順で取得)
-- `docs/SESSION-STATE.md` — Claude セッション状態スナップショット
 
 ## 3. vcpkg + MeCab セットアップ
 
@@ -122,13 +121,7 @@ claude   # Claude Code CLI 起動
 /load-session
 ```
 
-`~/.claude/saved-sessions/` を探しに行くが、ここに無いので「直接 `docs/SESSION-STATE.md` を読んでくれ」と指示する形になる。例えば:
-
-```
-docs/SESSION-STATE.md を読んで、そこに書かれている状態から作業を再開して
-```
-
-Claude が SESSION-STATE.md を読み、タスクリスト・進捗・次のステップを復元する。
+`~/.claude/saved-sessions/` に保存済みセッションがあれば復元される。新しいマシンには無いので、`git log` と `docs/` 配下の設計メモを読ませて作業状況を再構築する形になる。
 
 ## 9. 開発時の小ネタ
 

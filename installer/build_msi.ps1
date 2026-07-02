@@ -8,8 +8,9 @@
 #   .\installer\build_msi.ps1 -SkipRebuild      # reuse existing binaries
 #
 # Prereqs:
-#   - VS 2026 v18 x64 build tools (msbuild + cl.exe)
-#   - vcpkg mecab installed to C:\vcpkg\installed\x64-windows
+#   - VS 2026 v18 x64 build tools (msbuild + cl.exe) - any edition;
+#     located via vswhere (scripts/buildenv.ps1)
+#   - vcpkg mecab ($env:VcpkgRoot, default C:\vcpkg)
 #   - WiX 5+ dotnet tool (wix --version)
 
 [CmdletBinding()]
@@ -31,13 +32,13 @@ $skkEmoji   = Join-Path $root 'third_party\skk\SKK-JISYO.emoji.utf8'
 $unidicSrc  = Join-Path $root 'third_party\mecab\unidic-lite'
 $setupCpp   = Join-Path $root 'src\GenerativeIME.Setup\GenerativeImeSetup.cpp'
 $setupExe   = Join-Path $buildDir 'GenerativeImeSetup.exe'
-$msbuild    = 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe'
-$vcvars     = 'C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat'
-$vcpkgBin   = 'C:\vcpkg\installed\x64-windows\bin'
+. (Join-Path $root 'scripts\buildenv.ps1')
+$msbuild    = $BuildEnv.MSBuild
+$vcvars     = $BuildEnv.VcVars64
+$vcpkgBin   = Join-Path $BuildEnv.VcpkgRoot 'installed\x64-windows\bin'
 
 # vcvars64.bat calls vswhere.exe under the hood; put its parent on PATH.
-$vsInstallerDir = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer'
-$env:PATH = "$vsInstallerDir;" + $env:PATH
+$env:PATH = "$($BuildEnv.VswhereDir);" + $env:PATH
 
 # Fresh build dir every time (except -SkipRebuild which reuses).
 if (-not $SkipRebuild -and (Test-Path $buildDir)) {

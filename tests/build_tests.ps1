@@ -14,9 +14,10 @@ $src   = Join-Path $root 'src\GenerativeIME.Tsf'
 $tests = Join-Path $root 'tests'
 $out   = Join-Path $tests 'test_runner.exe'
 
-$vcvars = 'C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat'
-$installer = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer'
-$env:PATH = "$installer;" + $env:PATH
+. (Join-Path $root 'scripts\buildenv.ps1')
+$vcvars = $BuildEnv.VcVars64
+# vcvars64.bat calls vswhere.exe under the hood; put its parent on PATH.
+$env:PATH = "$($BuildEnv.VswhereDir);" + $env:PATH
 
 # Output goes next to the IME DLL so g_hInst-derived ResolveDictPath
 # /ResolveDictDir calls inside skkdictionary / mecabanalyzer find the
@@ -40,8 +41,8 @@ $srcs = @(
     "$src\modernranking.cpp"
 )
 
-$mecabInc = 'C:\vcpkg\installed\x64-windows\include'
-$mecabLib = 'C:\vcpkg\installed\x64-windows\debug\lib'
+$mecabInc = Join-Path $BuildEnv.VcpkgRoot 'installed\x64-windows\include'
+$mecabLib = Join-Path $BuildEnv.VcpkgRoot 'installed\x64-windows\debug\lib'
 
 $compile = "`"$vcvars`" >nul && cl /nologo /EHsc /std:c++20 /utf-8 " +
            "/MDd /D _CRT_SECURE_NO_WARNINGS /D _DEBUG " +
