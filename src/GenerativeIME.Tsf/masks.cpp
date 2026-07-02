@@ -59,6 +59,15 @@ namespace masks
             // === 女性向け / BL / やおい (kana-only) ===
             {L"やおい", L""}, {L"ぼーいずらぶ", L""}, {L"びーえる", L""},
             {L"じーえる", L""}, {L"がーるずらぶ", L""},
+            // === 性感染症 (STI) - chat-context softening (kanji surface
+            //     for kanji entries, raw form for the katakana loanwords) ===
+            {L"ばいどく",       L"梅毒"},
+            {L"りんびょう",     L"淋病"},
+            {L"せいきへるぺす", L"性器ヘルペス"},
+            {L"せんけいこんじろーま", L"尖圭コンジローマ"},
+            {L"ちつかんじだしょう",   L"膣カンジダ症"},
+            {L"くらみじあ", L""}, {L"かんじだ", L""},
+            {L"へるぺす", L""}, {L"こんじろーま", L""}, {L"とりこもなす", L""},
             // === 解剖学的な部位 (mask the kanji form so 睾丸/亀頭/etc.
             //     stays partly readable and the mask target is what SKK
             //     converts the reading to. Bracketing everyday senses
