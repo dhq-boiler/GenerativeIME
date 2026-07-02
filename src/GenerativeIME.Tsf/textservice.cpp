@@ -1003,6 +1003,34 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
     auto symHits = symbols::LookupAll(reading);
     if (!symHits.empty() && m_pCandWnd)
     {
+        // Number readings are ordinary homophones too: ご is 5/五 but just
+        // as often 語/碁/後, さん is 3/三 but also 山/産. The symbol hit
+        // used to early-return and starve those, so merge the SKK
+        // homophones onto the tail (same okuri-ari garbage filter as the
+        // main SKK path; symbols keep the head, learning reorders later).
+        if (auto* skk = SkkDictionary::GetGlobal(); skk && skk->IsLoaded())
+        {
+            auto hits = skk->Lookup(reading);
+            if (!hits.empty() && !skk->HasDirectEntry(reading))
+            {
+                if (auto* mecab = MecabAnalyzer::GetGlobal(); mecab && mecab->IsReady())
+                {
+                    std::vector<std::wstring> clean;
+                    clean.reserve(hits.size());
+                    for (auto& c : hits)
+                    {
+                        if (bunsetsu::ReadsAs(c, reading, *mecab))
+                            clean.push_back(std::move(c));
+                    }
+                    hits = std::move(clean);
+                }
+            }
+            for (auto& c : hits)
+            {
+                if (std::find(symHits.begin(), symHits.end(), c) == symHits.end())
+                    symHits.push_back(std::move(c));
+            }
+        }
         if (m_pLearning) symHits = m_pLearning->Reorder(reading, symHits);
         m_lastReading = reading;
         m_pCandWnd->SetCandidates(symHits);
