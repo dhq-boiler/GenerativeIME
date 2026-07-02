@@ -377,8 +377,10 @@ TEST(learning_ctx_scoped_isolated_between_procs)
     EXPECT_EQ_W(ls.GetFav(L"k_test", ctxChat), L"感じ");
 }
 
-// Cascade: exact ctx wins over broader. If nothing matches at proc level,
-// fall back to global (empty-ctx) latest.
+// Cascade: exact ctx wins over broader. Since 2026-07-02 a scoped Record
+// also seeds broader scopes (proc+class no-title, proc-only, global) so
+// the cascade actually has something to hit — the previous disjoint
+// design meant cascade always fell through to a never-populated global.
 TEST(learning_ctx_cascade_falls_back_to_global)
 {
     LearningStore ls;
@@ -389,10 +391,14 @@ TEST(learning_ctx_cascade_falls_back_to_global)
     ls.Record(L"c_test", L"a_pick",      ctxA);
     // ctxA sees its own pick.
     EXPECT_EQ_W(ls.GetFav(L"c_test", ctxA), L"a_pick");
-    // ctxB has no scoped pick; falls back to global.
-    EXPECT_EQ_W(ls.GetFav(L"c_test", ctxB), L"global_pick");
-    // Empty ctx also gets global.
-    EXPECT_EQ_W(ls.GetFav(L"c_test", AppContext{}), L"global_pick");
+    // ctxB has no scoped pick of its own. The latest commit (a_pick from
+    // ctxA) seeded the global fallback, so ctxB inherits a_pick — user's
+    // most-recent-anywhere pick wins for contexts that never committed.
+    // (If ctxB later commits its own choice, that overrides for ctxB.)
+    EXPECT_EQ_W(ls.GetFav(L"c_test", ctxB), L"a_pick");
+    // Empty ctx also gets the latest global (which is a_pick after the
+    // ctxA record propagated to m_lastPicked).
+    EXPECT_EQ_W(ls.GetFav(L"c_test", AppContext{}), L"a_pick");
 }
 
 // Cascade narrower→broader: if (proc, class, title) misses but (proc, class)
@@ -404,17 +410,37 @@ TEST(learning_ctx_cascade_partial_match)
     AppContext sameClass;  sameClass.procName  = L"proc.exe"; sameClass.windowClass  = L"Cls"; sameClass.titleNorm  = L"OtherDoc";
     AppContext sameProc;   sameProc.procName   = L"proc.exe"; sameProc.windowClass   = L"OtherCls"; sameProc.titleNorm   = L"OtherDoc";
     AppContext otherProc;  otherProc.procName  = L"other.exe"; otherProc.windowClass = L"Cls"; otherProc.titleNorm  = L"Doc1";
-    // Record only at (proc, class) — no title.
+    // Record at (proc, class) with no title.
     AppContext pc;         pc.procName         = L"proc.exe"; pc.windowClass         = L"Cls";
     ls.Record(L"p_test", L"pc_pick", pc);
     // exact query cascades: exact miss → (proc, class) hit.
     EXPECT_EQ_W(ls.GetFav(L"p_test", exact), L"pc_pick");
     // sameClass also cascades to (proc, class).
     EXPECT_EQ_W(ls.GetFav(L"p_test", sameClass), L"pc_pick");
-    // sameProc has no class match; nothing global recorded → empty.
-    EXPECT_EQ_W(ls.GetFav(L"p_test", sameProc), L"");
-    // otherProc: no match anywhere.
-    EXPECT_EQ_W(ls.GetFav(L"p_test", otherProc), L"");
+    // sameProc has no class match, but proc-only was seeded by the pc
+    // Record → hit at (proc, "", "").
+    EXPECT_EQ_W(ls.GetFav(L"p_test", sameProc), L"pc_pick");
+    // otherProc has neither proc, class, nor exact match, but global was
+    // also seeded by the pc Record so it still finds pc_pick.
+    EXPECT_EQ_W(ls.GetFav(L"p_test", otherProc), L"pc_pick");
+}
+
+// The specific-scope commit still overrides the cascade seed. This is
+// what makes ctx-scoped learning actually useful: if app B later
+// commits its own choice, it beats whatever app A leaked to global.
+TEST(learning_ctx_specific_beats_cascade_seed)
+{
+    LearningStore ls;
+    AppContext ctxA; ctxA.procName = L"appA.exe"; ctxA.windowClass = L"AC"; ctxA.titleNorm = L"AT";
+    AppContext ctxB; ctxB.procName = L"appB.exe"; ctxB.windowClass = L"BC"; ctxB.titleNorm = L"BT";
+    ls.Record(L"s_test", L"a_pick", ctxA);
+    // Now ctxB inherits a_pick via the global seed.
+    EXPECT_EQ_W(ls.GetFav(L"s_test", ctxB), L"a_pick");
+    // But once ctxB commits its own choice, cascade in ctxB returns b_pick,
+    // and ctxA's own commit is unchanged.
+    ls.Record(L"s_test", L"b_pick", ctxB);
+    EXPECT_EQ_W(ls.GetFav(L"s_test", ctxB), L"b_pick");
+    EXPECT_EQ_W(ls.GetFav(L"s_test", ctxA), L"a_pick");
 }
 
 // Legacy 2-arg Record/GetFav still work — they're forwarding overloads

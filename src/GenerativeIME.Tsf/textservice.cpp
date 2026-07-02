@@ -891,7 +891,14 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
                         hits = std::move(clean);
                     }
                 }
-                for (auto& c : hits) {
+                // Promote corpus-preferred alternate to position 1 so Space
+                // through the fav lands on the modern-preferred candidate
+                // before random SKK homophones. e.g. fav=会 for かい keeps
+                // 会 at 0 but reorders the rest so 回 (from ModernRanking)
+                // appears BEFORE 快/介/回転… of raw SKK order.
+                std::vector<std::wstring> tail = modernranking::PromoteToTop(
+                    reading, std::vector<std::wstring>(hits));
+                for (auto& c : tail) {
                     if (std::find(cands.begin(), cands.end(), c) == cands.end())
                         cands.push_back(std::move(c));
                 }

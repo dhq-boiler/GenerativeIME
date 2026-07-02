@@ -276,9 +276,14 @@ HRESULT LearningStore::Record(const std::wstring& reading, const std::wstring& p
                                const AppContext& ctx)
 {
     if (reading.empty() || picked.empty()) return E_INVALIDARG;
-    // Disjoint maps: a scoped record does NOT bump the global map, otherwise
-    // a Code.exe「かんじ→漢字」pick would overwrite the global fallback
-    // and re-leak into every other context on the very next lookup.
+    // Populate every scope-level entry so GetFav's narrower→broader cascade
+    // has data to hit at each stop. Storing only at the exact (proc, cls,
+    // title) key meant the (proc, cls) and (proc) lookups always missed
+    // and cascade fell straight through to a never-populated m_lastPicked.
+    // Concrete effect: reopening the same app under a different window
+    // title lost every learning. Now the newest commit "seeds" all
+    // broader scopes too, but the narrower entry always wins the cascade
+    // so specific contexts still override.
     if (ctx.Empty())
     {
         m_lastPicked[reading] = picked;
@@ -286,6 +291,9 @@ HRESULT LearningStore::Record(const std::wstring& reading, const std::wstring& p
     else
     {
         m_ctxPicked[MakeCtxKey(ctx.procName, ctx.windowClass, ctx.titleNorm, reading)] = picked;
+        m_ctxPicked[MakeCtxKey(ctx.procName, ctx.windowClass, L"",              reading)] = picked;
+        m_ctxPicked[MakeCtxKey(ctx.procName, L"",              L"",              reading)] = picked;
+        m_lastPicked[reading] = picked;
     }
 
     std::wstring path = StorePath();
