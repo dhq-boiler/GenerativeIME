@@ -76,6 +76,20 @@ $domainCategories = @{
         '格闘ゲームのキャラクター', 'ロールプレイングゲームのキャラクター',
         'ビデオゲームの用語', 'ゲームジャンル', 'ゲームシステム'
     )
+    # All 19 major Japanese medical specialties as one aggregated domain.
+    # cmcontinue paginates through each Category:XXX until CapPerDomain
+    # is hit total across the list. Base SKK already covers common
+    # anatomy / disease terms; this batch fills in specialty-specific
+    # terminology (immunology, orthopedic instruments, radiology
+    # procedures, etc.) via corpus-derived ModernRanking additions.
+    'med_all' = @(
+        '内科学', '小児科学', '皮膚科学', '精神医学',
+        '外科学', '整形外科学', '産科婦人科学', '眼科学',
+        '耳鼻咽喉科学', '泌尿器科学', '脳神経外科学', '放射線医学',
+        '麻酔科学', '病理学', '臨床検査', '救急医学',
+        '形成外科学', 'リハビリテーション医学', '総合診療',
+        '医学', '疾患', '病気', '症候群'
+    )
 }
 
 # Kick off one Start-Job per domain.
