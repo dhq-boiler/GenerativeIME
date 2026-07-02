@@ -51,5 +51,17 @@ $compile = "`"$vcvars`" >nul && cl /nologo /EHsc /std:c++20 /utf-8 " +
 cmd /c $compile
 if ($LASTEXITCODE -ne 0) { Write-Host "Compile failed"; exit 1 }
 
+# Sync data files that SkkDictionary / MecabAnalyzer resolve via
+# g_hInst-derived paths. The IME build's post-build event stages these
+# too, but only for the config it was invoked with — running tests
+# without a Debug IME build (or after only editing dict data)
+# otherwise reads a stale SKK-JISYO.L.utf8 and the SKK regression tests
+# report bogus failures.
+Copy-Item -Force (Join-Path $root 'third_party\skk\SKK-JISYO.L.utf8') $build
+$unidicSrc = Join-Path $root 'third_party\mecab\unidic-lite'
+$unidicDst = Join-Path $build 'unidic-lite'
+if (-not (Test-Path $unidicDst)) { New-Item -ItemType Directory -Path $unidicDst | Out-Null }
+Copy-Item -Force -Recurse (Join-Path $unidicSrc '*') $unidicDst
+
 & $out
 exit $LASTEXITCODE

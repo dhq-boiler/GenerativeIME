@@ -1120,6 +1120,92 @@ TEST(split_mecab_noun_skk_top_beats_pronoun_lemma)
     }
 }
 
+// Regression guard (2026-07-02): MergeAdjacentBySkk used to merge
+// across a 助詞 boundary. 「ちがうきがする」 collapsed き(名詞)+が(助詞)
+// into きが(名詞) because SKK has「きが /飢餓/」, and the top-candidate
+// path served 違う飢餓為る. The guard now refuses to merge if any
+// span member is 助詞/助動詞/記号.
+TEST(split_mecab_kigasuru_not_flattened_to_kiga)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto parts = bunsetsu::SplitMecab(L"ちがうきがする", *m, skk);
+    EXPECT_TRUE(parts.size() >= 3);
+    // 飢餓 must NOT be the top of any bunsetsu — that would mean き+が
+    // got merged into きが.
+    for (const auto& p : parts) {
+        if (!p.candidates.empty()) EXPECT_TRUE(p.candidates[0] != L"飢餓");
+    }
+}
+
+// Regression guard (2026-07-02): SKK entry「ました /増田/真下/間下/」
+// promoted 増田 for the auxiliary ました because the 助動詞 path picks
+// the SKK top when it ReadsAs cleanly. Front-inserting「ました」 in
+// the SKK dict makes the SKK top the auxiliary kana, matching intent.
+TEST(split_mecab_mashita_stays_kana_not_masuda)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // MeCab may sub-split ました into まし + た, so we can't assert on
+    // the last morpheme's surface. What we CAN assert is that 増田
+    // never wins as the top candidate of ANY morpheme in this reading —
+    // if the SKK ました→増田 promotion survived, some bunsetsu WOULD
+    // show 増田 at position 0.
+    auto parts = bunsetsu::SplitMecab(L"きょかしました", *m, skk);
+    EXPECT_TRUE(!parts.empty());
+    for (const auto& p : parts) {
+        if (!p.candidates.empty()) EXPECT_TRUE(p.candidates[0] != L"増田");
+    }
+}
+
+// Regression guard (2026-07-02): archaic-lemma filter must key on the
+// lemma, not the KanjifyByReading output. For surface「い」 (居るの未然形)
+// the stitched output is bare「居」, which isn't in a {為る,居る,有る,成る}
+// blacklist by result but IS covered by lemma check. Without this, MeCab
+// splitting innsuto-ru into い(動詞)+ん(助動詞)+… served 居ん at top.
+TEST(split_mecab_i_verb_stem_not_promoted_to_i_kanji)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // Standalone「いん」 as a reading: MeCab may split into い+ん. The
+    // い morpheme's lemma is 居る (archaic); the archaic-lemma filter
+    // must reject 居 as the promoted kanji top for that morpheme.
+    auto parts = bunsetsu::SplitMecab(L"いん", *m, skk);
+    if (!parts.empty()) {
+        // If split into 2 parts (い + ん), the first one must not have 居 as top.
+        if (parts.size() >= 2 && !parts[0].candidates.empty()) {
+            EXPECT_TRUE(parts[0].candidates[0] != L"居");
+        }
+    }
+}
+
+// SKK dict must have the hiragana-keyed loanword「いんすとーる」so the
+// whole-reading direct-hit path in textservice.cpp offers インストール
+// before falling through to MeCab's segment-shredding fallback.
+TEST(skk_lookup_insutoru_returns_katakana_top)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto cands = skk->Lookup(L"いんすとーる");
+    EXPECT_TRUE(!cands.empty());
+    if (!cands.empty()) EXPECT_EQ_W(cands[0], L"インストール");
+    EXPECT_TRUE(skk->HasDirectEntry(L"いんすとーる"));
+}
+
+// SKK dict must have「ました」 kana passthrough front-inserted so the
+// 助動詞 SKK-top promotion doesn't pick 増田 for the past-tense auxiliary.
+TEST(skk_lookup_mashita_top_is_kana)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto cands = skk->Lookup(L"ました");
+    EXPECT_TRUE(!cands.empty());
+    if (!cands.empty()) EXPECT_EQ_W(cands[0], L"ました");
+}
+
 // Regression guard for Layer B: existing filler-lemma suppression
 // still fires and 「ん」 does NOT get pushed as an extra empty
 // entry, and the surface stays reachable.
