@@ -130,7 +130,7 @@ if (-not (Test-Path $scratch)) { New-Item -ItemType Directory -Force -Path $scra
 # Unique per-invocation prefix so parallel runs (mine_domains.ps1 fan-out)
 # don't clobber each other's mecab in/out temp files. -f: fixed count from
 # the parent process id + a random suffix for extra safety.
-$runId = ("{0}_{1:x8}" -f $PID, (Get-Random -Minimum 0 -Maximum 0xFFFFFFFF))
+$runId = ("{0}_{1:x8}" -f $PID, (Get-Random -Minimum 0 -Maximum ([int]::MaxValue)))
 
 # Katakana -> Hiragana. Katakana U+30A1..U+30F3 map to Hiragana by -0x60,
 # except 30FC (long vowel mark) which we keep as-is because IME users
