@@ -1339,6 +1339,34 @@ TEST(split_mecab_noun_skk_top_beats_pronoun_lemma)
 // into きが(名詞) because SKK has「きが /飢餓/」, and the top-candidate
 // path served 違う飢餓為る. The guard now refuses to merge if any
 // span member is 助詞/助動詞/記号.
+// 2026-07-02: adjective 連用形 (く-form) now goes through KanjifyByReading
+// same as verbs. Before this, adjectives fell into the noun branch which
+// pushed the whole 終止形 lemma (詳しい) but nothing that stitched to the
+// 連用形 the user actually typed (詳しく / 詳しくて / 詳しかった). Guard
+// a representative sample.
+TEST(split_mecab_adjective_kuform_stitches_to_kanji)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // "くわしく" 単独: lemma should be 詳しい, stitching to 詳しく.
+    // Note: whole-reading SKK direct hit lands first for くわしく from
+    // 7b215c9, so this test uses a compound reading to force MeCab bunsetsu
+    // path. "はやくくる" splits as はやく (adj く-form) + くる (verb).
+    // The はやく morpheme should have 早く / 速く among its top candidates
+    // from the ADJECTIVE-path stitch, not just はやく (kana) fallback.
+    auto parts = bunsetsu::SplitMecab(L"はやくくる", *m, skk);
+    EXPECT_TRUE(!parts.empty());
+    if (parts.empty()) return;
+    // Look for 早く or 速く anywhere in the first bunsetsu's candidates -
+    // depending on MeCab's lemma pick it could be either.
+    bool foundStitch = false;
+    for (const auto& c : parts[0].candidates) {
+        if (c == L"早く" || c == L"速く") { foundStitch = true; break; }
+    }
+    EXPECT_TRUE(foundStitch);
+}
+
 // 2026-07-02 corpus regression: for every wikipedia-top.tsv entry above
 // the min-count threshold, run bunsetsu::SplitMecab and check whether
 // the top candidate of the FIRST bunsetsu matches the corpus-expected

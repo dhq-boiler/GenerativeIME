@@ -248,18 +248,25 @@ std::vector<Bunsetsu> SplitMecab(const std::wstring& reading,
         // a particle.
         const bool isParticle =
             m.pos == L"助詞" || m.pos == L"助動詞" || m.pos == L"記号";
-        // Verbs only get surface-first treatment. UniDic gives back the
-        // dictionary basic form as the lemma — "し" (連用形) -> "為る" —
-        // which is a kanji nobody actually uses in modern writing, and
-        // worse, sticking it in place of the surface changes the inflection
-        // the user typed ("したひと" -> "為るた人"). Surface keeps "した".
+        // Verbs and adjectives get the KanjifyByReading stitch treatment.
         //
-        // Adjectives are NOT in this bucket. Their UniDic lemma is the
-        // canonical kanji form ("嫌らしい", "赤い") and is genuinely the
-        // form the user usually wants. The basic-form / inflected-form
-        // gap is small for adjectives in everyday writing (we don't see
-        // many "あかかった -> 赤かった" cases vs the common "あかい -> 赤い").
-        const bool isInflected = m.pos == L"動詞";
+        // For verbs, UniDic returns dictionary basic form as the lemma —
+        // "し" (連用形) -> "為る" — which is a kanji nobody actually uses
+        // in modern writing, and worse, sticking it in place of the surface
+        // changes the inflection the user typed ("したひと" -> "為るた人").
+        // Surface keeps "した".
+        //
+        // Adjectives went through the noun branch until 2026-07-02 based on
+        // "adjective inflection is rare in everyday writing" - but that was
+        // wrong. User report: くわしく / 詳しく / わずらわしく / 恥ずかしく
+        // etc. are 連用形 (く-form) and appear all the time. The 終止形
+        // lemma (詳しい / 煩わしい) doesn't stitch to the 連用形 the user
+        // typed. Same treatment as verbs: KanjifyByReading peels matching
+        // kana tails off (lemma / lemmaReading) to isolate the kanji stem,
+        // then rebuilds with the surface's kana ending. Works for all
+        // regular い-adjectives because their lemma ends in い, reading
+        // ends in い, both strip cleanly.
+        const bool isInflected = m.pos == L"動詞" || m.pos == L"形容詞";
 
         if (isParticle)
         {
