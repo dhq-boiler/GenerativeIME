@@ -532,13 +532,21 @@ HRESULT CTextService::InitPreservedKeys()
     HRESULT hr = m_pThreadMgr->QueryInterface(IID_ITfKeystrokeMgr, (void**)&pMgr);
     if (FAILED(hr) || !pMgr) return hr;
 
-    auto preserve = [&](REFGUID guid, UINT vk, const wchar_t* desc) {
-        TF_PRESERVEDKEY pk = { vk, 0 };
+    // TF_MOD_IGNORE_ALL_MODIFIER (0x80000000) makes the preserved-key
+    // hit fire regardless of modifier state. The Japanese 半角/全角 key
+    // physically emits VK_KANJI on some layouts and VK_OEM_AUTO on
+    // others, and Windows can synthesize an implicit Alt modifier for
+    // the grave-accent scan code that carries VK_KANJI on 106/109
+    // keyboards. Without IGNORE_ALL_MODIFIER the preserved-key entry
+    // never matches on those boxes and 半角/全角 silently no-ops.
+    constexpr UINT kIgnoreAllMods = 0x80000000;
+    auto preserve = [&](REFGUID guid, UINT vk, UINT mod, const wchar_t* desc) {
+        TF_PRESERVEDKEY pk = { vk, mod };
         pMgr->PreserveKey(m_tfClientId, guid, &pk, desc, (ULONG)wcslen(desc));
     };
-    preserve(c_guidKeyKanji,  VK_KANJI,      L"GenerativeIME Toggle");
-    preserve(c_guidKeyImeOn,  VK_OEM_AUTO,   L"GenerativeIME ON");
-    preserve(c_guidKeyImeOff, VK_OEM_ENLW,   L"GenerativeIME OFF");
+    preserve(c_guidKeyKanji,  VK_KANJI,    kIgnoreAllMods, L"GenerativeIME Toggle");
+    preserve(c_guidKeyImeOn,  VK_OEM_AUTO, kIgnoreAllMods, L"GenerativeIME ON");
+    preserve(c_guidKeyImeOff, VK_OEM_ENLW, kIgnoreAllMods, L"GenerativeIME OFF");
 
     pMgr->Release();
     return S_OK;
