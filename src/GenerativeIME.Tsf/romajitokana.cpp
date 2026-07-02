@@ -32,21 +32,29 @@ namespace
             {L"wyi", L"ゐ"}, {L"wye", L"ゑ"},
             {L"nn", L"ん"},
 
-            {L"kya", L"きゃ"}, {L"kyu", L"きゅ"}, {L"kyo", L"きょ"},
-            {L"gya", L"ぎゃ"}, {L"gyu", L"ぎゅ"}, {L"gyo", L"ぎょ"},
+            // Y-series palatalized rows. The i / e columns produce
+            // small-vowel forms (きぃ / きぇ / ちぃ / ちぇ …) which every
+            // mainstream IME supports; the earlier tables missed them so
+            // typing "tye" for チェ or "sye" for シェ fell into the
+            // unmatched branch and leaked raw ASCII. Cha/Cya/Tya all map
+            // to ちゃ so the ti/tya/cha aliases stay consistent.
+            {L"kya", L"きゃ"}, {L"kyi", L"きぃ"}, {L"kyu", L"きゅ"}, {L"kye", L"きぇ"}, {L"kyo", L"きょ"},
+            {L"gya", L"ぎゃ"}, {L"gyi", L"ぎぃ"}, {L"gyu", L"ぎゅ"}, {L"gye", L"ぎぇ"}, {L"gyo", L"ぎょ"},
             {L"sha", L"しゃ"}, {L"shu", L"しゅ"}, {L"sho", L"しょ"},
-            {L"sya", L"しゃ"}, {L"syu", L"しゅ"}, {L"syo", L"しょ"},
+            {L"sya", L"しゃ"}, {L"syi", L"しぃ"}, {L"syu", L"しゅ"}, {L"sye", L"しぇ"}, {L"syo", L"しょ"},
             {L"ja", L"じゃ"}, {L"ju", L"じゅ"}, {L"jo", L"じょ"},
-            {L"jya", L"じゃ"}, {L"jyu", L"じゅ"}, {L"jyo", L"じょ"},
+            {L"jya", L"じゃ"}, {L"jyi", L"じぃ"}, {L"jyu", L"じゅ"}, {L"jye", L"じぇ"}, {L"jyo", L"じょ"},
+            {L"zya", L"じゃ"}, {L"zyi", L"じぃ"}, {L"zyu", L"じゅ"}, {L"zye", L"じぇ"}, {L"zyo", L"じょ"},
             {L"cha", L"ちゃ"}, {L"chu", L"ちゅ"}, {L"cho", L"ちょ"},
-            {L"cya", L"ちゃ"}, {L"cyu", L"ちゅ"}, {L"cyo", L"ちょ"},
-            {L"tya", L"ちゃ"}, {L"tyu", L"ちゅ"}, {L"tyo", L"ちょ"},
-            {L"nya", L"にゃ"}, {L"nyu", L"にゅ"}, {L"nyo", L"にょ"},
-            {L"hya", L"ひゃ"}, {L"hyu", L"ひゅ"}, {L"hyo", L"ひょ"},
-            {L"bya", L"びゃ"}, {L"byu", L"びゅ"}, {L"byo", L"びょ"},
-            {L"pya", L"ぴゃ"}, {L"pyu", L"ぴゅ"}, {L"pyo", L"ぴょ"},
-            {L"mya", L"みゃ"}, {L"myu", L"みゅ"}, {L"myo", L"みょ"},
-            {L"rya", L"りゃ"}, {L"ryu", L"りゅ"}, {L"ryo", L"りょ"},
+            {L"cya", L"ちゃ"}, {L"cyi", L"ちぃ"}, {L"cyu", L"ちゅ"}, {L"cye", L"ちぇ"}, {L"cyo", L"ちょ"},
+            {L"tya", L"ちゃ"}, {L"tyi", L"ちぃ"}, {L"tyu", L"ちゅ"}, {L"tye", L"ちぇ"}, {L"tyo", L"ちょ"},
+            {L"dya", L"ぢゃ"}, {L"dyi", L"ぢぃ"}, {L"dyu", L"ぢゅ"}, {L"dye", L"ぢぇ"}, {L"dyo", L"ぢょ"},
+            {L"nya", L"にゃ"}, {L"nyi", L"にぃ"}, {L"nyu", L"にゅ"}, {L"nye", L"にぇ"}, {L"nyo", L"にょ"},
+            {L"hya", L"ひゃ"}, {L"hyi", L"ひぃ"}, {L"hyu", L"ひゅ"}, {L"hye", L"ひぇ"}, {L"hyo", L"ひょ"},
+            {L"bya", L"びゃ"}, {L"byi", L"びぃ"}, {L"byu", L"びゅ"}, {L"bye", L"びぇ"}, {L"byo", L"びょ"},
+            {L"pya", L"ぴゃ"}, {L"pyi", L"ぴぃ"}, {L"pyu", L"ぴゅ"}, {L"pye", L"ぴぇ"}, {L"pyo", L"ぴょ"},
+            {L"mya", L"みゃ"}, {L"myi", L"みぃ"}, {L"myu", L"みゅ"}, {L"mye", L"みぇ"}, {L"myo", L"みょ"},
+            {L"rya", L"りゃ"}, {L"ryi", L"りぃ"}, {L"ryu", L"りゅ"}, {L"rye", L"りぇ"}, {L"ryo", L"りょ"},
 
             // Foreign-sound rows. Most modern IMEs offer these so the user
             // can type ファイル / ヴィヴィッド / ティーチャー without

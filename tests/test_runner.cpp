@@ -149,6 +149,23 @@ TEST(romaji_digit_passthrough)
     EXPECT_EQ_W(r2.remaining, L"n");
 }
 
+// 2026-07-02: y-series i/e columns (tyi/tye/kyi/kye/sye/…) were missing.
+// Typing "tye" left the ASCII "tye" in the buffer and blocked SKK direct
+// entries like「ちぇっく /チェック/」. This test guards the full pattern.
+TEST(romaji_y_series_i_e_columns)
+{
+    EXPECT_EQ_W(romaji::Convert(L"tye").hira, L"ちぇ");
+    EXPECT_EQ_W(romaji::Convert(L"tyi").hira, L"ちぃ");
+    EXPECT_EQ_W(romaji::Convert(L"sye").hira, L"しぇ");
+    EXPECT_EQ_W(romaji::Convert(L"kye").hira, L"きぇ");
+    EXPECT_EQ_W(romaji::Convert(L"nye").hira, L"にぇ");
+    EXPECT_EQ_W(romaji::Convert(L"rye").hira, L"りぇ");
+    EXPECT_EQ_W(romaji::Convert(L"jye").hira, L"じぇ");
+    // Verify the underlying failure that motivated this: tyekku now
+    // resolves to ちぇっく in one shot (was leaving "tye" untouched).
+    EXPECT_EQ_W(romaji::Convert(L"tyekku").hira, L"ちぇっく");
+}
+
 TEST(romaji_foreign_sounds)
 {
     auto r1 = romaji::Convert(L"wi");
