@@ -919,6 +919,21 @@ TEST(skk_lookup_it_term_youken_teigi_top_is_kanji)
     if (!cands.empty()) EXPECT_TRUE(cands[0] == L"要件定義");
 }
 
+TEST(skk_lookup_it_term_ime_upper_then_lower)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // Newly appended: あいえむいー /IME/ime/. Typing "aiemui-" must
+    // offer IME first, ime second — dict order must survive lookup.
+    auto cands = skk->Lookup(L"あいえむいー");
+    EXPECT_TRUE(cands.size() >= 2);
+    if (cands.size() >= 2)
+    {
+        EXPECT_TRUE(cands[0] == L"IME");
+        EXPECT_TRUE(cands[1] == L"ime");
+    }
+}
+
 // ---------------------------------------------------------------------
 // MeCab + bunsetsu integration. These depend on UniDic-Lite being
 // resident next to the test EXE — build_tests.ps1 outputs to the IME
