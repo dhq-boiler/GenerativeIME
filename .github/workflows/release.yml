@@ -1,0 +1,98 @@
+# Release pipeline: every push to main builds a version-bumped MSI and
+# publishes it as a GitHub Release. Release notes are auto-generated
+# (--generate-notes), so the body lists every commit since the previous
+# release tag.
+#
+# Versioning: latest v* tag's patch + 1. Before the first release tag
+# exists, the fallback version in installer/Package.wxs + 1 is used.
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'corpus/**'
+      - '.gitignore'
+
+permissions:
+  contents: write
+
+# A release creates a tag; never let two runs race for the same number.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history: tags for versioning, commits for notes
+
+      - name: Compute next version
+        id: ver
+        shell: pwsh
+        run: |
+          $latest = git tag --list 'v*' --sort=-v:refname | Select-Object -First 1
+          if ($latest -and $latest -match '^v(\d+)\.(\d+)\.(\d+)$') {
+            $ver = "$($Matches[1]).$($Matches[2]).$([int]$Matches[3] + 1)"
+          } else {
+            $wxs = Get-Content installer/Package.wxs -Raw
+            if ($wxs -notmatch 'ProductVersion = "(\d+)\.(\d+)\.(\d+)"') { throw 'version fallback not found in Package.wxs' }
+            $ver = "$($Matches[1]).$($Matches[2]).$([int]$Matches[3] + 1)"
+          }
+          "version=$ver" >> $env:GITHUB_OUTPUT
+          Write-Host "Next version: v$ver"
+
+      - name: Cache vcpkg (mecab)
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:\vcpkg\installed
+            C:\vcpkg\packages
+          key: vcpkg-mecab-x64-windows-v1
+
+      - name: Install MeCab via vcpkg
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'C:\vcpkg\installed\x64-windows\lib\mecab.lib')) {
+            vcpkg install mecab:x64-windows
+            if ($LASTEXITCODE -ne 0) { throw 'vcpkg install failed' }
+          } else {
+            Write-Host 'mecab already in cache'
+          }
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Fetch UniDic-Lite dictionary
+        shell: pwsh
+        run: |
+          python -m pip install --quiet unidic-lite
+          ./scripts/setup-mecab-dict.ps1
+
+      - name: Install WiX
+        shell: pwsh
+        run: dotnet tool install --global wix
+
+      - name: Build MSI
+        shell: pwsh
+        env:
+          VcpkgRoot: C:\vcpkg
+        run: ./installer/build_msi.ps1 -Version '${{ steps.ver.outputs.version }}'
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ver = '${{ steps.ver.outputs.version }}'
+          gh release create "v$ver" installer/build/GenerativeIME.msi `
+            --title "GenerativeIME v$ver" `
+            --target $env:GITHUB_SHA `
+            --generate-notes
+          if ($LASTEXITCODE -ne 0) { throw 'gh release create failed' }

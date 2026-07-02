@@ -1,6 +1,12 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <!-- ProductVersion is normally injected by CI (build_msi.ps1 -Version →
+       wix -d ProductVersion=x.y.z); the fallback below keeps local
+       `wix build` / build_msi.ps1 runs working without one. -->
+  <?ifndef ProductVersion ?>
+    <?define ProductVersion = "0.2.2" ?>
+  <?endif?>
   <Package Name="GenerativeIME" Manufacturer="GenerativeIME"
-           Version="0.2.2" UpgradeCode="{C7E9A1B4-3D2F-4E6A-9C8B-1F0E2D3C4B5A}"
+           Version="$(var.ProductVersion)" UpgradeCode="{C7E9A1B4-3D2F-4E6A-9C8B-1F0E2D3C4B5A}"
            Scope="perMachine" Compressed="yes">
 
     <SummaryInformation Description="GenerativeIME TSF Input Method" Manufacturer="GenerativeIME" />

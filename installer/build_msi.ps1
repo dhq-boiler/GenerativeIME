@@ -15,7 +15,10 @@
 
 [CmdletBinding()]
 param(
-    [switch]$SkipRebuild
+    [switch]$SkipRebuild,
+    # MSI ProductVersion (x.y.z). Empty = use the fallback defined in
+    # Package.wxs. CI passes the auto-bumped release version here.
+    [string]$Version = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -85,7 +88,12 @@ Get-ChildItem $payloadDir -File | ForEach-Object { Write-Host ("    {0,10:N0}  {
 # --- Build MSI --------------------------------------------------------
 Write-Host '[build] MSI via wix' -ForegroundColor Cyan
 $wxs = Join-Path $installer 'Package.wxs'
-& wix build -arch x64 -d "PayloadDir=$payloadDir" -o $msiOut $wxs
+$wixArgs = @('build', '-arch', 'x64', '-d', "PayloadDir=$payloadDir")
+if ($Version) {
+    Write-Host "  ProductVersion: $Version"
+    $wixArgs += @('-d', "ProductVersion=$Version")
+}
+& wix @wixArgs -o $msiOut $wxs
 if ($LASTEXITCODE -ne 0) { throw "wix build failed" }
 
 Write-Host ''
