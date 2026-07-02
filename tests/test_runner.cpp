@@ -706,6 +706,38 @@ TEST(skk_emoji_reading_is_direct_entry)
     EXPECT_TRUE(skk->HasDirectEntry(L"えがお"));
 }
 
+TEST(skk_emoji_punct_runs_offer_emoji_and_halfwidth)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // ！！ / ！？ (full-width, as the romaji layer composes them) must
+    // offer the emoji form first and the half-width ASCII run last.
+    auto bang2 = skk->Lookup(L"！！");
+    EXPECT_TRUE(bang2.size() >= 2);
+    if (bang2.size() >= 2)
+    {
+        EXPECT_TRUE(bang2[0] == L"‼\xFE0F");
+        EXPECT_TRUE(bang2[1] == L"!!");
+    }
+    auto bangQ = skk->Lookup(L"！？");
+    EXPECT_TRUE(bangQ.size() >= 2);
+    if (bangQ.size() >= 2)
+    {
+        EXPECT_TRUE(bangQ[0] == L"⁉\xFE0F");
+        EXPECT_TRUE(bangQ[1] == L"!?");
+    }
+    // Single ！/？ carry the exclamation/question emoji for the
+    // PunctPairs merge path.
+    auto bang = skk->Lookup(L"！");
+    bool hasExcl = false;
+    for (const auto& c : bang) if (c == L"❗") hasExcl = true;
+    EXPECT_TRUE(hasExcl);
+    auto ques = skk->Lookup(L"？");
+    bool hasQ = false;
+    for (const auto& c : ques) if (c == L"❓") hasQ = true;
+    EXPECT_TRUE(hasQ);
+}
+
 TEST(skk_emoji_text_default_gets_vs16)
 {
     auto* skk = SkkDictionary::GetGlobal();

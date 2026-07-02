@@ -848,6 +848,17 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
         auto puncts = symbols::PunctPairs(display);
         if (!puncts.empty())
         {
+            // Emoji forms of the punctuation (！ → ❗/❕, ？ → ❓/❔ via
+            // SKK-JISYO.emoji) join behind the width pair. The typed form
+            // keeps index 0, so a bare Enter still commits what was typed.
+            if (auto* skk = SkkDictionary::GetGlobal(); skk && skk->IsLoaded())
+            {
+                for (auto& c : skk->Lookup(display))
+                {
+                    if (std::find(puncts.begin(), puncts.end(), c) == puncts.end())
+                        puncts.push_back(std::move(c));
+                }
+            }
             m_lastReading = display;
             m_pCandWnd->SetCandidates(puncts);
             POINT pt = QueryCandidateAnchorPos(pContext);
@@ -3057,14 +3068,18 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         }
         *pfEaten = TRUE;
     }
-    else if (wParam >= '0' && wParam <= '9' && !m_romajiBuffer.empty())
+    else if (wParam >= '0' && wParam <= '9' && !m_romajiBuffer.empty()
+             && GetKeyState(VK_SHIFT) >= 0)
     {
-        // Digit inside an active composition (ShouldEat gate above matches
-        // the same condition). Pushed as its literal ASCII char so the
-        // romaji buffer looks like "dai1kai", which Convert() then folds
-        // into「だい1かい」via its digit-passthrough branch. Space
-        // afterwards runs the whole composition through the SKK/MeCab
-        // conversion stack as usual.
+        // UNSHIFTED digit inside an active composition (ShouldEat gate
+        // above matches the same condition). Pushed as its literal ASCII
+        // char so the romaji buffer looks like "dai1kai", which Convert()
+        // then folds into「だい1かい」via its digit-passthrough branch.
+        // Space afterwards runs the whole composition through the
+        // SKK/MeCab conversion stack as usual. Shift+digit must NOT land
+        // here — it's number-row punctuation (! " # …) and belongs to the
+        // IsSymbolKey branch below; without the shift check, the second
+        // key of「!!」was swallowed as「1」(「！１」bug).
         CommitConvertedIfAny(pic);
         m_romajiBuffer.push_back(static_cast<wchar_t>(wParam));
         m_compositionConverted = FALSE;

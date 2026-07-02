@@ -1,10 +1,18 @@
 ﻿# Fetch skk-dev/dict's SKK-JISYO.emoji (CLDR-derived, Unicode License) and
 # distill it into third_party/skk/SKK-JISYO.emoji.utf8 for the IME:
 #
-#   * keep only kana-reading keys (^[ぁ-ゖー]+$). ASCII keys like "ok" or
+#   * keep kana-reading keys (^[ぁ-ゖー]+$). ASCII keys like "ok" or
 #     "10:00" would be misparsed by SkkDictionary's okuri-ari detection
 #     (trailing ASCII letter = okuri stem) and are untypeable through our
-#     romaji composition anyway.
+#     romaji composition anyway. Exceptions that ARE typeable:
+#       - !/? runs ("!", "!!", "!?", "?"): emitted with FULL-WIDTH keys
+#         (！！ etc.) because that's what the romaji layer puts into the
+#         composition; the half-width run is appended as the last
+#         candidate so the user can also pick the ASCII form.
+#       - digit keys 18 / 100 / 1234 (🔞 💯 🔢): digits pass through the
+#         romaji layer as-is. The clock-face digit keys (1..12, x:00,
+#         x:30) are deliberately NOT included — twelve 🕐 variants at the
+#         tail of every plain number conversion is noise, not coverage.
 #   * strip ";U+xxxx" annotations (the loader strips them too; dropping them
 #     here keeps the shipped file small).
 #   * append VS16 (U+FE0F) after codepoints that default to TEXT
@@ -123,9 +131,26 @@ foreach ($line in $lines) {
     $key  = $line.Substring(0, $sp)
     $body = $line.Substring($sp + 1)
 
-    # hiragana + chouonpu only — spelled with \u escapes because PS 5.1
-    # reads BOM-less UTF-8 scripts as ANSI and would mangle kana literals.
-    if ($key -notmatch ('^[' + [string][char]0x3041 + '-' + [string][char]0x3096 + [string][char]0x30FC + ']+$')) { continue }
+    # kana keys pass through; !/? runs get full-width keys + a half-width
+    # tail candidate; whitelisted digit keys pass as-is; everything else
+    # (clock times, +1, ok, …) is dropped.
+    $asciiAlt = $null
+    $kanaRange = '^[' + [string][char]0x3041 + '-' + [string][char]0x3096 + [string][char]0x30FC + ']+$'
+    if ($key -match $kanaRange) {
+        # kana reading: keep as-is
+    }
+    elseif ($key -match '^[!?]+$') {
+        $asciiAlt = $key
+        $sb = New-Object System.Text.StringBuilder
+        foreach ($ch in $key.ToCharArray()) {
+            [void]$sb.Append([char]$(if ($ch -eq '!') { 0xFF01 } else { 0xFF1F }))
+        }
+        $key = $sb.ToString()
+    }
+    elseif ($key -in @('18', '100', '1234')) {
+        # keep as-is
+    }
+    else { continue }
     if (-not $body.StartsWith('/'))    { continue }
 
     $cands = New-Object System.Collections.Generic.List[string]
@@ -139,6 +164,7 @@ foreach ($line in $lines) {
         if (-not $cands.Contains($cand)) { $cands.Add($cand) }
     }
     if ($cands.Count -eq 0) { continue }
+    if ($asciiAlt -and -not $cands.Contains($asciiAlt)) { $cands.Add($asciiAlt) }
 
     $out.Add(($key + ' /' + ($cands -join '/') + '/'))
     $kept++
