@@ -319,12 +319,15 @@ std::vector<Bunsetsu> SplitMecab(const std::wstring& reading,
             // Reject the archaic short-verb kanji lemmas UniDic-Lite hands us
             // for する/いる/ある/なる — 為る/居る/有る/成る are dictionary-correct
             // but modern writing uses the kana surface almost exclusively.
-            // Without this filter, "chigau ki ga suru" ends with 為る instead
-            // of する. Kept as later candidates via lemma push at the tail.
-            auto isArchaicShortVerbKanji = [](const std::wstring& k) {
-                return k == L"為る" || k == L"居る" || k == L"有る" || k == L"成る";
+            // We check the lemma, not the stitched result, because conjugated
+            // forms yield partial kanji ("い" surface + "居る" lemma stitches
+            // to just "居", which isn't the archaic full form but still comes
+            // from the same archaic reading). Without this, innsuto-ru's
+            // MeCab-inferred い(居る未然形)+ん led to 居ん at the top.
+            auto isArchaicShortVerbLemma = [](const std::wstring& l) {
+                return l == L"為る" || l == L"居る" || l == L"有る" || l == L"成る";
             };
-            if (kanji != m.surface && !isArchaicShortVerbKanji(kanji))
+            if (kanji != m.surface && !isArchaicShortVerbLemma(m.lemma))
             {
                 b.candidates.push_back(kanji);
             }
