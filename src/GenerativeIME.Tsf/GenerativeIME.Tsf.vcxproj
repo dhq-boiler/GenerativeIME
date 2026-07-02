@@ -78,6 +78,7 @@
     </Link>
     <PostBuildEvent>
       <Command>xcopy /Y /D "$(ProjectDir)..\..\third_party\skk\SKK-JISYO.L.utf8" "$(OutDir)"
+xcopy /Y /D "$(ProjectDir)..\..\third_party\skk\SKK-JISYO.emoji.utf8" "$(OutDir)"
 xcopy /Y /D "$(VcpkgInstalled)\debug\bin\mecab.dll" "$(OutDir)"
 if not exist "$(OutDir)unidic-lite\" mkdir "$(OutDir)unidic-lite"
 xcopy /Y /D "$(ProjectDir)..\..\third_party\mecab\unidic-lite\*" "$(OutDir)unidic-lite\"</Command>
@@ -111,6 +112,7 @@ xcopy /Y /D "$(ProjectDir)..\..\third_party\mecab\unidic-lite\*" "$(OutDir)unidi
     </Link>
     <PostBuildEvent>
       <Command>xcopy /Y /D "$(ProjectDir)..\..\third_party\skk\SKK-JISYO.L.utf8" "$(OutDir)"
+xcopy /Y /D "$(ProjectDir)..\..\third_party\skk\SKK-JISYO.emoji.utf8" "$(OutDir)"
 xcopy /Y /D "$(VcpkgInstalled)\bin\mecab.dll" "$(OutDir)"
 if not exist "$(OutDir)unidic-lite\" mkdir "$(OutDir)unidic-lite"
 xcopy /Y /D "$(ProjectDir)..\..\third_party\mecab\unidic-lite\*" "$(OutDir)unidic-lite\"</Command>

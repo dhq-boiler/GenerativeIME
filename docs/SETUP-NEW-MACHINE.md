@@ -29,6 +29,7 @@ cd GenerativeIME
 clone 直後の構成:
 - `src/` — C++ + C# のソース
 - `third_party/skk/SKK-JISYO.L.utf8` — SKK 辞書 (6 MB、commit 済)
+- `third_party/skk/SKK-JISYO.emoji.utf8` — 絵文字辞書 (commit 済。再生成は `scripts/mine/fetch_emoji_dict.ps1`)
 - `third_party/mecab/unidic-lite/` — **存在しない** (gitignore、次の手順で取得)
 - `docs/SESSION-STATE.md` — Claude セッション状態スナップショット
 
@@ -94,6 +95,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:11434/api/generate `
 成功すると `src\GenerativeIME.Tsf\build\x64\Debug\` に:
 - `GenerativeIME.Tsf.dll`
 - `SKK-JISYO.L.utf8`
+- `SKK-JISYO.emoji.utf8`
 - `mecab.dll` (Debug 版)
 - `unidic-lite\` 配下に辞書一式
 

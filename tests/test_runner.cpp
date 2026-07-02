@@ -659,6 +659,66 @@ TEST(skk_lookup_okuri_recovers_verb_stem_kanji)
 }
 
 // ---------------------------------------------------------------------
+// SKK-JISYO.emoji — Load merges it from the same directory as the main
+// dict (staged by build_tests.ps1). Emoji entries must land at the TAIL
+// of shared readings and count as direct entries (ReadsAs bypass).
+// ---------------------------------------------------------------------
+TEST(skk_emoji_reading_yields_emoji)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // 「えがお」 carries the CLDR smiley set; 😀 is its first emoji. The
+    // literal is a surrogate pair — an equality hit also proves the
+    // UTF-8 → UTF-16 load path kept the pair intact.
+    auto cands = skk->Lookup(L"えがお");
+    bool hasEmoji = false;
+    for (const auto& c : cands) if (c == L"😀") { hasEmoji = true; break; }
+    EXPECT_TRUE(hasEmoji);
+}
+
+TEST(skk_emoji_appends_after_words)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // 「いぬ」: the SKK-JISYO.L words (犬 …) must rank before the emoji
+    // merged from SKK-JISYO.emoji — Load parses the emoji file second so
+    // its candidates append at the tail.
+    auto cands = skk->Lookup(L"いぬ");
+    size_t inuAt = cands.size(), dogAt = cands.size();
+    for (size_t i = 0; i < cands.size(); ++i)
+    {
+        if (cands[i] == L"犬")  inuAt = (std::min)(inuAt, i);
+        if (cands[i] == L"🐶") dogAt = (std::min)(dogAt, i);
+    }
+    EXPECT_TRUE(inuAt < cands.size());
+    EXPECT_TRUE(dogAt < cands.size());
+    EXPECT_TRUE(inuAt < dogAt);
+}
+
+TEST(skk_emoji_reading_is_direct_entry)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // Emoji can never pass the MeCab ReadsAs pronunciation check, so
+    // emoji readings must register as direct entries — that's the same
+    // bypass maintainer-explicit entries like 「こんにちわ」 get.
+    EXPECT_TRUE(skk->HasDirectEntry(L"えがお"));
+}
+
+TEST(skk_emoji_text_default_gets_vs16)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // ❤ (U+2764) defaults to TEXT presentation; fetch_emoji_dict.ps1 must
+    // have appended VS16 (U+FE0F) so it commits — and renders — as the
+    // color emoji ❤️.
+    auto cands = skk->Lookup(L"はーと");
+    bool hasColorHeart = false;
+    for (const auto& c : cands) if (c == L"❤️") { hasColorHeart = true; break; }
+    EXPECT_TRUE(hasColorHeart);
+}
+
+// ---------------------------------------------------------------------
 // PredictCompletions — 投機的変換 (speculative conversion) prefix search.
 // ---------------------------------------------------------------------
 TEST(skk_predict_completions_basic)

@@ -2,6 +2,9 @@
 #include "globals.h"
 #include <algorithm>
 
+#pragma comment(lib, "d2d1.lib")
+#pragma comment(lib, "dwrite.lib")
+
 namespace
 {
     constexpr wchar_t kWndClass[] = L"GenerativeIME_CandWnd_v2"; // bump on class style change
@@ -10,6 +13,9 @@ namespace
     constexpr int kMinWidth  = 160;
     constexpr int kMaxRows   = 9;
     constexpr int kCornerRadius = 6;
+
+    constexpr float kFontSize = 18.0f;             // DIP == px (RT pinned to 96 DPI)
+    constexpr wchar_t kFontName[] = L"Yu Gothic UI"; // readable Japanese, Win10+ stock
 
     // MS-IME-ish palette tuned for Win11 light theme.
     constexpr COLORREF kBgColor       = RGB(255, 255, 255);
@@ -20,11 +26,17 @@ namespace
     constexpr COLORREF kIndexColor    = RGB(140, 140, 140);
     constexpr COLORREF kSelIndexColor = RGB(200, 220, 240);
     constexpr COLORREF kSepColor      = RGB(238, 238, 238);
+
+    D2D1_COLOR_F ToColorF(COLORREF c)
+    {
+        return D2D1::ColorF(GetRValue(c) / 255.0f,
+                            GetGValue(c) / 255.0f,
+                            GetBValue(c) / 255.0f);
+    }
 }
 
 CCandidateWindow::CCandidateWindow()
     : m_hwnd(nullptr)
-    , m_font(nullptr)
     , m_rowHeight(20)
     , m_width(kMinWidth)
     , m_selected(0)
@@ -62,12 +74,39 @@ HRESULT CCandidateWindow::Create()
         nullptr, nullptr, g_hInst, this);
     if (!m_hwnd) return HRESULT_FROM_WIN32(GetLastError());
 
-    // Yu Gothic UI 14pt — readable Japanese, available on Win10+ out of the box.
-    m_font = CreateFontW(-18, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
-        L"Yu Gothic UI");
-    return S_OK;
+    HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &m_pD2DFactory);
+    if (SUCCEEDED(hr))
+    {
+        hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
+                                 reinterpret_cast<IUnknown**>(&m_pDWriteFactory));
+    }
+    if (SUCCEEDED(hr))
+    {
+        hr = m_pDWriteFactory->CreateTextFormat(kFontName, nullptr,
+            DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL, kFontSize, L"ja-jp", &m_pTextFormat);
+    }
+    if (SUCCEEDED(hr))
+    {
+        // One candidate per row; DWrite vertically centers within the row
+        // rect, and NO_WRAP + our clip rect handles overlong candidates.
+        m_pTextFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        m_pTextFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
+        // Row height from a sample that exercises both the Japanese font
+        // and the emoji fallback, so emoji rows don't clip. (GDI版 used
+        // TEXTMETRIC.tmHeight + 4; this is the DWrite equivalent.)
+        IDWriteTextLayout* probe = nullptr;
+        if (SUCCEEDED(m_pDWriteFactory->CreateTextLayout(L"あAg😀", 5, m_pTextFormat,
+                                                         10000.0f, 100.0f, &probe)))
+        {
+            DWRITE_TEXT_METRICS tm{};
+            probe->GetMetrics(&tm);
+            m_rowHeight = (int)(tm.height + 0.5f) + 4;
+            probe->Release();
+        }
+    }
+    return hr;
 }
 
 void CCandidateWindow::ApplyRoundedRegion()
@@ -80,8 +119,55 @@ void CCandidateWindow::ApplyRoundedRegion()
 
 void CCandidateWindow::Destroy()
 {
+    DiscardRenderTarget();
+    if (m_pTextFormat)    { m_pTextFormat->Release();    m_pTextFormat = nullptr; }
+    if (m_pDWriteFactory) { m_pDWriteFactory->Release(); m_pDWriteFactory = nullptr; }
+    if (m_pD2DFactory)    { m_pD2DFactory->Release();    m_pD2DFactory = nullptr; }
     if (m_hwnd) { DestroyWindow(m_hwnd); m_hwnd = nullptr; }
-    if (m_font) { DeleteObject(m_font); m_font = nullptr; }
+}
+
+HRESULT CCandidateWindow::EnsureRenderTarget()
+{
+    if (m_pRT) return S_OK;
+    if (!m_pD2DFactory || !m_hwnd) return E_FAIL;
+
+    RECT rc; GetClientRect(m_hwnd, &rc);
+    // Pin the render target to 96 DPI so 1 DIP == 1 pixel and all the
+    // pixel-based layout math (row height, paddings, SetWindowPos sizes)
+    // keeps meaning what it says. Same fixed-pixel behavior as the old
+    // GDI -18 font height.
+    D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties();
+    props.dpiX = 96.0f;
+    props.dpiY = 96.0f;
+    HRESULT hr = m_pD2DFactory->CreateHwndRenderTarget(
+        props,
+        D2D1::HwndRenderTargetProperties(
+            m_hwnd, D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top)),
+        &m_pRT);
+    if (FAILED(hr)) return hr;
+
+    hr = m_pRT->CreateSolidColorBrush(ToColorF(kTextColor), &m_pBrush);
+    if (FAILED(hr)) { DiscardRenderTarget(); return hr; }
+    return S_OK;
+}
+
+void CCandidateWindow::DiscardRenderTarget()
+{
+    if (m_pBrush) { m_pBrush->Release(); m_pBrush = nullptr; }
+    if (m_pRT)    { m_pRT->Release();    m_pRT = nullptr; }
+}
+
+float CCandidateWindow::MeasureLineWidth(const std::wstring& text)
+{
+    if (!m_pDWriteFactory || !m_pTextFormat || text.empty()) return 0.0f;
+    IDWriteTextLayout* layout = nullptr;
+    HRESULT hr = m_pDWriteFactory->CreateTextLayout(text.c_str(), (UINT32)text.size(),
+                                                    m_pTextFormat, 100000.0f, 100.0f, &layout);
+    if (FAILED(hr)) return 0.0f;
+    DWRITE_TEXT_METRICS tm{};
+    layout->GetMetrics(&tm);
+    layout->Release();
+    return tm.widthIncludingTrailingWhitespace;
 }
 
 void CCandidateWindow::SetCandidates(const std::vector<std::wstring>& candidates)
@@ -97,26 +183,15 @@ void CCandidateWindow::Resize()
 {
     if (!m_hwnd) return;
 
-    HDC hdc = GetDC(m_hwnd);
-    HFONT oldFont = (HFONT)SelectObject(hdc, m_font);
-
-    TEXTMETRICW tm;
-    GetTextMetricsW(hdc, &tm);
-    m_rowHeight = tm.tmHeight + 4;
-
     int widest = kMinWidth;
     for (size_t i = 0; i < m_candidates.size(); ++i)
     {
         // Prefix " N. " (or "    " when index > 9) so we can render index hints later.
         std::wstring line = std::to_wstring(i + 1) + L". " + m_candidates[i];
-        SIZE sz;
-        GetTextExtentPoint32W(hdc, line.c_str(), (int)line.size(), &sz);
-        if (sz.cx > widest) widest = sz.cx;
+        int w = (int)(MeasureLineWidth(line) + 0.5f);
+        if (w > widest) widest = w;
     }
     m_width = widest + kPaddingX * 2;
-
-    SelectObject(hdc, oldFont);
-    ReleaseDC(m_hwnd, hdc);
 
     int rows = (int)(std::min)((size_t)kMaxRows, m_candidates.size());
     if (rows < 1) rows = 1;
@@ -129,6 +204,7 @@ void CCandidateWindow::Resize()
     if (m_ollamaPending) height += m_rowHeight / 2 + 4;
     SetWindowPos(m_hwnd, nullptr, 0, 0, m_width, height, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
     ApplyRoundedRegion();
+    if (m_pRT) m_pRT->Resize(D2D1::SizeU(m_width, height));
 }
 
 void CCandidateWindow::ShowAt(POINT screenPos)
@@ -237,12 +313,17 @@ LRESULT CCandidateWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
     {
     case WM_PAINT:
     {
+        // BeginPaint/EndPaint still bracket the D2D work — they validate
+        // the dirty region so Windows stops sending WM_PAINT.
         PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(hwnd, &ps);
-        Paint(hdc);
+        BeginPaint(hwnd, &ps);
+        Paint();
         EndPaint(hwnd, &ps);
         return 0;
     }
+    case WM_SIZE:
+        if (m_pRT) m_pRT->Resize(D2D1::SizeU(LOWORD(lParam), HIWORD(lParam)));
+        return 0;
     case WM_ERASEBKGND:
         return 1; // handled in WM_PAINT
     case WM_MOUSEACTIVATE:
@@ -277,27 +358,35 @@ void CCandidateWindow::SetOllamaPending(bool pending)
     if (IsWindowVisible(m_hwnd)) InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
-void CCandidateWindow::Paint(HDC hdc)
+void CCandidateWindow::DrawLine(const std::wstring& text, const D2D1_RECT_F& rect, COLORREF color)
 {
-    RECT rc;
-    GetClientRect(m_hwnd, &rc);
+    if (text.empty()) return;
+    m_pBrush->SetColor(ToColorF(color));
+    // ENABLE_COLOR_FONT is the whole point of the D2D rewrite: emoji glyph
+    // runs (Segoe UI Emoji fallback) come out in color instead of the
+    // monochrome outlines GDI would draw.
+    m_pRT->DrawTextW(text.c_str(), (UINT32)text.size(), m_pTextFormat, rect, m_pBrush,
+                     D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT | D2D1_DRAW_TEXT_OPTIONS_CLIP);
+}
+
+void CCandidateWindow::Paint()
+{
+    if (FAILED(EnsureRenderTarget())) return;
+
+    RECT rcPx;
+    GetClientRect(m_hwnd, &rcPx);
+    D2D1_RECT_F rc = D2D1::RectF(0.0f, 0.0f, (float)rcPx.right, (float)rcPx.bottom);
+
+    m_pRT->BeginDraw();
 
     // Background fill + thin border. Rounded corners come from the window
     // region set in ApplyRoundedRegion; here we just paint inside that mask.
-    HBRUSH bg = CreateSolidBrush(kBgColor);
-    FillRect(hdc, &rc, bg);
-    DeleteObject(bg);
-
-    HPEN pen = CreatePen(PS_SOLID, 1, kBorderColor);
-    HPEN oldPen = (HPEN)SelectObject(hdc, pen);
-    HBRUSH oldBrush = (HBRUSH)SelectObject(hdc, GetStockObject(NULL_BRUSH));
-    RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, kCornerRadius * 2, kCornerRadius * 2);
-    SelectObject(hdc, oldPen);
-    SelectObject(hdc, oldBrush);
-    DeleteObject(pen);
-
-    HFONT oldFont = (HFONT)SelectObject(hdc, m_font);
-    SetBkMode(hdc, TRANSPARENT);
+    m_pRT->Clear(ToColorF(kBgColor));
+    D2D1_ROUNDED_RECT frame = D2D1::RoundedRect(
+        D2D1::RectF(rc.left + 0.5f, rc.top + 0.5f, rc.right - 0.5f, rc.bottom - 0.5f),
+        (float)kCornerRadius, (float)kCornerRadius);
+    m_pBrush->SetColor(ToColorF(kBorderColor));
+    m_pRT->DrawRoundedRectangle(frame, m_pBrush, 1.0f);
 
     int y = kPaddingY;
     int total = (int)m_candidates.size();
@@ -305,37 +394,36 @@ void CCandidateWindow::Paint(HDC hdc)
     for (int row = 0; row < rowsThisPage; ++row)
     {
         int globalIdx = m_pageStart + row;
-        RECT full = { 1, y, rc.right - 1, y + m_rowHeight };
         bool selected = (globalIdx == m_selected);
 
         if (selected)
         {
-            HBRUSH hi = CreateSolidBrush(kSelBgColor);
-            FillRect(hdc, &full, hi);
-            DeleteObject(hi);
+            m_pBrush->SetColor(ToColorF(kSelBgColor));
+            m_pRT->FillRectangle(
+                D2D1::RectF(1.0f, (float)y, rc.right - 1.0f, (float)(y + m_rowHeight)),
+                m_pBrush);
         }
 
         // Index keeps its on-screen position (1-9), not the absolute index,
         // so number keys map naturally to the visible rows regardless of page.
         std::wstring index = std::to_wstring(row + 1) + L".";
-        RECT idxRect = { kPaddingX, y, kPaddingX + 22, y + m_rowHeight };
-        SetTextColor(hdc, selected ? kSelIndexColor : kIndexColor);
-        DrawTextW(hdc, index.c_str(), (int)index.size(), &idxRect,
-                  DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+        DrawLine(index,
+                 D2D1::RectF((float)kPaddingX, (float)y,
+                             (float)(kPaddingX + 22), (float)(y + m_rowHeight)),
+                 selected ? kSelIndexColor : kIndexColor);
 
-        RECT textRect = { kPaddingX + 26, y, rc.right - kPaddingX, y + m_rowHeight };
-        SetTextColor(hdc, selected ? kSelTextColor : kTextColor);
-        DrawTextW(hdc, m_candidates[globalIdx].c_str(), (int)m_candidates[globalIdx].size(), &textRect,
-                  DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+        DrawLine(m_candidates[globalIdx],
+                 D2D1::RectF((float)(kPaddingX + 26), (float)y,
+                             rc.right - kPaddingX, (float)(y + m_rowHeight)),
+                 selected ? kSelTextColor : kTextColor);
 
         if (row + 1 < rowsThisPage && !selected && (globalIdx + 1) != m_selected)
         {
-            HPEN sep = CreatePen(PS_SOLID, 1, kSepColor);
-            HPEN op = (HPEN)SelectObject(hdc, sep);
-            MoveToEx(hdc, kPaddingX, y + m_rowHeight - 1, nullptr);
-            LineTo(hdc, rc.right - kPaddingX, y + m_rowHeight - 1);
-            SelectObject(hdc, op);
-            DeleteObject(sep);
+            m_pBrush->SetColor(ToColorF(kSepColor));
+            float sepY = (float)(y + m_rowHeight) - 0.5f;
+            m_pRT->DrawLine(D2D1::Point2F((float)kPaddingX, sepY),
+                            D2D1::Point2F(rc.right - kPaddingX, sepY),
+                            m_pBrush, 1.0f);
         }
 
         y += m_rowHeight;
@@ -355,11 +443,18 @@ void CCandidateWindow::Paint(HDC hdc)
         constexpr int kFrameCount = (int)(sizeof(kFrames) / sizeof(kFrames[0]));
         const wchar_t* frame = kFrames[((unsigned)m_spinnerFrame) % kFrameCount];
 
-        RECT spin = { kPaddingX, y + 2, rc.right - kPaddingX, rc.bottom - 2 };
-        SetTextColor(hdc, kIndexColor);
-        DrawTextW(hdc, frame, -1, &spin,
-                  DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+        DrawLine(frame,
+                 D2D1::RectF((float)kPaddingX, (float)(y + 2),
+                             rc.right - kPaddingX, rc.bottom - 2.0f),
+                 kIndexColor);
     }
 
-    SelectObject(hdc, oldFont);
+    HRESULT hr = m_pRT->EndDraw();
+    if (hr == D2DERR_RECREATE_TARGET)
+    {
+        // Device loss (driver reset, RDP session change, …): drop the
+        // device resources and let the next WM_PAINT rebuild them.
+        DiscardRenderTarget();
+        InvalidateRect(m_hwnd, nullptr, TRUE);
+    }
 }

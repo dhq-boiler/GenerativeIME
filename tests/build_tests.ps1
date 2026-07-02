@@ -60,6 +60,7 @@ if ($LASTEXITCODE -ne 0) { Write-Host "Compile failed"; exit 1 }
 # otherwise reads a stale SKK-JISYO.L.utf8 and the SKK regression tests
 # report bogus failures.
 Copy-Item -Force (Join-Path $root 'third_party\skk\SKK-JISYO.L.utf8') $build
+Copy-Item -Force (Join-Path $root 'third_party\skk\SKK-JISYO.emoji.utf8') $build
 $unidicSrc = Join-Path $root 'third_party\mecab\unidic-lite'
 $unidicDst = Join-Path $build 'unidic-lite'
 if (-not (Test-Path $unidicDst)) { New-Item -ItemType Directory -Path $unidicDst | Out-Null }

@@ -84,10 +84,21 @@ public:
 private:
     SkkDictionary() = default;
 
-    // Parses a SKK-JISYO formatted file at `path`. UTF-8 encoded, LF or CRLF
-    // line endings. Returns S_OK on success even if the file is malformed in
-    // places — we skip unparseable lines rather than fail the whole load.
+    // Loads the main dictionary at `path`, plus SKK-JISYO.emoji.utf8 from
+    // the same directory when present (emoji entries merge onto the tail
+    // of shared readings). UTF-8 encoded, LF or CRLF line endings. Returns
+    // S_OK on success even if a file is malformed in places — we skip
+    // unparseable lines rather than fail the whole load.
     HRESULT Load(const std::wstring& path);
+
+    // Parses one SKK-JISYO formatted file into m_entries / m_directReadings,
+    // accumulating okuri-ari stems into `deferredOkuri` for FinalizeLoad.
+    HRESULT ParseFile(const std::wstring& path,
+                      std::unordered_map<std::wstring, std::vector<std::wstring>>& deferredOkuri);
+
+    // Flushes deferred okuri-ari stems to the candidate-list tails, builds
+    // the sorted reading index, and marks the dictionary loaded.
+    void FinalizeLoad(std::unordered_map<std::wstring, std::vector<std::wstring>>& deferredOkuri);
 
     std::unordered_map<std::wstring, std::vector<std::wstring>> m_entries;
     // Separate map for okuri-ari stems (e.g. "ふ" → {振, 触, 降, ...} from

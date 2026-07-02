@@ -1,6 +1,8 @@
 #pragma once
 
 #include <windows.h>
+#include <d2d1.h>
+#include <dwrite.h>
 #include <string>
 #include <vector>
 
@@ -8,6 +10,10 @@
 // a selection cursor. Owned by CTextService; created once per Activate and
 // destroyed on Deactivate. The window never takes focus (WS_EX_NOACTIVATE),
 // so the host app and IME composition behave as if it isn't there.
+//
+// Rendering is Direct2D + DirectWrite (not GDI) so emoji candidates from
+// SKK-JISYO.emoji draw in color — GDI's DrawText can only produce the
+// monochrome fallback glyphs.
 class CCandidateWindow
 {
 public:
@@ -47,12 +53,23 @@ public:
 private:
     static LRESULT CALLBACK StaticWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
-    void Paint(HDC hdc);
+    void Paint();
     void Resize();
     void ApplyRoundedRegion();
 
+    // Lazily (re)creates the HwndRenderTarget + brush. Device resources die
+    // with the render target (D2DERR_RECREATE_TARGET), so Paint calls this
+    // every time and DiscardRenderTarget on failure.
+    HRESULT EnsureRenderTarget();
+    void    DiscardRenderTarget();
+    // One line of `text` into `rect`, vertically centered, left-aligned,
+    // clipped, with color-font (emoji) glyph runs enabled.
+    void    DrawLine(const std::wstring& text, const D2D1_RECT_F& rect, COLORREF color);
+    // Pixel width of one rendered line (measured via IDWriteTextLayout so
+    // emoji fallback runs measure correctly).
+    float   MeasureLineWidth(const std::wstring& text);
+
     HWND        m_hwnd;
-    HFONT       m_font;
     int         m_rowHeight;
     int         m_width;
     std::vector<std::wstring> m_candidates;
@@ -60,4 +77,12 @@ private:
     int         m_pageStart; // index of first candidate currently rendered
     bool        m_ollamaPending = false;
     int         m_spinnerFrame = 0;  // bumped on every WM_TIMER tick
+
+    // Device-independent (live for the window's whole life).
+    ID2D1Factory*          m_pD2DFactory = nullptr;
+    IDWriteFactory*        m_pDWriteFactory = nullptr;
+    IDWriteTextFormat*     m_pTextFormat = nullptr;
+    // Device-dependent (recreated after D2DERR_RECREATE_TARGET).
+    ID2D1HwndRenderTarget* m_pRT = nullptr;
+    ID2D1SolidColorBrush*  m_pBrush = nullptr;
 };
