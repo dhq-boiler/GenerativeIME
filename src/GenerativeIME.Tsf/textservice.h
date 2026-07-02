@@ -4,6 +4,7 @@
 #include "bunsetsu.h"
 #include <msctf.h>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 enum class EditAction;
@@ -198,6 +199,50 @@ private:
     // bunsetsu. Regenerates candidates for the affected bunsetsu via
     // bunsetsu::MakeBunsetsuFromReading and repaints.
     void                  ResizeFocusedBunsetsu(int delta, ITfContext* pContext);
+
+    // 投機的変換 (speculative conversion): while the user is still typing,
+    // SkkDictionary::PredictCompletions runs against the kana typed so far
+    // and the candidate window shows completed words (こんに → 今日は).
+    // m_predictionActive marks that the visible candidate list holds these
+    // predictions (NOT Space-conversion results) so key routing can treat
+    // Space as "convert what I typed" instead of "cycle candidates".
+    // m_predictionReadings runs parallel to the shown candidates and holds
+    // each prediction's full dictionary reading, so picking one records
+    // (full reading → word) in LearningStore rather than the typed prefix.
+    bool                      m_predictionActive = false;
+    std::vector<std::wstring> m_predictionReadings;
+    // Refresh (or dismiss) the prediction popup from the current romaji
+    // buffer. Called after every buffer-mutating keystroke; also clears
+    // m_lastReading because whatever candidate list that reading produced
+    // is stale once the buffer changes.
+    void                      UpdatePrediction(ITfContext* pContext);
+    // Move the prediction selection by `delta` and mirror the pick into
+    // the composition. The first navigation adopts the highlighted top
+    // entry as-is (delta ignored) so ↓/Tab enters the list before
+    // advancing past it; delta=0 re-applies the current highlight (used
+    // after PageNext/PagePrev moved it).
+    void                      NavigatePrediction(int delta, ITfContext* pContext);
+
+    // ドキュメント文脈バイアス (MeCab版): on composition start we read the
+    // text surrounding the caret (TF_ES_READ), run MeCab over it, and keep
+    // a volatile reading→surface map of the kanji / katakana words already
+    // present in the document. Conversion prefers these right below the
+    // learning fav; prediction surfaces them above generic SKK completions.
+    // NEVER persisted: document text is not the user's own conversion
+    // history — writing it into LearningStore would pollute real learning
+    // with vocabulary from documents the user merely opened.
+    std::unordered_map<std::wstring, std::wstring> m_docVocab;
+    ULONGLONG                                      m_docVocabTick = 0;
+    void ScanDocumentVocab(ITfContext* pContext);
+    // Caret-window document slice captured by ScanDocumentVocab, with an
+    // 〔入力位置〕 marker where the conversion result will land. Feeds the
+    // Ollama reorder / fallback prompts so the model sees the actual
+    // discourse instead of only the last 60 committed chars.
+    std::wstring m_docContext;
+    // Context string for Ollama prompts: the document slice when available,
+    // else the rolling m_recentContext commit buffer (some hosts return an
+    // empty TF_ES_READ slice).
+    std::wstring BuildLlmContext() const;
 
     // 変換 key when no composition is live and the host has a selection:
     // grab the selected text, recover its hiragana reading via MeCab's

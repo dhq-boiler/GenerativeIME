@@ -816,6 +816,12 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
 {
     if (!pContext || !m_hwndMsg) return;
 
+    // An explicit conversion supersedes any speculative predictions — the
+    // candidate window is about to show conversion results, so key routing
+    // must fall back to the normal cycle-on-Space behavior.
+    m_predictionActive = false;
+    m_predictionReadings.clear();
+
     // Normal path: derive the reading from the romaji typed so far.
     // Reconvert path: the caller pre-loads m_lastReading with the host's
     // selected morpheme reading and clears m_romajiBuffer, so we fall
@@ -926,6 +932,62 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
         }
     }
 
+    // ドキュメント文脈バイアス fast path: the reading matches a word that
+    // already appears in the text around the caret — the user is very
+    // likely retyping it, so surface the document's form first. Sits BELOW
+    // the learning fav (an explicit past pick beats ambient document
+    // vocabulary) and ABOVE the symbol / SKK paths. The map itself is
+    // volatile per-document data; a pick here reaches LearningStore only
+    // through the normal commit path, like any other candidate.
+    if (m_pCandWnd && !m_docVocab.empty())
+    {
+        auto dv = m_docVocab.find(reading);
+        if (dv != m_docVocab.end() && dv->second != reading)
+        {
+            std::vector<std::wstring> cands = { dv->second };
+            // Stack SKK hits behind the document word so Space can still
+            // reach the ordinary homophones (same shape as the fav path).
+            if (auto* skk = SkkDictionary::GetGlobal(); skk && skk->IsLoaded())
+            {
+                auto hits = skk->Lookup(reading);
+                if (!hits.empty() && !skk->HasDirectEntry(reading))
+                {
+                    if (auto* mecab = MecabAnalyzer::GetGlobal(); mecab && mecab->IsReady())
+                    {
+                        std::vector<std::wstring> clean;
+                        clean.reserve(hits.size());
+                        for (auto& c : hits) {
+                            if (bunsetsu::ReadsAs(c, reading, *mecab))
+                                clean.push_back(std::move(c));
+                        }
+                        hits = std::move(clean);
+                    }
+                }
+                std::vector<std::wstring> tail = modernranking::PromoteToTop(
+                    reading, std::vector<std::wstring>(hits));
+                for (auto& c : tail) {
+                    if (std::find(cands.begin(), cands.end(), c) == cands.end())
+                        cands.push_back(std::move(c));
+                }
+            }
+            for (auto& mv : masks::Variants(reading)) {
+                if (std::find(cands.begin(), cands.end(), mv) == cands.end())
+                    cands.push_back(std::move(mv));
+            }
+            m_lastReading = reading;
+            m_pCandWnd->SetCandidates(cands);
+            POINT pt = QueryCandidateAnchorPos(pContext);
+            m_pCandWnd->ShowAt(pt);
+            ApplyCandidateSelection(pContext);
+            wchar_t logbuf[200];
+            swprintf_s(logbuf,
+                       L"[GenerativeIME] DocVocab fast path: reading=%s word=%s (%zu total cands)\n",
+                       reading.c_str(), dv->second.c_str(), cands.size());
+            OutputDebugStringW(logbuf);
+            return;
+        }
+    }
+
     // Local symbol dictionary first: instant, no LLM round-trip. If we get
     // a hit, show that and skip Ollama — the user typed "やじるし" because
     // they want an arrow, not whatever the model would guess at.
@@ -1023,8 +1085,11 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
             // Kick off an async context-aware reorder when there's something
             // to reorder. The candidate window stays usable in the meantime;
             // if the user makes a selection before reorder lands, we drop
-            // the result on arrival to avoid surprising them.
-            if (skkHits.size() >= 2 && !m_recentContext.empty())
+            // the result on arrival to avoid surprising them. Context now
+            // includes the caret-window document slice, so this fires even
+            // when nothing was committed through the IME this session
+            // (e.g. resuming edits in an existing document).
+            if (skkHits.size() >= 2 && !BuildLlmContext().empty())
             {
                 StartReorderAsync(pContext, reading, skkHits);
             }
@@ -1220,7 +1285,7 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
         }
     }
 
-    auto* pending = new PendingOllamaRequest(this, pContext, reading, m_recentContext);
+    auto* pending = new PendingOllamaRequest(this, pContext, reading, BuildLlmContext());
     HWND hwnd = m_hwndMsg;
 
     OutputDebugStringW(L"[GenerativeIME] Ollama: convert begin (async)\n");
@@ -1241,11 +1306,11 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
         prompt += L"\n";
         if (!pending->recentContext.empty())
         {
-            prompt += L"直前までの文章 (文脈の手がかり):\n";
+            prompt += L"文脈 (「〔入力位置〕」は変換結果が挿入される位置):\n";
             prompt += L"「";
             prompt += pending->recentContext;
             prompt += L"」\n";
-            prompt += L"この文脈の続きとして自然な変換を選んでください。\n";
+            prompt += L"この文脈に最も合う変換を選んでください。\n";
             prompt += L"\n";
         }
         prompt += L"読み: ";
@@ -1291,6 +1356,16 @@ void CTextService::HandleOllamaDone(PendingOllamaRequest* pending)
     // romaji or hit Backspace since Space, m_pComposition is probably still
     // valid but the candidates we got are now stale relative to the new
     // reading — we still show them since the user explicitly asked.
+    // Exception: an active prediction popup means keystrokes DID land after
+    // the Space that queued this request; clobbering the fresher speculative
+    // list (and rewriting the composition via ApplyCandidateSelection) with
+    // stale conversion results would corrupt what the user is mid-typing.
+    if (m_predictionActive)
+    {
+        OutputDebugStringW(L"[GenerativeIME] Ollama: prediction active, dropping stale conversion result\n");
+        delete pending;
+        return;
+    }
     if (m_pComposition && SUCCEEDED(pending->hr) && !pending->candidates.empty() && m_pCandWnd)
     {
         auto cands = pending->candidates;
@@ -1347,6 +1422,12 @@ void CTextService::HandleOllamaDone(PendingOllamaRequest* pending)
     delete pending;
 }
 
+std::wstring CTextService::BuildLlmContext() const
+{
+    if (!m_docContext.empty()) return m_docContext;
+    return m_recentContext;
+}
+
 void CTextService::StartReorderAsync(ITfContext* pContext,
                                      const std::wstring& reading,
                                      const std::vector<std::wstring>& candidates)
@@ -1356,7 +1437,7 @@ void CTextService::StartReorderAsync(ITfContext* pContext,
     // Bump the sequence; the worker pins the new value into its request, and
     // anything older that comes back later is rejected as stale.
     unsigned seq = ++m_reorderSeq;
-    auto* req = new PendingOllamaReorderRequest(this, pContext, reading, m_recentContext,
+    auto* req = new PendingOllamaReorderRequest(this, pContext, reading, BuildLlmContext(),
                                                 candidates, seq);
     HWND hwnd = m_hwndMsg;
 
@@ -1371,7 +1452,7 @@ void CTextService::StartReorderAsync(ITfContext* pContext,
         prompt += L"JSON のみ返す。形式: {\"order\":[0始まりの新しい順序のインデックス配列]}\n";
         prompt += L"配列にはすべての候補のインデックスを過不足なく含めてください。\n";
         prompt += L"\n";
-        prompt += L"直前までの文章: 「";
+        prompt += L"文脈 (「〔入力位置〕」は変換結果が挿入される位置): 「";
         prompt += req->recentContext;
         prompt += L"」\n";
         prompt += L"読み: ";
@@ -1451,7 +1532,10 @@ void CTextService::HandleOllamaReorderDone(PendingOllamaReorderRequest* pending)
 
     // Stale by content: user typed more / committed / opened a new conversion.
     // The candidate window may still be visible but for a different reading.
-    if (!m_pCandWnd || !m_pCandWnd->IsVisible() || m_lastReading != pending->reading)
+    // A prediction popup counts as stale too — the reorder was for a
+    // conversion list the speculative candidates have since replaced.
+    if (!m_pCandWnd || !m_pCandWnd->IsVisible() || m_predictionActive ||
+        m_lastReading != pending->reading)
     {
         delete pending;
         return;
@@ -1480,7 +1564,7 @@ void CTextService::StartMecabSupplementAsync(ITfContext* pContext,
     if (!m_hwndMsg || reading.empty()) return;
 
     unsigned seq = ++m_reorderSeq;
-    auto* req = new PendingOllamaFallbackRequest(this, pContext, reading, m_recentContext,
+    auto* req = new PendingOllamaFallbackRequest(this, pContext, reading, BuildLlmContext(),
                                                  mecabTop, seq);
     HWND hwnd = m_hwndMsg;
 
@@ -1506,7 +1590,7 @@ void CTextService::StartMecabSupplementAsync(ITfContext* pContext,
         prompt += L"\n";
         if (!req->recentContext.empty())
         {
-            prompt += L"直前までの文章: 「";
+            prompt += L"文脈 (「〔入力位置〕」は変換結果が挿入される位置): 「";
             prompt += req->recentContext;
             prompt += L"」\n";
         }
@@ -1586,6 +1670,16 @@ void CTextService::HandleOllamaFallbackDone(PendingOllamaFallbackRequest* pendin
     if (pending->seq != m_reorderSeq)
     {
         OutputDebugStringW(L"[GenerativeIME] Ollama fallback: stale (seq mismatch)\n");
+        delete pending;
+        return;
+    }
+
+    // The user typed past the conversion that queued this request and the
+    // popup now shows speculative predictions for the newer input — don't
+    // clobber those with a stale supplement.
+    if (m_predictionActive)
+    {
+        OutputDebugStringW(L"[GenerativeIME] Ollama fallback: prediction active, dropping\n");
         delete pending;
         return;
     }
@@ -1786,6 +1880,260 @@ void CTextService::ApplyCandidateSelection(ITfContext* pContext)
     m_compositionConverted = TRUE;
 }
 
+// 投機的変換: run a prefix search over the kana typed so far and pop the
+// candidate window with completed words while the user is still typing
+// (こんに → 今日は / 今日わ / …). Called after every buffer-mutating
+// keystroke; the caller has already hidden the candidate window, so a
+// no-match simply leaves it hidden.
+void CTextService::UpdatePrediction(ITfContext* pContext)
+{
+    m_predictionActive = false;
+    m_predictionReadings.clear();
+    // The buffer changed, so whatever candidate list m_lastReading produced
+    // is stale. Clearing it also makes the async reorder / fallback handlers
+    // reject their now-outdated results via the reading-mismatch check. The
+    // same goes for a leftover F-key form — Enter must not resurrect it
+    // after the user resumed typing.
+    m_lastReading.clear();
+    m_fkeyConvertedText.clear();
+
+    if (!m_pCandWnd || !pContext) return;
+    if (m_imeMode != ImeMode::Hiragana) return;
+    if (InBunsetsuMode()) return;
+
+    auto r = romaji::Convert(m_romajiBuffer);
+    const std::wstring& prefix = r.hira;
+    // A single kana matches half the dictionary — noise, not speculation.
+    if (prefix.size() < 2) return;
+
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) return;
+
+    // Document vocabulary outranks generic SKK completions: a word that
+    // already appears around the caret is the most likely thing a
+    // just-started reading is heading toward. Both lists are merged
+    // (dedup by displayed word) under the same 9-item cap.
+    std::vector<SkkDictionary::Prediction> preds;
+    for (const auto& kv : m_docVocab)
+    {
+        if (kv.first.size() <= prefix.size()) continue;
+        if (kv.first.compare(0, prefix.size(), prefix) != 0) continue;
+        preds.push_back({ kv.first, kv.second });
+    }
+    std::stable_sort(preds.begin(), preds.end(),
+                     [](const SkkDictionary::Prediction& a,
+                        const SkkDictionary::Prediction& b)
+                     { return a.reading.size() < b.reading.size(); });
+    if (preds.size() > 9) preds.resize(9);
+
+    for (auto& p : skk->PredictCompletions(prefix, 9))
+    {
+        if (preds.size() >= 9) break;
+        bool dup = false;
+        for (const auto& q : preds)
+        {
+            if (q.word == p.word) { dup = true; break; }
+        }
+        if (!dup) preds.push_back(std::move(p));
+    }
+    if (preds.empty()) return;
+
+    // The user's own history beats SKK's first candidate: if they've
+    // committed a word for a predicted reading before, show that form.
+    AppContext ctx = AppContext::Capture();
+    std::vector<std::wstring> words;
+    words.reserve(preds.size());
+    m_predictionReadings.reserve(preds.size());
+    for (auto& p : preds)
+    {
+        std::wstring w = p.word;
+        if (m_pLearning)
+        {
+            std::wstring fav = m_pLearning->GetFav(p.reading, ctx);
+            if (!fav.empty()) w = std::move(fav);
+        }
+        words.push_back(std::move(w));
+        m_predictionReadings.push_back(std::move(p.reading));
+    }
+
+    m_pCandWnd->SetCandidates(words);
+    POINT pt = QueryCandidateAnchorPos(pContext);
+    m_pCandWnd->ShowAt(pt);
+    m_predictionActive = true;
+}
+
+// Move the prediction selection and mirror the pick into the composition.
+// Until the user enters the list, the composition still shows the raw kana
+// (m_compositionConverted == FALSE); the first ↓/Tab adopts the highlighted
+// top entry rather than skipping past it. m_lastReading tracks the picked
+// prediction's FULL reading so Enter's learning Record and a follow-up
+// keystroke's CommitConvertedIfAny attribute the choice correctly.
+void CTextService::NavigatePrediction(int delta, ITfContext* pContext)
+{
+    if (!m_pCandWnd) return;
+    if (m_compositionConverted)
+    {
+        if (delta > 0)      m_pCandWnd->SelectNext();
+        else if (delta < 0) m_pCandWnd->SelectPrev();
+    }
+    int sel = m_pCandWnd->GetSelectedIndex();
+    if (sel >= 0 && sel < (int)m_predictionReadings.size())
+        m_lastReading = m_predictionReadings[sel];
+    if (pContext) ApplyCandidateSelection(pContext);
+}
+
+namespace
+{
+    bool ContainsKanjiOrKatakana(const std::wstring& s)
+    {
+        for (wchar_t c : s)
+        {
+            if ((c >= 0x4E00 && c <= 0x9FFF) || c == L'々') return true;
+            if (c >= 0x30A1 && c <= 0x30FA) return true;
+        }
+        return false;
+    }
+
+    // MecabMorpheme::pronunciation is hiragana for dictionary words, but the
+    // unknown-word fallback copies the katakana surface verbatim. Kana-case
+    // it down so document-vocab keys always compare against typed hiragana.
+    std::wstring KanaToHira(const std::wstring& s)
+    {
+        std::wstring out(s);
+        for (auto& c : out)
+            if (c >= 0x30A1 && c <= 0x30F6) c = (wchar_t)(c - 0x60);
+        return out;
+    }
+}
+
+// ドキュメント文脈バイアス: read ~500 chars either side of the caret and
+// harvest the kanji / katakana words (unigrams + adjacent-pair compounds)
+// into m_docVocab, keyed by hiragana pronunciation. Called on composition
+// start, throttled so rapid short compositions don't pay a MeCab pass each
+// time. The map is rebuilt from scratch every scan — it is a snapshot of
+// the CURRENT document, not an accumulating history (see textservice.h).
+void CTextService::ScanDocumentVocab(ITfContext* pContext)
+{
+    if (!pContext) return;
+    ULONGLONG now = GetTickCount64();
+    if (m_docVocabTick != 0 && now - m_docVocabTick < 1500) return;
+    m_docVocabTick = now;
+
+    auto* mecab = MecabAnalyzer::GetGlobal();
+    if (!mecab || !mecab->IsReady()) return;
+
+    struct GetDocSlice : ITfEditSession
+    {
+        LONG m_cRef = 1;
+        ITfContext* m_ctx;
+        LONG m_max;
+        std::wstring* m_outPrefix;
+        std::wstring* m_outSuffix;
+        GetDocSlice(ITfContext* c, LONG max, std::wstring* p, std::wstring* s)
+            : m_ctx(c), m_max(max), m_outPrefix(p), m_outSuffix(s)
+            { if (m_ctx) m_ctx->AddRef(); }
+        ~GetDocSlice() { if (m_ctx) m_ctx->Release(); }
+        STDMETHODIMP QueryInterface(REFIID riid, void** pp) override {
+            if (!pp) return E_INVALIDARG;
+            *pp = nullptr;
+            if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfEditSession)) {
+                *pp = static_cast<ITfEditSession*>(this); AddRef(); return S_OK;
+            }
+            return E_NOINTERFACE;
+        }
+        STDMETHODIMP_(ULONG) AddRef() override { return InterlockedIncrement(&m_cRef); }
+        STDMETHODIMP_(ULONG) Release() override {
+            LONG c = InterlockedDecrement(&m_cRef);
+            if (c == 0) delete this;
+            return c;
+        }
+        STDMETHODIMP DoEditSession(TfEditCookie ec) override {
+            TF_SELECTION sel = {};
+            ULONG fetched = 0;
+            HRESULT hr = m_ctx->GetSelection(ec, TF_DEFAULT_SELECTION, 1, &sel, &fetched);
+            if (FAILED(hr) || fetched == 0 || !sel.range) return hr;
+            std::vector<wchar_t> buf((size_t)m_max + 1, L'\0');
+            ITfRange* preR = nullptr;
+            sel.range->Clone(&preR);
+            if (preR) {
+                LONG shifted = 0;
+                preR->ShiftStart(ec, -m_max, &shifted, nullptr);
+                ULONG got = 0;
+                preR->GetText(ec, 0, buf.data(), (ULONG)m_max, &got);
+                if (got > 0) m_outPrefix->assign(buf.data(), got);
+                preR->Release();
+            }
+            ITfRange* sufR = nullptr;
+            sel.range->Clone(&sufR);
+            if (sufR) {
+                LONG shifted = 0;
+                sufR->ShiftEnd(ec, m_max, &shifted, nullptr);
+                ULONG got = 0;
+                sufR->GetText(ec, 0, buf.data(), (ULONG)m_max, &got);
+                if (got > 0) m_outSuffix->assign(buf.data(), got);
+                sufR->Release();
+            }
+            sel.range->Release();
+            return S_OK;
+        }
+    };
+
+    std::wstring prefix, suffix;
+    GetDocSlice* s = new GetDocSlice(pContext, 500, &prefix, &suffix);
+    HRESULT hrS = S_OK;
+    pContext->RequestEditSession(m_tfClientId, s, TF_ES_SYNC | TF_ES_READ, &hrS);
+    s->Release();
+
+    // Bounded caret-window slice for the LLM context. Prefix (what the
+    // sentence said so far) matters more than suffix, so it gets the
+    // bigger share of the budget.
+    m_docContext.clear();
+    {
+        std::wstring pre = prefix.size() > 300 ? prefix.substr(prefix.size() - 300) : prefix;
+        std::wstring suf = suffix.size() > 100 ? suffix.substr(0, 100) : suffix;
+        if (!pre.empty() || !suf.empty())
+            m_docContext = pre + L"〔入力位置〕" + suf;
+    }
+
+    m_docVocab.clear();
+    std::wstring text = prefix + suffix;
+    if (text.empty()) return;
+
+    auto morphemes = mecab->Analyze(text);
+    // Unigrams: any kanji/katakana-bearing morpheme whose written form
+    // differs from its reading. Bigrams: adjacent pairs of such morphemes,
+    // so compounds like 変換+窓 land as へんかんまど→変換窓 even though
+    // no dictionary carries the combination.
+    std::wstring prevReading, prevSurface;
+    for (const auto& m : morphemes)
+    {
+        bool content = ContainsKanjiOrKatakana(m.surface) && !m.pronunciation.empty();
+        if (content)
+        {
+            std::wstring reading = KanaToHira(m.pronunciation);
+            if (reading != m.surface)
+            {
+                m_docVocab[reading] = m.surface;
+                if (!prevReading.empty())
+                    m_docVocab[prevReading + reading] = prevSurface + m.surface;
+            }
+            prevReading = std::move(reading);
+            prevSurface = m.surface;
+        }
+        else
+        {
+            prevReading.clear();
+            prevSurface.clear();
+        }
+        if (m_docVocab.size() >= 200) break;
+    }
+
+    wchar_t logbuf[120];
+    swprintf_s(logbuf, L"[GenerativeIME] DocVocab: %zu entries from %zu chars\n",
+               m_docVocab.size(), text.size());
+    OutputDebugStringW(logbuf);
+}
+
 // If the user picked a candidate (via Space/↓/Tab) and then starts typing
 // the next chunk (alpha / symbol / etc.) without explicitly hitting Enter,
 // auto-commit the converted text first so the new keystroke begins a fresh
@@ -1837,6 +2185,8 @@ void CTextService::CommitConvertedIfAny(ITfContext* pContext)
     m_lastReading.clear();
     m_fkeyConvertedText.clear();
     m_nonconvertCycle = 0;
+    m_predictionActive = false;
+    m_predictionReadings.clear();
     if (m_pCandWnd) m_pCandWnd->Hide();
 }
 
@@ -2623,7 +2973,11 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         if (pic)
         {
             EditAction action = (m_pComposition == nullptr) ? EditAction::StartAndUpdate : EditAction::Update;
+            // Harvest the surrounding document text BEFORE the composition
+            // opens, so the slice reflects committed content only.
+            if (m_pComposition == nullptr) ScanDocumentVocab(pic);
             RequestEditSession(pic, action, display);
+            UpdatePrediction(pic);
         }
         *pfEaten = TRUE;
     }
@@ -2644,6 +2998,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         {
             EditAction action = (m_pComposition == nullptr) ? EditAction::StartAndUpdate : EditAction::Update;
             RequestEditSession(pic, action, display);
+            UpdatePrediction(pic);
         }
         *pfEaten = TRUE;
     }
@@ -2663,6 +3018,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
             {
                 EditAction action = (m_pComposition == nullptr) ? EditAction::StartAndUpdate : EditAction::Update;
                 RequestEditSession(pic, action, display);
+                UpdatePrediction(pic);
             }
             // Auto-commit on terminal punctuation removed: shortcut typing
             // was overriding user intent — a full-width 「？」 should stay
@@ -2683,6 +3039,9 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         {
             EditAction action = m_romajiBuffer.empty() ? EditAction::EndCancel : EditAction::Update;
             RequestEditSession(pic, action, display);
+            // Empty buffer just cancelled the composition; UpdatePrediction
+            // then only clears the prediction state (prefix too short).
+            UpdatePrediction(pic);
         }
         *pfEaten = TRUE;
     }
@@ -2749,6 +3108,8 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         m_lastReading.clear();
         m_fkeyConvertedText.clear();
     m_nonconvertCycle = 0;
+        m_predictionActive = false;
+        m_predictionReadings.clear();
         if (m_pCandWnd) m_pCandWnd->Hide();
         *pfEaten = TRUE;
     }
@@ -2759,6 +3120,8 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         m_compositionConverted = FALSE;
         m_fkeyConvertedText.clear();
     m_nonconvertCycle = 0;
+        m_predictionActive = false;
+        m_predictionReadings.clear();
         LeaveBunsetsuMode();
         if (m_pCandWnd) m_pCandWnd->Hide();
         *pfEaten = TRUE;
@@ -2767,11 +3130,27 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
     {
         // When the popup is already up, Space cycles to the next candidate
         // (matches typical IME behavior). Otherwise kick off a fresh async
-        // Ollama call.
+        // Ollama call. Speculative predictions are the exception: while the
+        // popup only shows predictions the user hasn't entered (composition
+        // still raw kana), Space means "convert what I typed" — same as if
+        // the popup weren't there. Once they HAVE entered the prediction
+        // list, Space cycles through it like any candidate list.
         if (m_pCandWnd && m_pCandWnd->IsVisible())
         {
-            m_pCandWnd->SelectNext();
-            ApplyCandidateSelection(pic);
+            if (m_predictionActive && !m_compositionConverted)
+            {
+                m_pCandWnd->Hide();
+                if (pic) TryOllamaConvertAsync(pic);
+            }
+            else if (m_predictionActive)
+            {
+                NavigatePrediction(+1, pic);
+            }
+            else
+            {
+                m_pCandWnd->SelectNext();
+                ApplyCandidateSelection(pic);
+            }
         }
         else if (pic)
         {
@@ -2792,8 +3171,21 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         {
             if (m_pCandWnd && m_pCandWnd->IsVisible())
             {
-                m_pCandWnd->SelectNext();
-                ApplyCandidateSelection(pic);
+                // Same prediction-aware routing as VK_SPACE above.
+                if (m_predictionActive && !m_compositionConverted)
+                {
+                    m_pCandWnd->Hide();
+                    if (pic) TryOllamaConvertAsync(pic);
+                }
+                else if (m_predictionActive)
+                {
+                    NavigatePrediction(+1, pic);
+                }
+                else
+                {
+                    m_pCandWnd->SelectNext();
+                    ApplyCandidateSelection(pic);
+                }
             }
             else if (pic)
             {
@@ -2824,28 +3216,56 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
             m_compositionConverted = TRUE;
             m_fkeyConvertedText    = m_lastReading;
             m_nonconvertCycle      = 0;
+            m_predictionActive     = false;
+            m_predictionReadings.clear();
         }
         else
         {
+            // Dismiss an un-entered prediction popup first — the kana-form
+            // cycle changes the composition text out from under it.
+            if (m_predictionActive && m_pCandWnd)
+            {
+                m_pCandWnd->Hide();
+                m_predictionActive = false;
+                m_predictionReadings.clear();
+            }
             CycleNonconvertForm(pic);
         }
         *pfEaten = TRUE;
     }
     else if (wParam == VK_DOWN && m_pCandWnd && m_pCandWnd->IsVisible())
     {
-        m_pCandWnd->SelectNext();
-        if (pic) ApplyCandidateSelection(pic);
+        if (m_predictionActive)
+        {
+            NavigatePrediction(+1, pic);
+        }
+        else
+        {
+            m_pCandWnd->SelectNext();
+            if (pic) ApplyCandidateSelection(pic);
+        }
         *pfEaten = TRUE;
     }
     else if (wParam == VK_UP && m_pCandWnd && m_pCandWnd->IsVisible())
     {
-        m_pCandWnd->SelectPrev();
-        if (pic) ApplyCandidateSelection(pic);
+        if (m_predictionActive)
+        {
+            NavigatePrediction(-1, pic);
+        }
+        else
+        {
+            m_pCandWnd->SelectPrev();
+            if (pic) ApplyCandidateSelection(pic);
+        }
         *pfEaten = TRUE;
     }
     else if (wParam == VK_TAB && m_pCandWnd && m_pCandWnd->IsVisible())
     {
-        if (InBunsetsuMode() && m_bunsetsuList.size() > 1)
+        if (m_predictionActive)
+        {
+            NavigatePrediction(GetKeyState(VK_SHIFT) < 0 ? -1 : +1, pic);
+        }
+        else if (InBunsetsuMode() && m_bunsetsuList.size() > 1)
         {
             // Phase B: Tab moves bunsetsu focus, not candidate selection.
             // Save the current focus's pick first so re-entering this
@@ -2958,13 +3378,15 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
     else if (wParam == VK_NEXT && m_pCandWnd && m_pCandWnd->IsVisible())
     {
         m_pCandWnd->PageNext();
-        if (pic) ApplyCandidateSelection(pic);
+        if (m_predictionActive) NavigatePrediction(0, pic);
+        else if (pic)           ApplyCandidateSelection(pic);
         *pfEaten = TRUE;
     }
     else if (wParam == VK_PRIOR && m_pCandWnd && m_pCandWnd->IsVisible())
     {
         m_pCandWnd->PagePrev();
-        if (pic) ApplyCandidateSelection(pic);
+        if (m_predictionActive) NavigatePrediction(0, pic);
+        else if (pic)           ApplyCandidateSelection(pic);
         *pfEaten = TRUE;
     }
     else if (wParam == VK_DELETE)
@@ -3081,14 +3503,22 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
                     }
                 }
                 cur.erase(cur.begin() + sel);
+                // Keep the prediction reading list parallel to the shown
+                // candidates, or later navigation would map the wrong
+                // full reading to a pick.
+                if (m_predictionActive && sel < (int)m_predictionReadings.size())
+                    m_predictionReadings.erase(m_predictionReadings.begin() + sel);
                 if (cur.empty())
                 {
                     m_pCandWnd->Hide();
+                    m_predictionActive = false;
+                    m_predictionReadings.clear();
                 }
                 else
                 {
                     m_pCandWnd->SetCandidates(cur);
-                    ApplyCandidateSelection(pic);
+                    if (m_predictionActive) NavigatePrediction(0, pic);
+                    else                    ApplyCandidateSelection(pic);
                 }
             }
         }
@@ -3116,6 +3546,8 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         m_compositionConverted    = TRUE;
         m_fkeyConvertedText       = text;
         m_lastReading             = hira;  // learning key for the F-key form
+        m_predictionActive        = false; // F-key form supersedes predictions
+        m_predictionReadings.clear();
         *pfEaten = TRUE;
     }
     else if (wParam >= '1' && wParam <= '9' && m_pCandWnd && m_pCandWnd->IsVisible())
