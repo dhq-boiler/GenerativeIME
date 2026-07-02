@@ -51,6 +51,7 @@ extern const wchar_t c_szInfoKeyPrefix[]   = L"CLSID\\";
 #include "../src/GenerativeIME.Tsf/bunsetsu.h"
 #include "../src/GenerativeIME.Tsf/modernranking.h"
 #include "../src/GenerativeIME.Tsf/masks.h"
+#include "../src/GenerativeIME.Tsf/alphaspell.h"
 
 // ---------------------------------------------------------------------
 // Minimal test framework
@@ -932,6 +933,98 @@ TEST(skk_lookup_it_term_ime_upper_then_lower)
         EXPECT_TRUE(cands[0] == L"IME");
         EXPECT_TRUE(cands[1] == L"ime");
     }
+}
+
+// ---------------------------------------------------------------------
+// SKK-JISYO.loanwords — JMdict-derived katakana-loanword → original
+// English spelling dictionary, merged by SkkDictionary::Load alongside
+// the emoji companion file.
+// ---------------------------------------------------------------------
+TEST(skk_loanword_computer_offers_ascii_after_katakana)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // こんぴゅーたー: SKK-JISYO.L's コンピューター must stay first;
+    // the loanword dict appends computer / Computer / COMPUTER behind it.
+    auto cands = skk->Lookup(L"こんぴゅーたー");
+    size_t kataAt = cands.size(), lowerAt = cands.size();
+    bool hasCap = false, hasUpper = false;
+    for (size_t i = 0; i < cands.size(); ++i)
+    {
+        if (cands[i] == L"コンピューター") kataAt  = (std::min)(kataAt, i);
+        if (cands[i] == L"computer")       lowerAt = (std::min)(lowerAt, i);
+        if (cands[i] == L"Computer") hasCap = true;
+        if (cands[i] == L"COMPUTER") hasUpper = true;
+    }
+    EXPECT_TRUE(kataAt < cands.size());
+    EXPECT_TRUE(lowerAt < cands.size());
+    EXPECT_TRUE(kataAt < lowerAt);
+    EXPECT_TRUE(hasCap);
+    EXPECT_TRUE(hasUpper);
+}
+
+TEST(skk_loanword_only_reading_still_converts)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // ぐーらっしゅ exists only in the loanword dict — the whole-reading
+    // SKK path must surface グーラッシュ + goulash for it.
+    auto cands = skk->Lookup(L"ぐーらっしゅ");
+    bool hasKata = false, hasWord = false;
+    for (const auto& c : cands)
+    {
+        if (c == L"グーラッシュ") hasKata = true;
+        if (c == L"goulash")      hasWord = true;
+    }
+    EXPECT_TRUE(hasKata);
+    EXPECT_TRUE(hasWord);
+}
+
+// ---------------------------------------------------------------------
+// alphaspell — acronym synthesis from spelled-out letter names.
+// ---------------------------------------------------------------------
+TEST(alphaspell_ime_from_letter_names)
+{
+    auto v = alphaspell::Spell(L"あいえむいー");
+    EXPECT_TRUE(v.size() == 2);
+    if (v.size() == 2)
+    {
+        EXPECT_TRUE(v[0] == L"IME");
+        EXPECT_TRUE(v[1] == L"ime");
+    }
+}
+
+TEST(alphaspell_url_api_cpu)
+{
+    auto url = alphaspell::Spell(L"ゆーあーるえる");
+    EXPECT_TRUE(url.size() == 2 && url[0] == L"URL");
+    auto api = alphaspell::Spell(L"えーぴーあい");
+    EXPECT_TRUE(api.size() == 2 && api[0] == L"API");
+    auto cpu = alphaspell::Spell(L"しーぴーゆー");
+    EXPECT_TRUE(cpu.size() == 2 && cpu[0] == L"CPU");
+}
+
+TEST(alphaspell_h_prefers_longest_match)
+{
+    // えいち must parse as H (longest match), not えい(A) + dangling ち.
+    auto v = alphaspell::Spell(L"えいちてぃーえむえる");
+    EXPECT_TRUE(v.size() == 2 && v[0] == L"HTML");
+}
+
+TEST(alphaspell_backtracks_across_variants)
+{
+    // だぶりゅー(W) + いー(E) + びー(B): the W name shares no prefix with
+    // any other letter, so this exercises multi-char scanning + variants.
+    auto v = alphaspell::Spell(L"だぶりゅーいーびー");
+    EXPECT_TRUE(v.size() == 2 && v[0] == L"WEB");
+}
+
+TEST(alphaspell_rejects_non_letter_readings)
+{
+    EXPECT_TRUE(alphaspell::Spell(L"こんにちは").empty());
+    EXPECT_TRUE(alphaspell::Spell(L"えいえん").empty());   // えい + えん(×)
+    EXPECT_TRUE(alphaspell::Spell(L"あい").empty());       // 1 letter only
+    EXPECT_TRUE(alphaspell::Spell(L"").empty());
 }
 
 TEST(skk_lookup_it_term_generative_katakana_then_cases)

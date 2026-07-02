@@ -79,6 +79,7 @@
     <PostBuildEvent>
       <Command>xcopy /Y /D "$(ProjectDir)..\..\third_party\skk\SKK-JISYO.L.utf8" "$(OutDir)"
 xcopy /Y /D "$(ProjectDir)..\..\third_party\skk\SKK-JISYO.emoji.utf8" "$(OutDir)"
+xcopy /Y /D "$(ProjectDir)..\..\third_party\skk\SKK-JISYO.loanwords.utf8" "$(OutDir)"
 xcopy /Y /D "$(VcpkgInstalled)\debug\bin\mecab.dll" "$(OutDir)"
 if not exist "$(OutDir)unidic-lite\" mkdir "$(OutDir)unidic-lite"
 xcopy /Y /D "$(ProjectDir)..\..\third_party\mecab\unidic-lite\*" "$(OutDir)unidic-lite\"</Command>
@@ -113,6 +114,7 @@ xcopy /Y /D "$(ProjectDir)..\..\third_party\mecab\unidic-lite\*" "$(OutDir)unidi
     <PostBuildEvent>
       <Command>xcopy /Y /D "$(ProjectDir)..\..\third_party\skk\SKK-JISYO.L.utf8" "$(OutDir)"
 xcopy /Y /D "$(ProjectDir)..\..\third_party\skk\SKK-JISYO.emoji.utf8" "$(OutDir)"
+xcopy /Y /D "$(ProjectDir)..\..\third_party\skk\SKK-JISYO.loanwords.utf8" "$(OutDir)"
 xcopy /Y /D "$(VcpkgInstalled)\bin\mecab.dll" "$(OutDir)"
 if not exist "$(OutDir)unidic-lite\" mkdir "$(OutDir)unidic-lite"
 xcopy /Y /D "$(ProjectDir)..\..\third_party\mecab\unidic-lite\*" "$(OutDir)unidic-lite\"</Command>
@@ -135,6 +137,7 @@ xcopy /Y /D "$(ProjectDir)..\..\third_party\mecab\unidic-lite\*" "$(OutDir)unidi
     <ClCompile Include="skkdictionary.cpp" />
     <ClCompile Include="bunsetsu.cpp" />
     <ClCompile Include="masks.cpp" />
+    <ClCompile Include="alphaspell.cpp" />
     <ClCompile Include="mecabanalyzer.cpp" />
     <ClCompile Include="modernranking.cpp" />
     <ClCompile Include="register.cpp" />
@@ -154,6 +157,7 @@ xcopy /Y /D "$(ProjectDir)..\..\third_party\mecab\unidic-lite\*" "$(OutDir)unidi
     <ClInclude Include="skkdictionary.h" />
     <ClInclude Include="bunsetsu.h" />
     <ClInclude Include="masks.h" />
+    <ClInclude Include="alphaspell.h" />
     <ClInclude Include="mecabanalyzer.h" />
     <ClInclude Include="modernranking.h" />
     <ClInclude Include="register.h" />

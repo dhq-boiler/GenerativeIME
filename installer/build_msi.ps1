@@ -32,6 +32,7 @@ $tsfProj    = Join-Path $root 'src\GenerativeIME.Tsf\GenerativeIME.Tsf.vcxproj'
 $tsfDll     = Join-Path $root 'src\GenerativeIME.Tsf\build\x64\Release\GenerativeIME.Tsf.dll'
 $skkSrc     = Join-Path $root 'third_party\skk\SKK-JISYO.L.utf8'
 $skkEmoji   = Join-Path $root 'third_party\skk\SKK-JISYO.emoji.utf8'
+$skkLoan    = Join-Path $root 'third_party\skk\SKK-JISYO.loanwords.utf8'
 $unidicSrc  = Join-Path $root 'third_party\mecab\unidic-lite'
 $setupCpp   = Join-Path $root 'src\GenerativeIME.Setup\GenerativeImeSetup.cpp'
 $setupExe   = Join-Path $buildDir 'GenerativeImeSetup.exe'
@@ -71,6 +72,7 @@ Write-Host '[stage] payload' -ForegroundColor Cyan
 Copy-Item $tsfDll                          (Join-Path $payloadDir 'GenerativeIME.Tsf.dll') -Force
 Copy-Item $skkSrc                          $payloadDir -Force
 Copy-Item $skkEmoji                        $payloadDir -Force
+Copy-Item $skkLoan                         $payloadDir -Force
 Copy-Item (Join-Path $installer 'payload\SeedHkcu.ps1') $payloadDir -Force
 Copy-Item $setupExe                        $payloadDir -Force
 Copy-Item (Join-Path $vcpkgBin 'mecab.dll')       $payloadDir -Force

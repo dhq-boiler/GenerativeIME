@@ -1,4 +1,4 @@
-# Fetch skk-dev/dict's SKK-JISYO.emoji (CLDR-derived, Unicode License) and
+﻿# Fetch skk-dev/dict's SKK-JISYO.emoji (CLDR-derived, Unicode License) and
 # distill it into third_party/skk/SKK-JISYO.emoji.utf8 for the IME:
 #
 #   * keep only kana-reading keys (^[ぁ-ゖー]+$). ASCII keys like "ok" or

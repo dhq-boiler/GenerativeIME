@@ -12,6 +12,7 @@
 #include "learningstore.h"
 #include "modernranking.h"
 #include "masks.h"
+#include "alphaspell.h"
 #include <algorithm>
 #include <stdio.h>
 #include <thread>
@@ -918,6 +919,10 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
                 if (std::find(cands.begin(), cands.end(), m) == cands.end())
                     cands.push_back(std::move(m));
             }
+            for (auto& a : alphaspell::Spell(reading)) {
+                if (std::find(cands.begin(), cands.end(), a) == cands.end())
+                    cands.push_back(std::move(a));
+            }
             m_lastReading = reading;
             m_pCandWnd->SetCandidates(cands);
             POINT pt = QueryCandidateAnchorPos(pContext);
@@ -973,6 +978,10 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
             for (auto& mv : masks::Variants(reading)) {
                 if (std::find(cands.begin(), cands.end(), mv) == cands.end())
                     cands.push_back(std::move(mv));
+            }
+            for (auto& a : alphaspell::Spell(reading)) {
+                if (std::find(cands.begin(), cands.end(), a) == cands.end())
+                    cands.push_back(std::move(a));
             }
             m_lastReading = reading;
             m_pCandWnd->SetCandidates(cands);
@@ -1076,6 +1085,13 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
                 if (std::find(skkHits.begin(), skkHits.end(), m) == skkHits.end())
                     skkHits.push_back(std::move(m));
             }
+            // Acronym forms (あいえむいー → IME/ime) likewise ride at the
+            // tail: dictionary words stay primary, the spelled-out letters
+            // are one ↓ away.
+            for (auto& a : alphaspell::Spell(reading)) {
+                if (std::find(skkHits.begin(), skkHits.end(), a) == skkHits.end())
+                    skkHits.push_back(std::move(a));
+            }
             m_lastReading = reading;
             m_pCandWnd->SetCandidates(skkHits);
             POINT pt = QueryCandidateAnchorPos(pContext);
@@ -1122,6 +1138,38 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
                     if (std::find(cands.begin(), cands.end(), m) == cands.end())
                         cands.push_back(std::move(m));
                 }
+                m_lastReading = reading;
+                m_pCandWnd->SetCandidates(cands);
+                POINT pt = QueryCandidateAnchorPos(pContext);
+                m_pCandWnd->ShowAt(pt);
+                ApplyCandidateSelection(pContext);
+                return;
+            }
+        }
+
+        // Acronym fallback. A reading that parses entirely as English
+        // letter names (ゆーあーるえる, えーぴーあい, …) and has no SKK
+        // entry is almost certainly a spelled-out acronym — MeCab's
+        // morphological split of letter-name kana is garbage in comparison.
+        // UPPER first (acronyms are usually written uppercase), then lower,
+        // then the kana surfaces as escape hatches.
+        {
+            auto spelled = alphaspell::Spell(reading);
+            if (!spelled.empty() && m_pCandWnd)
+            {
+                std::vector<std::wstring> cands = std::move(spelled);
+                cands.push_back(reading);
+                std::wstring kata;
+                kata.reserve(reading.size());
+                for (wchar_t c : reading) {
+                    int u = (int)c;
+                    if (u >= 0x3041 && u <= 0x3096) kata.push_back((wchar_t)(u + 0x60));
+                    else kata.push_back(c);
+                }
+                if (kata != reading &&
+                    std::find(cands.begin(), cands.end(), kata) == cands.end())
+                    cands.push_back(std::move(kata));
+                if (m_pLearning) cands = m_pLearning->Reorder(reading, cands);
                 m_lastReading = reading;
                 m_pCandWnd->SetCandidates(cands);
                 POINT pt = QueryCandidateAnchorPos(pContext);
