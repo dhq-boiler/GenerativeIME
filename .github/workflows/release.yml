@@ -77,7 +77,9 @@ jobs:
 
       - name: Install WiX
         shell: pwsh
-        run: dotnet tool install --global wix
+        # Pin to the v5 line: this project is developed against WiX 5, and
+        # WiX 7+ refuses to build until the OSMF EULA is accepted.
+        run: dotnet tool install --global wix --version '5.*'
 
       - name: Build MSI
         shell: pwsh
