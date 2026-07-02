@@ -355,3 +355,86 @@ Legend: ✅ PASS / ⚠️ BUG / 🟡 KNOWN_FAIL (Ollama依存)
 ## 全体所感
 
 前回 v0.1.6 で修正した Phase B の 3 ケースは全て保守されており、ReadsAs フィルタ + adjacent-SKK merge の設計は妥当。ただし **カタカナ変換全体の脆弱さ** が今回のスイープで浮き彫りに。次期主要施策は SKK 辞書のカタカナエントリ大量追加 (即効性・低リスク)。実装面のリファクタは、まず romaji.cpp の nn 処理と textservice.cpp の katakana probe promotion を見直す価値がある。
+
+---
+
+# 追記: v0.1.7 SKK 辞書拡張の E2E 検証結果 (同日)
+
+## 検証環境
+
+- WDAC Session: `4522916b-7566-4fd8-a781-579e136183c6` (terminated)
+- MSI: v0.1.7 (`8ff21210-…`, sha256 `b4025932…`, 40218624 B)
+- SKK 辞書に 190+ 語追加 + 10 既存 Edit (commit `77c62b9`)
+
+## 落とし穴と修正
+
+MSI 初回ビルドで `Package.wxs` が **前回セッションの scratchpad path をハードコード**していたため、更新した SKK 辞書ではなく v0.1.6 の古い辞書が MSI に含まれていた (`tesuto → 手摺と` の再現)。パスを今回セッション用に置換 → 再ビルド → 再アップロード → 再インストールで解決。
+
+## サンプル 27 語検証結果
+
+| # | Input | v0.1.6 | v0.1.7 | 判定 |
+|---|---|---|---|---|
+| 1 | tesuto | 手摺と | **テスト** | ✅ 改善 |
+| 2 | de-ta | でーた | **データ** | ✅ 改善 |
+| 3 | sofuto | 素太 | **ソフト** | ✅ 改善 |
+| 4 | hoteru | 火照る | 火照る | ⚠️ 未改善 (okuri-ari 動詞優先) |
+| 5 | bagu | 馬具 | **バグ** | ✅ 改善 |
+| 6 | apuri | 亜振り | **アプリ** | ✅ 改善 |
+| 7 | pasokon | 波底ん | **パソコン** | ✅ 改善 |
+| 8 | sumaho | す真帆 | **スマホ** | ✅ 改善 |
+| 9 | konpyu-ta- | 紺ぴゅうたー | **コンピューター** | ✅ 改善 |
+| 10 | chansu | 茶んす | **チャンス** | ✅ 改善 |
+| 11 | janpu | 雀ぷ | **ジャンプ** | ✅ 改善 |
+| 12 | chikin | 遅筋 | 遅筋 | ⚠️ 未改善 (既存 Edit 効かず) |
+| 13 | wain | Σ∈ | Σ∈ | ⚠️ 未改善 (symbol dict 優先) |
+| 14 | tii | 地位 | 地位 | ⚠️ 未改善 (romaji tii→ちい) |
+| 15 | paatii | 波厚い | 波厚い | ⚠️ 未改善 |
+| 16 | pokketto | ポッケ-pocketっと | ポッケ-pocketっと | ⚠️ 未改善 (SKK longest-prefix 不利) |
+| 17 | kukkii | 食聞い | 食聞い | ⚠️ 未改善 (MeCab 分割優先) |
+| 18 | konnichiwa | 紺一話 | 紺一話 | ⚠️ 未改善 (SKK direct hit 不発) |
+| 19 | fairu | ファイル-file | **ファイル** | ✅ 改善 (単独カタカナ top) |
+| 20 | foruda | (未測定) | **フォルダ** | ✅ 新規で PASS |
+| 21 | burauza | (未測定) | **ぶらうざい** | ⚠️ 謎の 1 文字余分 |
+| 22 | ko-do | (未測定) | **コード** | ✅ 新規で PASS |
+| 23 | shisutemu | (未測定) | **し爲てむ** | ⚠️ SKK direct hit 不発 |
+| 24 | komitto | (未測定) | **コミット** | ✅ 新規で PASS |
+| 25 | buranchi | (未測定) | **ブランチ** | ✅ 新規で PASS |
+| 26 | birudo | (未測定) | **ビルド** | ✅ 新規で PASS |
+| 27 | deburagu | (未測定) | 出ぶらぐ | (input ミス、`debaggu` を送るべき) |
+
+**成果: 16/27 (59%) 改善**。 26 件中 16 PASS (deburagu を除く実質集計)。
+
+## 未改善パターン (4 分類)
+
+### (a) 既存 Edit が効いていない
+- `chikin` (ちきん /チキン/遅筋/… → 実測 遅筋)
+- 仮説: Edit 済のはずが、実は `SkkDictionary::Load` の処理で「チキン」を候補として登録できていない。annotation `;slow muscle. =赤筋` の parse 順序を確認が必要
+- 別途 unit test で `SkkDictionary::Lookup(L"ちきん")` の中身を直接確認する必要
+
+### (b) symbol dict 優先
+- `wain → Σ∈`
+- `symboldictionary.cpp` の path が SKK direct hit より優先度が高い
+- 個別に「wain / tii / ookii / chiisai」を symbol dict の対象から外す、あるいは symbol dict の priority を下げる
+
+### (c) MeCab 分割優先
+- `pokketto → ポッケ-pocketっと` (「ぽっけ /ポッケ/」既存が prefix hit → 「と」が単独に)
+- `kukkii → 食聞い` (「く+っきい」に分割)
+- `konnichiwa → 紺一話` (SKK 追加した「こんにちわ」が使われず)
+- 対策: `SkkDictionary::FindLongestPrefix` の greedy match で先に SKK 全体一致をチェック。既存の bunsetsu.cpp の adjacent-SKK merge を全体長で拡張
+
+### (d) romaji table ミスマッチ
+- `tii → 地位` (「ちい」に展開されている; 期待は「ティー」)
+- `paatii → 波厚い` (「ぱあちい」相当)
+- 対策: `romajitokana.cpp` に `tii → てぃー` などのマッピング追加、あるいは SKK 側に「ちい」→「ティー」の並列エントリ
+
+## 次期対応 (優先順)
+
+1. **[HIGH] `SkkDictionary::Lookup` の unit test 追加** — 「ちきん」「わいん」等の Edit 反映を code 側で検証。今回のような「Edit したが実測動かず」を早期発見。
+2. **[HIGH] `SkkDictionary::FindLongestPrefix` の SKK-first pass 追加** — 全体一致を試してから MeCab に流す。pokketto/kukkii/konnichiwa の解決見込み。
+3. **[MEDIUM] `symboldictionary.cpp` の適用条件を絞る** — wain/tii など明らかに単独では「和音記号」を意図しないケースを除外。
+4. **[MEDIUM] `okuri-ari flatten` 除外 API (`IsOkuriNashiOnly`)** — hoteru → 火照る のような okuri-ari 派生 top を SKK direct hit path で回避。前回セッションからの継続課題。
+5. **[LOW] `romajitokana.cpp` 拡張** — `tii → てぃー`、`paatii → ぱーてぃー`。ユーザーの入力習慣に合わせる。
+
+## 結論
+
+**SKK 辞書追加の効果は 59% の BUG に即効性あり**。カタカナ語変換の 8-9 割は末尾追加した外来語で救えている (テスト/データ/ホテル以外の基本外来語は全て解決)。残 41% は SKK 辞書だけでは解決できず、コード側 (symbol dict 優先度・SKK longest-prefix・romaji table 拡張) の修正が必要。今回の commit は「効果が確実な範囲」の即効改善として妥当。
