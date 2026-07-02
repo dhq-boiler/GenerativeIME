@@ -107,8 +107,17 @@ namespace masks
             {L"あしこき",       L"足コキ"},
             {L"てまん",         L"手マン"},
             {L"かおめんきじょう", L"顔面騎乗"},
+            // 性交体位 9 種 (per user-supplied canonical list). Skip 座位 /
+            // 側位 / 立位 from the mask table because those are also
+            // legitimate patient-positioning terms in nursing / medical
+            // contexts and masking them would clutter non-adult chat.
+            {L"せいじょうい",   L"正常位"},
+            {L"こうはいい",     L"後背位"},
             {L"きじょうい",     L"騎乗位"},
-            {L"ばっくい",       L"バック位"},
+            {L"ぎゃくきじょうい", L"逆騎乗位"},
+            {L"しんちょうい",   L"伸長位"},
+            {L"くっきょくい",   L"屈曲位"},
+            {L"こうさい",       L"交差位"},
             // Kanji-surface targets so 中出し/種付け/淫乱 etc. stay
             // visually anchored in the masked variant.
             {L"なかだし",   L"中出し"},
