@@ -934,6 +934,24 @@ TEST(skk_lookup_it_term_ime_upper_then_lower)
     }
 }
 
+TEST(skk_lookup_it_term_generative_katakana_then_cases)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // Newly appended: じぇねれーてぃぶ /ジェネレーティブ/generative/
+    // Generative/GENERATIVE/. Katakana first, then the three ASCII
+    // casings in dict order.
+    auto cands = skk->Lookup(L"じぇねれーてぃぶ");
+    EXPECT_TRUE(cands.size() >= 4);
+    if (cands.size() >= 4)
+    {
+        EXPECT_TRUE(cands[0] == L"ジェネレーティブ");
+        EXPECT_TRUE(cands[1] == L"generative");
+        EXPECT_TRUE(cands[2] == L"Generative");
+        EXPECT_TRUE(cands[3] == L"GENERATIVE");
+    }
+}
+
 // ---------------------------------------------------------------------
 // MeCab + bunsetsu integration. These depend on UniDic-Lite being
 // resident next to the test EXE — build_tests.ps1 outputs to the IME
