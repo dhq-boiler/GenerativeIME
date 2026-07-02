@@ -107,6 +107,8 @@ namespace masks
             {L"あしこき",       L"足コキ"},
             {L"てまん",         L"手マン"},
             {L"かおめんきじょう", L"顔面騎乗"},
+            {L"がんめんきじょうい", L"顔面騎乗位"},
+            {L"たいめんきじょうい", L"対面騎乗位"},
             // 性交体位 9 種 (per user-supplied canonical list). Skip 座位 /
             // 側位 / 立位 from the mask table because those are also
             // legitimate patient-positioning terms in nursing / medical
