@@ -194,6 +194,15 @@ namespace
         {
             auto tryMake = [&](size_t span) -> bool {
                 if (i + span > in.size()) return false;
+                // Never merge across a 助詞 / 助動詞 / 記号 boundary — those
+                // are grammatical joints, not compound stems. Otherwise
+                // "き(名詞)+が(助詞)+する(動詞)" collapses to "きが(名詞)"
+                // just because SKK has "きが /飢餓/", and the top-candidate
+                // path then serves "違う飢餓為る" instead of "違う気がする".
+                for (size_t k = 0; k < span; ++k) {
+                    const auto& p = in[i + k].pos;
+                    if (p == L"助詞" || p == L"助動詞" || p == L"記号") return false;
+                }
                 std::wstring joined;
                 for (size_t k = 0; k < span; ++k) joined += in[i + k].surface;
                 if (skk->Lookup(joined).empty()) return false;
@@ -307,7 +316,15 @@ std::vector<Bunsetsu> SplitMecab(const std::wstring& reading,
             // returns the surface unchanged, so we don't put garbage at
             // the front. The surface remains available as a fallback.
             std::wstring kanji = KanjifyByReading(m.surface, m.lemma, m.lemmaReading);
-            if (kanji != m.surface)
+            // Reject the archaic short-verb kanji lemmas UniDic-Lite hands us
+            // for する/いる/ある/なる — 為る/居る/有る/成る are dictionary-correct
+            // but modern writing uses the kana surface almost exclusively.
+            // Without this filter, "chigau ki ga suru" ends with 為る instead
+            // of する. Kept as later candidates via lemma push at the tail.
+            auto isArchaicShortVerbKanji = [](const std::wstring& k) {
+                return k == L"為る" || k == L"居る" || k == L"有る" || k == L"成る";
+            };
+            if (kanji != m.surface && !isArchaicShortVerbKanji(kanji))
             {
                 b.candidates.push_back(kanji);
             }
