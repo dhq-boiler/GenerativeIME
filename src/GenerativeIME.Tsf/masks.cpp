@@ -112,10 +112,13 @@ namespace masks
             // legitimate patient-positioning terms in nursing / medical
             // contexts and masking them would clutter non-adult chat.
             {L"せいじょうい",   L"正常位"},
+            {L"だいしゅきほーるど", L""},  // カタカナ主体、reading をマスク対象に
             {L"こうはいい",     L"後背位"},
             {L"きじょうい",     L"騎乗位"},
             {L"ぎゃくきじょうい", L"逆騎乗位"},
             {L"はいめんきじょうい", L"背面騎乗位"},
+            {L"たいめんそくい",   L"対面側位"},
+            {L"はいめんそくい",   L"背面側位"},
             {L"しんちょうい",   L"伸長位"},
             {L"くっきょくい",   L"屈曲位"},
             {L"こうさい",       L"交差位"},
