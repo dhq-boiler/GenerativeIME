@@ -125,6 +125,7 @@ namespace masks
             {L"はいめんそくい",   L"背面側位"},
             {L"しんちょうい",   L"伸長位"},
             {L"くっきょくい",   L"屈曲位"},
+            {L"くっきゃくい",   L"屈脚位"},
             {L"こうさい",       L"交差位"},
             // Kanji-surface targets so 中出し/種付け/淫乱 etc. stay
             // visually anchored in the masked variant.
