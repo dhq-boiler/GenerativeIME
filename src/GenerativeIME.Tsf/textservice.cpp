@@ -852,22 +852,52 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
     // committed something for this EXACT composite reading (e.g.
     // "こうほうぃんどう" → "候補ウィンドウ" after picking the Ollama
     // fallback), show it as the top candidate immediately — no MeCab
-    // fragmentation, no Ollama latency. SKK/MeCab/Ollama still run
-    // through the lower paths if the user dismisses this and re-types.
+    // fragmentation, no Ollama latency.
+    //
+    // The fav sits at position 0, but we ALSO stack the SKK direct hits
+    // behind it so the user can Space through to alternate homophones
+    // without having to blacklist the fav first. Without this, a single
+    // learned pick like 「かんじ→感じ」 permanently blocks reaching
+    // 漢字/幹事/監事 for that reading. Only fav is guaranteed at 0.
     if (m_pLearning && m_pCandWnd)
     {
         std::wstring fav = m_pLearning->GetFav(reading);
         if (!fav.empty())
         {
+            std::vector<std::wstring> cands = { fav };
+            if (auto* skk = SkkDictionary::GetGlobal(); skk && skk->IsLoaded())
+            {
+                auto hits = skk->Lookup(reading);
+                // Same ReadsAs guard as the SKK direct-hit path below: drop
+                // okuri-ari-synthesized garbage unless the reading has an
+                // explicit direct entry the dict maintainer wrote by hand.
+                if (!hits.empty() && !skk->HasDirectEntry(reading))
+                {
+                    if (auto* mecab = MecabAnalyzer::GetGlobal(); mecab && mecab->IsReady())
+                    {
+                        std::vector<std::wstring> clean;
+                        clean.reserve(hits.size());
+                        for (auto& c : hits) {
+                            if (bunsetsu::ReadsAs(c, reading, *mecab))
+                                clean.push_back(std::move(c));
+                        }
+                        hits = std::move(clean);
+                    }
+                }
+                for (auto& c : hits) {
+                    if (std::find(cands.begin(), cands.end(), c) == cands.end())
+                        cands.push_back(std::move(c));
+                }
+            }
             m_lastReading = reading;
-            m_pCandWnd->SetCandidates({ fav });
+            m_pCandWnd->SetCandidates(cands);
             POINT pt = QueryCandidateAnchorPos(pContext);
             m_pCandWnd->ShowAt(pt);
             ApplyCandidateSelection(pContext);
             wchar_t logbuf[200];
             swprintf_s(logbuf,
-                       L"[GenerativeIME] Whole-reading fav fast path: reading=%s fav=%s\n",
-                       reading.c_str(), fav.c_str());
+                       L"[GenerativeIME] Whole-reading fav fast path: reading=%s fav=%s (%zu total cands)\n",
+                       reading.c_str(), fav.c_str(), cands.size());
             OutputDebugStringW(logbuf);
             return;
         }

@@ -1182,6 +1182,40 @@ TEST(split_mecab_i_verb_stem_not_promoted_to_i_kanji)
     }
 }
 
+// 2026-07-02 loanword batch: hiragana-keyed direct entries so the
+// whole-reading path handles common romaji-input loanwords instead of
+// MeCab shredding them into single-mora garbage. Guards a representative
+// subset of the batch (all ~50 entries follow the same pattern).
+TEST(skk_lookup_loanword_batch_tyekku)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto cands = skk->Lookup(L"ちぇっく");
+    EXPECT_TRUE(!cands.empty());
+    if (!cands.empty()) EXPECT_EQ_W(cands[0], L"チェック");
+    EXPECT_TRUE(skk->HasDirectEntry(L"ちぇっく"));
+}
+
+TEST(skk_lookup_re_prefix_compound_sairoguin)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // MeCab segments さいろぐいん as さ+いろぐいん and picks 差 for さ.
+    // Direct entry pre-empts that fallback.
+    auto cands = skk->Lookup(L"さいろぐいん");
+    EXPECT_TRUE(!cands.empty());
+    if (!cands.empty()) EXPECT_EQ_W(cands[0], L"再ログイン");
+}
+
+TEST(skk_lookup_loanword_batch_dauonro_do)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto cands = skk->Lookup(L"だうんろーど");
+    EXPECT_TRUE(!cands.empty());
+    if (!cands.empty()) EXPECT_EQ_W(cands[0], L"ダウンロード");
+}
+
 // SKK dict must have the hiragana-keyed loanword「いんすとーる」so the
 // whole-reading direct-hit path in textservice.cpp offers インストール
 // before falling through to MeCab's segment-shredding fallback.
