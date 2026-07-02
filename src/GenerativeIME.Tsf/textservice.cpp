@@ -2444,6 +2444,12 @@ bool CTextService::ShouldEat(WPARAM wParam) const
     if (GetKeyState(VK_CONTROL) < 0) return false;
     if (IsAlphaKey(wParam)) return true;
     if (IsSymbolKey(wParam)) return true;
+    // Digit keys during an active composition stay in the buffer so
+    // mixed input like「dai1kai」→「だい1かい」→ Space → 第1回 works.
+    // Outside a composition, digits pass through to the app so plain
+    // number typing in a document isn't intercepted. Candidate-window
+    // digit-select handling (1-9 picks a candidate) lives further down.
+    if (wParam >= '0' && wParam <= '9' && !m_romajiBuffer.empty()) return true;
     if (wParam == VK_BACK && !m_romajiBuffer.empty()) return true;
     if ((wParam == VK_RETURN || wParam == VK_ESCAPE || wParam == VK_SPACE) && m_pComposition) return true;
     if (m_pCandWnd && m_pCandWnd->IsVisible())
@@ -2543,6 +2549,26 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         // mutating m_romajiBuffer underneath the kanji.
         CommitConvertedIfAny(pic);
         m_romajiBuffer.push_back(static_cast<wchar_t>(wParam - 'A' + 'a'));
+        m_compositionConverted = FALSE;
+        if (m_pCandWnd) m_pCandWnd->Hide();
+        std::wstring display = DisplayForMode(m_romajiBuffer, m_imeMode);
+        if (pic)
+        {
+            EditAction action = (m_pComposition == nullptr) ? EditAction::StartAndUpdate : EditAction::Update;
+            RequestEditSession(pic, action, display);
+        }
+        *pfEaten = TRUE;
+    }
+    else if (wParam >= '0' && wParam <= '9' && !m_romajiBuffer.empty())
+    {
+        // Digit inside an active composition (ShouldEat gate above matches
+        // the same condition). Pushed as its literal ASCII char so the
+        // romaji buffer looks like "dai1kai", which Convert() then folds
+        // into「だい1かい」via its digit-passthrough branch. Space
+        // afterwards runs the whole composition through the SKK/MeCab
+        // conversion stack as usual.
+        CommitConvertedIfAny(pic);
+        m_romajiBuffer.push_back(static_cast<wchar_t>(wParam));
         m_compositionConverted = FALSE;
         if (m_pCandWnd) m_pCandWnd->Hide();
         std::wstring display = DisplayForMode(m_romajiBuffer, m_imeMode);

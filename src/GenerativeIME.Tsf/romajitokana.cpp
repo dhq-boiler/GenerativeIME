@@ -168,6 +168,19 @@ namespace romaji
                 }
             }
 
+            // Digits (0-9) pass through so mixed input like "dai1kai"
+            // becomes "だい1かい" in the composition, kept as one live
+            // composition until Space converts the whole thing to
+            // 第1回. Without this, the digit hit the "unmatched" branch
+            // below and the caller's composition auto-committed on the
+            // key that never got into the buffer.
+            if (romaji[i] >= L'0' && romaji[i] <= L'9')
+            {
+                hira.push_back(romaji[i]);
+                i += 1;
+                continue;
+            }
+
             // Unmatched: leave the rest as romaji for the caller to keep typing.
             return { hira, std::wstring(romaji.substr(i)) };
         }

@@ -134,6 +134,21 @@ TEST(romaji_trailing_n)
     EXPECT_EQ_W(romaji::FinalizeTrailingN(r.remaining), L"ん");
 }
 
+// 2026-07-02: digits inside a romaji sequence pass through to the
+// converted output so mixed input like "dai1kai" stays as one live
+// composition (だい1かい) instead of the digit auto-committing the
+// prior hiragana. Regression for the "1 で dai が確定してしまう" report.
+TEST(romaji_digit_passthrough)
+{
+    auto r1 = romaji::Convert(L"dai1kai");
+    EXPECT_EQ_W(r1.hira, L"だい1かい");
+    EXPECT_EQ_W(r1.remaining, L"");
+
+    auto r2 = romaji::Convert(L"2020nen");
+    EXPECT_EQ_W(r2.hira, L"2020ね");
+    EXPECT_EQ_W(r2.remaining, L"n");
+}
+
 TEST(romaji_foreign_sounds)
 {
     auto r1 = romaji::Convert(L"wi");
