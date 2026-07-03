@@ -1106,7 +1106,13 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
             // homophones or okuri-ari leftovers ("三田" / "燃え立" /
             // "下り立") instead of the obvious "見た" / "燃えた" / "下りた".
             // MeCab can rebuild the inflected kanji form; prepend it.
-            if (auto* mecab = MecabAnalyzer::GetGlobal(); mecab && mecab->IsReady())
+            //
+            // Skip this for a reading the user defined in their own
+            // dictionary: that mapping is authoritative and must stay at the
+            // head. Otherwise MeCab parses e.g. 「ふろった」 as a verb form
+            // and prepends a spurious 「振ろった」 above the user's 「風呂った」.
+            if (auto* mecab = MecabAnalyzer::GetGlobal();
+                mecab && mecab->IsReady() && !skk->IsUserDictReading(reading))
             {
                 std::wstring prevTop = skkHits.front();
                 size_t       beforeN = skkHits.size();

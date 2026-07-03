@@ -81,6 +81,14 @@ public:
     // synthesized garbage like 「ですg /出過/」 -> 「出過」.
     bool HasDirectEntry(const std::wstring& reading) const;
 
+    // True iff `reading` was supplied by one of the user's own dictionaries
+    // under UserDictDir() (as opposed to the bundled SKK-JISYO.* files). The
+    // conversion pipeline treats these as authoritative: an explicit user
+    // mapping (e.g. 「ふろった → 風呂った」) must NOT be displaced by MeCab's
+    // verb-form reconstruction, which would otherwise prepend a spurious
+    // 「振ろった」 above it. Only okuri-nashi (direct) readings are tracked.
+    bool IsUserDictReading(const std::wstring& reading) const;
+
     // User-dictionary directory: %APPDATA%\GenerativeIME\dict\. Created if
     // absent. This is where the user drops additional SKK-format .utf8
     // dictionaries — persistent (survives reinstall, unlike the bundled
@@ -107,8 +115,12 @@ private:
 
     // Parses one SKK-JISYO formatted file into m_entries / m_directReadings,
     // accumulating okuri-ari stems into `deferredOkuri` for FinalizeLoad.
+    // When `userDict` is true the file came from UserDictDir(); its
+    // okuri-nashi readings are also recorded in m_userDictReadings so the
+    // pipeline can treat them as authoritative (see IsUserDictReading).
     HRESULT ParseFile(const std::wstring& path,
-                      std::unordered_map<std::wstring, std::vector<std::wstring>>& deferredOkuri);
+                      std::unordered_map<std::wstring, std::vector<std::wstring>>& deferredOkuri,
+                      bool userDict = false);
 
     // Flushes deferred okuri-ari stems to the candidate-list tails, builds
     // the sorted reading index, and marks the dictionary loaded.
@@ -126,6 +138,10 @@ private:
     // Uses a `set`-shaped unordered_map to reuse the same allocator hint;
     // membership is the only thing we care about.
     std::unordered_map<std::wstring, char> m_directReadings;
+    // Okuri-nashi readings supplied by the user's own dictionaries under
+    // UserDictDir(). See IsUserDictReading: the pipeline pins these at the
+    // head and skips MeCab verb-form reconstruction for them.
+    std::unordered_map<std::wstring, char> m_userDictReadings;
     // Readings of m_entries sorted lexicographically, as pointers into the
     // map's keys (unordered_map nodes are stable so the pointers stay valid
     // for the dictionary's lifetime). Built once at the end of Load; gives

@@ -125,7 +125,7 @@ HRESULT SkkDictionary::Load(const std::wstring& path)
     // NOTE: nothing personal ships in the repo/MSI — user coinages like
     // 「ふろった → 風呂った」 live only here, on the user's machine.
     for (const auto& f : EnumerateUserDictFiles(UserDictDir()))
-        ParseFile(f, deferredOkuri);
+        ParseFile(f, deferredOkuri, /*userDict=*/true);
 
     // Pre-main companion: hand-curated godan / ichidan 終止形 entries. Must
     // be parsed BEFORE the main dict so its verb candidates (買う/飼う/
@@ -167,7 +167,8 @@ HRESULT SkkDictionary::Load(const std::wstring& path)
 
 HRESULT SkkDictionary::ParseFile(
     const std::wstring& path,
-    std::unordered_map<std::wstring, std::vector<std::wstring>>& deferredOkuri)
+    std::unordered_map<std::wstring, std::vector<std::wstring>>& deferredOkuri,
+    bool userDict)
 {
     std::ifstream f(path, std::ios::binary);
     if (!f.is_open()) return HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
@@ -264,6 +265,7 @@ HRESULT SkkDictionary::ParseFile(
         // Called before the slot merge below so we mark the reading even
         // when candidate dedup drops the actual new candidate.
         if (!okuriAri) m_directReadings[reading] = 1;
+        if (!okuriAri && userDict) m_userDictReadings[reading] = 1;
 
         // okuri-nashi entries merge directly into m_entries. okuri-ari
         // stems get held in deferredOkuri so they end up at the TAIL of
@@ -379,6 +381,11 @@ std::vector<std::wstring> SkkDictionary::Lookup(const std::wstring& reading) con
 bool SkkDictionary::HasDirectEntry(const std::wstring& reading) const
 {
     return m_directReadings.find(reading) != m_directReadings.end();
+}
+
+bool SkkDictionary::IsUserDictReading(const std::wstring& reading) const
+{
+    return m_userDictReadings.find(reading) != m_userDictReadings.end();
 }
 
 namespace
