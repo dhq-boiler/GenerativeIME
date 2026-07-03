@@ -68,6 +68,26 @@ HRESULT SkkDictionary::Load(const std::wstring& path)
     // the end pushes them to the tail of each candidate list instead.
     std::unordered_map<std::wstring, std::vector<std::wstring>> deferredOkuri;
 
+    // Resolve the containing directory once — used by both the pre-main
+    // (godan) and post-main (emoji/loanwords) companion passes below.
+    std::wstring dir;
+    {
+        size_t slash = path.find_last_of(L"\\/");
+        if (slash != std::wstring::npos) dir = path.substr(0, slash + 1);
+    }
+
+    // Pre-main companion: hand-curated godan / ichidan 終止形 entries. Must
+    // be parsed BEFORE the main dict so its verb candidates (買う/飼う/
+    // 立つ/走る/…) land at the HEAD of each reading's slot. The main dict
+    // then push_back's its noun/name candidates (斯う/龍/蛙/汁/…) to the
+    // tail, which is exactly the ranking we want: SKK-JISYO.L organizes
+    // ワ行五段 verbs under okuri-ari stems like `かw`, so a lookup of the
+    // 終止形 reading `かう` from a modern IME (no SKK-style Shift-typing)
+    // has no path back to 買う without this file. Optional: absence is
+    // not an error.
+    if (!dir.empty())
+        ParseFile(dir + L"SKK-JISYO.godan.utf8", deferredOkuri);
+
     HRESULT hr = ParseFile(path, deferredOkuri);
     if (FAILED(hr)) return hr;
 
@@ -80,18 +100,14 @@ HRESULT SkkDictionary::Load(const std::wstring& path)
     // can never pass the MeCab ReadsAs filter, so they need the same
     // dict-maintainer-explicit bypass that 「こんにちわ /今日は/」 gets.
     // Optional: absence is not an error.
+    if (!dir.empty())
     {
-        size_t slash = path.find_last_of(L"\\/");
-        if (slash != std::wstring::npos)
-        {
-            const std::wstring dir = path.substr(0, slash + 1);
-            static const wchar_t* kCompanions[] = {
-                L"SKK-JISYO.emoji.utf8",
-                L"SKK-JISYO.loanwords.utf8",
-            };
-            for (const wchar_t* name : kCompanions)
-                ParseFile(dir + name, deferredOkuri);
-        }
+        static const wchar_t* kCompanions[] = {
+            L"SKK-JISYO.emoji.utf8",
+            L"SKK-JISYO.loanwords.utf8",
+        };
+        for (const wchar_t* name : kCompanions)
+            ParseFile(dir + name, deferredOkuri);
     }
 
     FinalizeLoad(deferredOkuri);

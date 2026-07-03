@@ -2072,6 +2072,379 @@ TEST(split_mecab_ion_oyoida)
     }
 }
 
+// Regression guard for the SKK-JISYO.godan.utf8 companion (docs reference:
+// 五段活用 https://www.cloudsemi.com/test1/mobile/ja/jaG/koujaG1.html).
+// SKK-JISYO.L only stores 買う under the ワ行五段 okuri-ari stem「かw」
+// (m_okuri["か"] = {変,代,交,替,買,換,飼}), and MeCab-Lite mis-tags a
+// standalone「かう」as 助詞か+助動詞う so SplitMecab's isInflected
+// recovery never fires. Direct lookup used to yield only「斯う」. The
+// godan companion adds「かう /買う/飼う/交う/」at the head of m_entries.
+TEST(skk_godan_companion_kau_returns_kauverb)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto cands = skk->Lookup(L"かう");
+    EXPECT_TRUE(!cands.empty());
+    if (!cands.empty()) EXPECT_EQ_W(cands[0], L"買う");
+}
+
+// Full bunsetsu pipeline (SplitMecab -> ranked candidates) must land the
+// 買う terminal form at parts[0].candidates[0] for reading「かう」. This
+// exercises the whole flow the actual TSF composition uses at Space/Enter,
+// not just the raw SKK dict layer.
+TEST(split_mecab_kau_top_is_kau_verb)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto parts = bunsetsu::SplitMecab(L"かう", *m, skk);
+    EXPECT_TRUE(!parts.empty());
+    if (!parts.empty()) {
+        EXPECT_TRUE(!parts[0].candidates.empty());
+        if (!parts[0].candidates.empty()) EXPECT_EQ_W(parts[0].candidates[0], L"買う");
+    }
+}
+
+// Regression guard (2026-07-03): the 口語 「〜てる」/「〜てた」 contraction
+// works today because UniDic-Lite 2.1.2 tokenizes 「てる」 as a single
+// auxiliary morpheme (2-clause split like [落ち|てる]) and 「てた」 as
+// two (3-clause like [落ち|て|た]). Joining the top candidate of each
+// clause reconstructs the intended surface (落ちてる / 落ちてた) — the
+// per-morpheme kanjification via KanjifyByReading handles the 動詞 head
+// and the auxiliary tails stay as kana. This test walks the join to
+// verify; if UniDic-Lite ever gets swapped and 「てる」 loses its
+// dedicated morpheme, the ようs will collapse into raw kana and this
+// test flags it.
+TEST(split_mecab_teru_contraction_joins_to_verb_teru)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    struct Case { const wchar_t* reading; const wchar_t* expected; };
+    static const Case cases[] = {
+        {L"おちてる",   L"落ちてる"},
+        {L"あるいてる", L"歩いてる"},
+        {L"まってる",   L"待ってる"},
+        {L"はしってる", L"走ってる"},
+        {L"おちてた",   L"落ちてた"},
+        {L"あるいてた", L"歩いてた"},
+        {L"まってた",   L"待ってた"},
+        {L"はしってた", L"走ってた"},
+    };
+    for (const auto& c : cases) {
+        auto parts = bunsetsu::SplitMecab(c.reading, *m, skk);
+        std::wstring joined;
+        for (const auto& b : parts) {
+            if (!b.candidates.empty()) joined += b.candidates[0];
+            else                       joined += b.reading;
+        }
+        EXPECT_EQ_W(joined, c.expected);
+    }
+}
+
+// BUG-5 regression guard (2026-07-03): promoteSkkTop was catching the
+// 助動詞「ない」 and promoting SKK top「無い」 over the kana ない, so
+// たべない/かわない/よまない came out as 「食べ無い」「買わ無い」
+// 「読ま無い」on bare-Enter. Fixed by adding an auxiliary deny-list in
+// bunsetsu.cpp so ない stays as kana at its clause head.
+TEST(split_mecab_tabenai_nai_stays_kana)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto parts = bunsetsu::SplitMecab(L"たべない", *m, skk);
+    // Locate the clause whose reading is ない — the auxiliary tail.
+    bool found = false;
+    for (const auto& b : parts) {
+        if (b.reading == L"ない") {
+            found = true;
+            EXPECT_TRUE(!b.candidates.empty());
+            if (!b.candidates.empty()) EXPECT_EQ_W(b.candidates[0], L"ない");
+            break;
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
+// BUG-6 regression guard (2026-07-03): same as BUG-5 for ます — SKK top
+// 「鱒」was being promoted so たべます/かきます came out as「食べ鱒」
+// 「書き鱒」. Fixed by the same auxiliary deny-list.
+TEST(split_mecab_tabemasu_masu_stays_kana)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto parts = bunsetsu::SplitMecab(L"たべます", *m, skk);
+    bool found = false;
+    for (const auto& b : parts) {
+        if (b.reading == L"ます") {
+            found = true;
+            EXPECT_TRUE(!b.candidates.empty());
+            if (!b.candidates.empty()) EXPECT_EQ_W(b.candidates[0], L"ます");
+            break;
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
+// Sibling of the ない/ます guards for です — SKK top 「出す」 is another
+// homophonic 訓読み-kanji that used to shadow the polite copula.
+TEST(split_mecab_desu_stays_kana)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto parts = bunsetsu::SplitMecab(L"わたしです", *m, skk);
+    bool found = false;
+    for (const auto& b : parts) {
+        if (b.reading == L"です") {
+            found = true;
+            EXPECT_TRUE(!b.candidates.empty());
+            if (!b.candidates.empty()) EXPECT_EQ_W(b.candidates[0], L"です");
+            break;
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
+// Regression guard (2026-07-03): 形容詞 (i-adjective) and 形容動詞
+// (na-adjective) full inflection coverage. Each surface must resolve to
+// the expected joined top when SplitMecab's per-clause results are
+// concatenated — this is the actual TSF Space/Enter output shape.
+//
+// Fixed 2026-07-03 as part of the aux-shadow work: the 形容詞+く+ない
+// negation used to yield 「美しく無い」/「大きく無い」 because MeCab
+// tags the trailing ない with pos=形容詞 lemma=無い, and the isInflected
+// branch's KanjifyByReading synthesized 無い at head. The aux deny-list
+// added to that branch keeps ない as kana at head. 〜くなかった,
+// 〜ければ, 〜くて 全部 pass via KanjifyByReading for the adjective
+// stem + kana for the auxiliary tail. 形容動詞 works via the noun
+// branch (語幹 kanji + auxiliary kana) with no extra logic.
+TEST(split_mecab_adjective_forms_join_to_expected)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // Coverage note (2026-07-03): the palette below sweeps the *productive*
+    // regular inflection matrix (終止/連用/過去/否定/仮定/て形 for 形容詞,
+    // 語幹+な/に/で/だ/だった for 形容動詞) plus the compound past-negative
+    // 〜くなかった / 〜じゃなかった flows. Irregular pairs like いい/よい,
+    // ない/ある, or archaic volitional 〜かろう are NOT covered — they need
+    // per-word treatment. Add cases here as new regressions surface.
+    struct Case { const wchar_t* reading; const wchar_t* expected; };
+    static const Case cases[] = {
+        // === 形容詞 (i-adjective) ===
+        // 終止形 / 連体形
+        {L"うつくしい",       L"美しい"},
+        {L"たのしい",         L"楽しい"},
+        {L"おおきい",         L"大きい"},
+        {L"たかい",           L"高い"},
+        // 連用形 (く形)
+        {L"うつくしく",       L"美しく"},
+        {L"たのしく",         L"楽しく"},
+        {L"たかく",           L"高く"},
+        // 過去形 (かった)
+        {L"うつくしかった",   L"美しかった"},
+        {L"たのしかった",     L"楽しかった"},
+        {L"おおきかった",     L"大きかった"},
+        {L"たかかった",       L"高かった"},
+        // 否定形 (くない) — BUG-5 residue fix
+        {L"うつくしくない",   L"美しくない"},
+        {L"たのしくない",     L"楽しくない"},
+        {L"おおきくない",     L"大きくない"},
+        {L"たかくない",       L"高くない"},
+        // 仮定形 (ければ)
+        {L"うつくしければ",   L"美しければ"},
+        // て形 (くて)
+        {L"うつくしくて",     L"美しくて"},
+        {L"たのしくて",       L"楽しくて"},
+        // === 形容動詞 (na-adjective) ===
+        // 語幹+に (連用形)
+        {L"しずかに",         L"静かに"},
+        {L"きれいに",         L"綺麗に"},
+        {L"げんきに",         L"元気に"},
+        {L"たいせつに",       L"大切に"},
+        // 語幹+な (連体形)
+        {L"しずかな",         L"静かな"},
+        {L"きれいな",         L"綺麗な"},
+        {L"げんきな",         L"元気な"},
+        {L"たいせつな",       L"大切な"},
+        // 語幹+で (連用形の一部)
+        {L"しずかで",         L"静かで"},
+        {L"きれいで",         L"綺麗で"},
+        {L"げんきで",         L"元気で"},
+        // 語幹+だ (終止形)
+        {L"しずかだ",         L"静かだ"},
+        // 語幹+だった (過去形)
+        {L"しずかだった",     L"静かだった"},
+        {L"きれいだった",     L"綺麗だった"},
+        {L"げんきだった",     L"元気だった"},
+        // === 形容詞 過去否定 (くなかった) ===
+        {L"うつくしくなかった", L"美しくなかった"},
+        {L"たかくなかった",     L"高くなかった"},
+        {L"おおきくなかった",   L"大きくなかった"},
+        // === 形容動詞 否定 (じゃない / じゃなかった) ===
+        {L"しずかじゃない",     L"静かじゃない"},
+        {L"きれいじゃない",     L"綺麗じゃない"},
+        {L"げんきじゃない",     L"元気じゃない"},
+        {L"しずかじゃなかった", L"静かじゃなかった"},
+        {L"きれいじゃなかった", L"綺麗じゃなかった"},
+        // === 形容動詞 丁寧 (でした / ではない) ===
+        {L"しずかでした",       L"静かでした"},
+        {L"きれいでした",       L"綺麗でした"},
+        {L"げんきでした",       L"元気でした"},
+    };
+    for (const auto& c : cases) {
+        auto parts = bunsetsu::SplitMecab(c.reading, *m, skk);
+        std::wstring joined;
+        for (const auto& b : parts) {
+            joined += b.candidates.empty() ? b.reading : b.candidates[0];
+        }
+        EXPECT_EQ_W(joined, c.expected);
+    }
+}
+
+// Full bunsetsu pipeline (SplitMecab -> ranked candidates) must land the
+// verb past-tense top even when UniDic-Lite mis-tags the surface as a
+// name-noun (しんだ → lemma 新田). The godan companion's direct entry
+// preloads m_entries["しんだ"] with 死んだ at head; the noun branch's
+// Lookup+ReadsAs flow surfaces it above the lemma-kanji hint.
+TEST(split_mecab_shinda_top_is_shinu_past)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // Diagnose the split shape so a failure reveals whether the runtime
+    // saw one 名詞 clause (my godan companion should win) or many small
+    // clauses (MeCab split しんだ into し|ん|だ; needs a different fix).
+    auto parts = bunsetsu::SplitMecab(L"しんだ", *m, skk);
+    for (size_t i = 0; i < parts.size(); ++i) {
+        std::wstring wline = L"  diag shinda[";
+        wline += std::to_wstring(i);
+        wline += L"] reading=";
+        wline += parts[i].reading;
+        wline += L" cands=";
+        for (size_t j = 0; j < parts[i].candidates.size() && j < 5; ++j) {
+            if (j) wline += L",";
+            wline += parts[i].candidates[j];
+        }
+        char utf8[512] = {};
+        WideCharToMultiByte(CP_UTF8, 0, wline.c_str(), -1, utf8, sizeof(utf8), nullptr, nullptr);
+        std::printf("%s\n", utf8);
+    }
+    // Also print the raw SKK direct-lookup result for the full reading.
+    auto rawSkk = skk->Lookup(L"しんだ");
+    std::wstring wline = L"  diag Lookup(しんだ)=";
+    for (size_t j = 0; j < rawSkk.size() && j < 5; ++j) {
+        if (j) wline += L",";
+        wline += rawSkk[j];
+    }
+    char utf8[512] = {};
+    WideCharToMultiByte(CP_UTF8, 0, wline.c_str(), -1, utf8, sizeof(utf8), nullptr, nullptr);
+    std::printf("%s\n", utf8);
+
+    EXPECT_TRUE(!parts.empty());
+    if (!parts.empty()) {
+        EXPECT_TRUE(!parts[0].candidates.empty());
+        if (!parts[0].candidates.empty()) EXPECT_EQ_W(parts[0].candidates[0], L"死んだ");
+    }
+}
+
+// Same for かった where main dict's top is 勝田 (name).
+TEST(split_mecab_katta_top_is_verb_past)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto parts = bunsetsu::SplitMecab(L"かった", *m, skk);
+    EXPECT_TRUE(!parts.empty());
+    if (!parts.empty()) {
+        EXPECT_TRUE(!parts[0].candidates.empty());
+        // Either 買った or 勝った (both valid verbs from 買う/勝つ) — accept either,
+        // as long as we're no longer serving 勝田 (the name at SKK main dict top).
+        if (!parts[0].candidates.empty()) {
+            bool ok = parts[0].candidates[0] == L"買った" || parts[0].candidates[0] == L"勝った";
+            EXPECT_TRUE(ok);
+        }
+    }
+}
+
+// Regression guard for the 2026-07-03 命令形/音便た形 companion
+// extension. Each pair (reading → expected top) is chosen to fail loud
+// if the companion is dropped from the build or its load order is
+// reversed. Covers three sub-blocks:
+//   - 五段 命令形 (kana ends in -e-column vowel: け/せ/て/れ/…)
+//   - 一段 命令形 (kana ends in -ろ)
+//   - 撥音便/促音便 過去形 (…んだ / …った) that UniDic-Lite mis-tags
+//     as noun (新田/勝田/立田) without the direct dict entry.
+TEST(skk_godan_companion_imperative_and_past_top_is_verb)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    struct Case { const wchar_t* reading; const wchar_t* expected; };
+    static const Case cases[] = {
+        // 命令形 五段
+        {L"はしれ",   L"走れ"},
+        {L"はなせ",   L"話せ"},
+        {L"あるけ",   L"歩け"},
+        {L"しね",     L"死ね"},
+        {L"のめ",     L"飲め"},
+        {L"きけ",     L"聞け"},
+        {L"およげ",   L"泳げ"},
+        {L"えらべ",   L"選べ"},
+        // 命令形 一段
+        {L"おちろ",   L"落ちろ"},
+        {L"たべろ",   L"食べろ"},
+        {L"みろ",     L"見ろ"},
+        {L"でろ",     L"出ろ"},
+        {L"おきろ",   L"起きろ"},
+        // 撥音便 過去形
+        {L"しんだ",   L"死んだ"},
+        {L"よんだ",   L"読んだ"},
+        {L"のんだ",   L"飲んだ"},
+        {L"あそんだ", L"遊んだ"},
+        {L"まなんだ", L"学んだ"},
+        // 促音便 過去形 (name-collision cases)
+        {L"かった",   L"買った"},   // vs 勝田
+        {L"たった",   L"立った"},   // vs 立田
+        {L"はしった", L"走った"},
+        {L"かえった", L"帰った"},
+        {L"わかった", L"分かった"},
+    };
+    for (const auto& c : cases) {
+        auto cands = skk->Lookup(c.reading);
+        EXPECT_TRUE(!cands.empty());
+        if (!cands.empty()) EXPECT_EQ_W(cands[0], c.expected);
+    }
+}
+
+// Same guard for a representative from every 五段 row so a future edit
+// that shuffles the companion order (or accidentally drops a row) fails
+// loudly rather than silently regressing coverage.
+TEST(skk_godan_companion_all_rows_top_is_verb)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    struct Case { const wchar_t* reading; const wchar_t* expected; };
+    static const Case cases[] = {
+        {L"かう",    L"買う"},      // ワ行
+        {L"かく",    L"書く"},      // カ行
+        {L"およぐ",  L"泳ぐ"},      // ガ行
+        {L"はなす",  L"話す"},      // サ行
+        {L"たつ",    L"立つ"},      // タ行
+        {L"しぬ",    L"死ぬ"},      // ナ行
+        {L"よぶ",    L"呼ぶ"},      // バ行
+        {L"よむ",    L"読む"},      // マ行
+        {L"はしる",  L"走る"},      // ラ行 五段
+        {L"たべる",  L"食べる"},    // 一段
+    };
+    for (const auto& c : cases) {
+        auto cands = skk->Lookup(c.reading);
+        EXPECT_TRUE(!cands.empty());
+        if (!cands.empty()) EXPECT_EQ_W(cands[0], c.expected);
+    }
+}
+
 // ---------------------------------------------------------------------
 int main()
 {

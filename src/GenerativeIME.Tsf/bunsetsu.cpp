@@ -175,6 +175,28 @@ bool AnyHit(const std::vector<Bunsetsu>& parts)
 
 namespace
 {
+    // Auxiliary morphemes whose SKK top / MeCab lemma is a homophonic
+    // kanji (ない→無い, ます→鱒, じゃ→邪, なかっ→無かっ, なく→無く, …)
+    // that shadows the productive auxiliary the user typed. Both the
+    // isParticle branch (promoteSkkTop) and the isInflected branch
+    // (KanjifyByReading) must consult this list — a morpheme flagged
+    // 助動詞 by MeCab lands in isParticle, one flagged 形容詞 lands in
+    // isInflected, and 「ない」/「なかっ」 in particular appear in BOTH
+    // depending on whether they follow a verb (助動詞) or an い-adjective
+    // く-form (形容詞). Extracted from the two branch-local copies on
+    // 2026-07-03 to keep them from drifting apart.
+    bool IsShadowedAuxiliary(const std::wstring& surface)
+    {
+        static const std::wstring kList[] = {
+            L"ない", L"ます", L"です", L"だっ", L"でし",
+            L"まし", L"ませ", L"だろ",
+            L"じゃ", L"なかっ", L"なく",
+        };
+        for (const auto& a : kList)
+            if (surface == a) return true;
+        return false;
+    }
+
     // Greedy left-to-right pass: merge adjacent MeCab morphemes when their
     // joined reading has a whole-word SKK entry. Fixes UniDic-Lite over-
     // fragmentation on common compound nouns and short verbs that UniDic
@@ -195,18 +217,49 @@ namespace
         {
             auto tryMake = [&](size_t span) -> bool {
                 if (i + span > in.size()) return false;
-                // Never merge across a 助詞 / 助動詞 / 記号 boundary — those
-                // are grammatical joints, not compound stems. Otherwise
+                // Never merge across a 助詞 or 記号 boundary — those are
+                // grammatical joints, not compound stems. Otherwise
                 // "き(名詞)+が(助詞)+する(動詞)" collapses to "きが(名詞)"
                 // just because SKK has "きが /飢餓/", and the top-candidate
                 // path then serves "違う飢餓為る" instead of "違う気がする".
+                //
+                // 助動詞 boundary was blanket-forbidden until 2026-07-03,
+                // but that trapped every 音便 past-tense form: UniDic-Lite
+                // splits しんだ as [しん名詞 + だ助動詞], かった as
+                // [かっ動詞 + た助動詞], and refused to reassemble them
+                // even when SKK-JISYO.godan has the direct entry
+                // (しんだ /死んだ/, かった /買った/勝った/). Narrow relief:
+                // when the tail morpheme is one of the past-tense / te-form
+                // auxiliaries (た/だ/て/で/たら/だら/たり/だり) AND the
+                // joined reading is a direct SKK entry (not okuri-ari
+                // flatten-through), merge is safe — those entries were
+                // hand-curated for exactly this shape.
+                static const std::wstring kMergableAux[] = {
+                    L"た", L"だ", L"て", L"で", L"たら", L"だら", L"たり", L"だり",
+                };
                 for (size_t k = 0; k < span; ++k) {
                     const auto& p = in[i + k].pos;
-                    if (p == L"助詞" || p == L"助動詞" || p == L"記号") return false;
+                    if (p == L"助詞" || p == L"記号") return false;
+                    if (p == L"助動詞") {
+                        bool isTailAux = (k + 1 == span);
+                        bool inList = false;
+                        if (isTailAux) {
+                            for (const auto& a : kMergableAux)
+                                if (in[i + k].surface == a) { inList = true; break; }
+                        }
+                        if (!isTailAux || !inList) return false;
+                    }
                 }
                 std::wstring joined;
                 for (size_t k = 0; k < span; ++k) joined += in[i + k].surface;
                 if (skk->Lookup(joined).empty()) return false;
+                // For the 助動詞 relief branch, require a direct dict
+                // entry (guards against okuri-ari flatten-through
+                // synthesizing bogus past-tense forms).
+                bool hasAux = false;
+                for (size_t k = 0; k < span; ++k)
+                    if (in[i + k].pos == L"助動詞") { hasAux = true; break; }
+                if (hasAux && !skk->HasDirectEntry(joined)) return false;
                 MecabMorpheme merged;
                 merged.surface       = joined;
                 merged.lemma         = joined;
@@ -286,7 +339,17 @@ std::vector<Bunsetsu> SplitMecab(const std::wstring& reading,
             // Single-char 助詞 (は/を/に) is untouched. The ReadsAs filter
             // rejects okuri-ari-synthesized tops (「ですg /出過/」flattens
             // as SKK top「出過」whose MeCab reading is しゅつか, not です),
-            // so real auxiliaries like「です」/「ます」stay as kana top.
+            // so most okuri-only shadow candidates are filtered out.
+            //
+            // Regression (2026-07-03 fix, BUG-5/6): 「ない」「ます」「です」
+            // are high-confidence auxiliaries whose 訓読み-kanji form (無い/
+            // 鱒/出す/…) IS the SKK top and DOES pass ReadsAs — so the
+            // 2026-07-02 promotion path shipped 「食べ無い」「食べ鱒」as
+            // real regressions on the most common inflections in Japanese.
+            // A hard deny-list is the surgical fix: these tokens are never
+            // what a modern IME user wants at bare-Enter — 鱒 as the trout
+            // fish, 無い as the archaic literary negative, etc. are still
+            // reachable via the fallback hits below, just not at the head.
             b.candidates = { m.surface };
             auto kata = ToKatakana(m.surface);
             if (kata != m.surface)
@@ -297,6 +360,7 @@ std::vector<Bunsetsu> SplitMecab(const std::wstring& reading,
                 bool promoteSkkTop =
                     (m.pos == L"助動詞") &&
                     (m.surface.size() >= 2) &&
+                    !IsShadowedAuxiliary(m.surface) &&
                     !hits.empty() &&
                     bunsetsu::ReadsAs(hits[0], m.surface, analyzer);
                 if (promoteSkkTop)
@@ -335,7 +399,15 @@ std::vector<Bunsetsu> SplitMecab(const std::wstring& reading,
             auto isArchaicShortVerbLemma = [](const std::wstring& l) {
                 return l == L"為る" || l == L"居る" || l == L"有る" || l == L"成る";
             };
-            if (kanji != m.surface && !isArchaicShortVerbLemma(m.lemma))
+            // 2026-07-03: same auxiliary deny-list as the isParticle branch —
+            // 形容詞+く+「ない」 flows through this branch (UniDic-Lite tags
+            // the trailing ない as 形容詞 with lemma 無い, KanjifyByReading
+            // then synthesizes 無い and puts it at head, yielding e.g.
+            // 「美しく無い」/「大きく無い」. Keep the auxiliary as kana at head;
+            // 無い is still reachable at the tail via the skkCands loop.
+            if (kanji != m.surface &&
+                !isArchaicShortVerbLemma(m.lemma) &&
+                !IsShadowedAuxiliary(m.surface))
             {
                 b.candidates.push_back(kanji);
             }
