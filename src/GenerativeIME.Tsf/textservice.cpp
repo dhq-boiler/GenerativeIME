@@ -24,6 +24,7 @@ constexpr UINT WM_LANGBAR_MENU        = WM_USER + 2;
 constexpr UINT WM_SET_IME_MODE        = WM_USER + 3; // wParam = 1 to turn ON, 0 to turn OFF
 constexpr UINT WM_OLLAMA_REORDER_DONE  = WM_USER + 4;
 constexpr UINT WM_OLLAMA_FALLBACK_DONE = WM_USER + 5;
+constexpr UINT WM_ACRONYM_DONE         = WM_USER + 6;
 constexpr wchar_t kMsgWndClass[] = L"GenerativeIME_MsgWnd_v1";
 
 // Posted from worker thread back to the IME thread via PostMessage.
@@ -108,6 +109,35 @@ struct PendingOllamaReorderRequest
     }
 };
 
+// Async LLM acronym expansion. Fired when an all-uppercase alnum composition
+// ("ＩＭＦ") isn't in the built-in AcronymExpansions table. The worker asks
+// Ollama for the meaning; on arrival the IME appends the answers behind the
+// width/case candidates already shown. `base` is that on-screen list, snapshot
+// at fire time; `display` is m_lastReading for staleness matching.
+struct PendingAcronymRequest
+{
+    CTextService*              service;
+    ITfContext*                tfContext;
+    std::wstring               acronym;        // half-width uppercase key ("IMF")
+    std::wstring               display;        // composition text when fired (== m_lastReading)
+    std::vector<std::wstring>  base;           // candidates already shown, to append behind
+    std::vector<std::wstring>  candidates;     // filled by worker
+    unsigned                   seq;
+    HRESULT                    hr;
+
+    PendingAcronymRequest(CTextService* s, ITfContext* c, std::wstring a,
+                          std::wstring disp, std::vector<std::wstring> b, unsigned sequence)
+        : service(s), tfContext(c), acronym(std::move(a)), display(std::move(disp)),
+          base(std::move(b)), seq(sequence), hr(E_FAIL)
+    {
+        if (tfContext) tfContext->AddRef();
+    }
+    ~PendingAcronymRequest()
+    {
+        if (tfContext) tfContext->Release();
+    }
+};
+
 namespace
 {
     // Composition display = converted kana + still-untranslatable trailing romaji,
@@ -179,6 +209,36 @@ namespace
             else                        out.push_back(c);
         }
         return out;
+    }
+
+    // Split an LLM acronym answer of the shape "日本語 (English)" /
+    // "日本語（English）" into its two halves so they land as separate
+    // candidates, matching the built-in dictionary's {日本語, 英語フル}
+    // layout. gemma tends to fuse the two despite the prompt asking for
+    // separate entries. Returns the string unchanged (single element) when
+    // it isn't a clean "head (tail)" with a trailing close paren.
+    std::vector<std::wstring> SplitAcronymPiece(const std::wstring& s)
+    {
+        if (s.size() < 3) return { s };
+        wchar_t open = 0;
+        if      (s.back() == L')')  open = L'(';
+        else if (s.back() == L'）') open = L'（';
+        else return { s };
+
+        size_t pos = s.rfind(open);
+        if (pos == std::wstring::npos || pos == 0) return { s };
+
+        auto trim = [](std::wstring x) {
+            auto isws = [](wchar_t c) { return c == L' ' || c == L'\t' || c == 0x3000; };
+            size_t b = 0, e = x.size();
+            while (b < e && isws(x[b]))     ++b;
+            while (e > b && isws(x[e - 1])) --e;
+            return x.substr(b, e - b);
+        };
+        std::wstring head  = trim(s.substr(0, pos));
+        std::wstring inner = trim(s.substr(pos + 1, s.size() - pos - 2));
+        if (head.empty() || inner.empty()) return { s };
+        return { head, inner };
     }
 }
 
@@ -864,6 +924,77 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
             POINT pt = QueryCandidateAnchorPos(pContext);
             m_pCandWnd->ShowAt(pt);
             ApplyCandidateSelection(pContext);
+            return;
+        }
+    }
+
+    // Alphanumeric width/case fast path. When the composition is an all-
+    // letter/digit run — e.g. 「ＩＭＥ」 typed via Shift+alpha in 全角ひらがな
+    // mode — Space opens a candidate window offering the full/half-width and
+    // upper/lower-case forms (ＩＭＥ / IME / ime / ｉｍｅ). The typed form sits
+    // at index 0 so a bare Enter keeps it; ↓/Space cycles the alternates.
+    // Runs before the Ollama/MeCab path because these have no kanji reading.
+    if (m_pCandWnd)
+    {
+        std::wstring display = DisplayForMode(m_romajiBuffer, m_imeMode);
+        auto variants = symbols::AsciiWidthCaseVariants(display);
+        if (variants.size() > 1)
+        {
+            // Also offer the kana the letters would have produced as romaji,
+            // so someone who typed Shift+I,M,E can still reach 「いめ / イメ /
+            // ｲﾒ」 without retyping. Only when the whole run parses cleanly to
+            // kana (no leftover consonants) — otherwise the letters aren't a
+            // valid reading and we skip the kana forms.
+            std::wstring ascii;
+            ascii.reserve(display.size());
+            for (wchar_t c : display)
+            {
+                if      (c >= 0xFF21 && c <= 0xFF3A) ascii.push_back((wchar_t)(c - 0xFF21 + L'a'));
+                else if (c >= 0xFF41 && c <= 0xFF5A) ascii.push_back((wchar_t)(c - 0xFF41 + L'a'));
+                else if (c >= L'A'   && c <= L'Z')   ascii.push_back((wchar_t)(c - L'A'   + L'a'));
+                else if (c >= 0xFF10 && c <= 0xFF19) ascii.push_back((wchar_t)(c - 0xFF10 + L'0'));
+                else                                 ascii.push_back(c);
+            }
+            auto r = romaji::Convert(ascii);
+            if (r.remaining.empty() && !r.hira.empty())
+            {
+                std::wstring hira = r.hira;
+                std::wstring kata = ToFullKatakana(hira);
+                std::wstring half = ToHalfKatakana(kata);
+                for (const std::wstring& k : { hira, kata, half })
+                    if (std::find(variants.begin(), variants.end(), k) == variants.end())
+                        variants.push_back(k);
+            }
+            // Acronym expansion: 「ＩＭＦ」→ 国際通貨基金 / International
+            // Monetary Fund. Keyed on the half-width UPPERCASE form so both
+            // 「ＩＭＦ」and 「ｉｍｆ」reach the same entry.
+            std::wstring upper = ascii;
+            for (auto& c : upper)
+                if (c >= L'a' && c <= L'z') c = static_cast<wchar_t>(c - L'a' + L'A');
+            auto dictExpansions = symbols::AcronymExpansions(upper);
+            for (const auto& e : dictExpansions)
+                if (std::find(variants.begin(), variants.end(), e) == variants.end())
+                    variants.push_back(e);
+            m_lastReading = display;
+            m_pCandWnd->SetCandidates(variants);
+            POINT pt = QueryCandidateAnchorPos(pContext);
+            m_pCandWnd->ShowAt(pt);
+            ApplyCandidateSelection(pContext);
+
+            // LLM fallback: no built-in entry for what looks like an acronym
+            // (2-8 pure ASCII letters) → ask Ollama asynchronously and append
+            // its expansions when they arrive. Dictionary hits skip the LLM so
+            // known acronyms stay instant and offline. Digits or over-long
+            // runs are almost never acronyms, so we don't spend a query on
+            // them.
+            if (dictExpansions.empty())
+            {
+                bool allLetters = upper.size() >= 2 && upper.size() <= 8;
+                for (wchar_t c : upper)
+                    if (c < L'A' || c > L'Z') { allLetters = false; break; }
+                if (allLetters)
+                    StartAcronymExpandAsync(pContext, upper, display, variants);
+            }
             return;
         }
     }
@@ -1951,6 +2082,118 @@ void CTextService::HandleOllamaFallbackDone(PendingOllamaFallbackRequest* pendin
     delete pending;
 }
 
+void CTextService::StartAcronymExpandAsync(ITfContext* pContext,
+                                           const std::wstring& acronym,
+                                           const std::wstring& display,
+                                           const std::vector<std::wstring>& base)
+{
+    if (!m_hwndMsg || acronym.empty()) return;
+
+    unsigned seq = ++m_reorderSeq;
+    auto* req = new PendingAcronymRequest(this, pContext, acronym, display, base, seq);
+    HWND hwnd = m_hwndMsg;
+    if (m_pCandWnd) m_pCandWnd->SetOllamaPending(true);
+
+    std::thread([req, hwnd]()
+    {
+        std::wstring prompt;
+        prompt += L"あなたは英語の略語（頭字語）辞典です。\n";
+        prompt += L"次の略語が一般的に表す意味を展開してください。\n";
+        prompt += L"\n";
+        prompt += L"ルール:\n";
+        prompt += L"1. JSON のみ返す。形式: {\"candidates\":[{\"text\":\"…\"}]}\n";
+        prompt += L"2. 実在する一般的な意味のみ。日本語の正式名称と英語のフルスペルの両方を候補に含める（日本語→英語の順）。\n";
+        prompt += L"3. 候補は最大 4 つ。最も一般的な意味を優先する。\n";
+        prompt += L"4. 意味が分からない、または一般的な略語でない場合は candidates を空配列にする。\n";
+        prompt += L"5. 説明や補足文は書かない。text は名称のみ。\n";
+        prompt += L"\n";
+        prompt += L"略語: ";
+        prompt += req->acronym;
+        prompt += L"\n";
+
+        ollama::GenerateOptions opts;
+        opts.model       = L"gemma4:12b";
+        opts.prompt      = prompt;
+        opts.jsonFormat  = true;
+        opts.temperature = 0.1;
+        opts.numPredict  = 192;
+        opts.keepAlive   = L"30m";
+        opts.think       = false;
+        opts.timeoutMs   = 120000;
+
+        auto resp = ollama::Generate(opts);
+        req->hr = resp.hr;
+        if (SUCCEEDED(resp.hr) && !resp.response.empty())
+        {
+            req->candidates = ExtractAllCandidates(resp.response);
+        }
+
+        if (!PostMessageW(hwnd, WM_ACRONYM_DONE, 0, (LPARAM)req))
+        {
+            delete req;
+        }
+    }).detach();
+}
+
+void CTextService::HandleAcronymDone(PendingAcronymRequest* pending)
+{
+    if (!pending) return;
+
+    if (m_pCandWnd) m_pCandWnd->SetOllamaPending(false);
+
+    // Stale: another async candidate edit raced ahead, or the user typed on /
+    // committed / switched conversions since we fired.
+    if (pending->seq != m_reorderSeq)
+    {
+        delete pending;
+        return;
+    }
+    if (m_predictionActive || InBunsetsuMode() ||
+        !m_pCandWnd || !m_pCandWnd->IsVisible() ||
+        m_lastReading != pending->display)
+    {
+        delete pending;
+        return;
+    }
+    if (FAILED(pending->hr) || pending->candidates.empty())
+    {
+        delete pending;
+        return;
+    }
+    // Don't reshuffle the list out from under a user who has already navigated.
+    if (m_pCandWnd->GetSelectedIndex() != 0)
+    {
+        delete pending;
+        return;
+    }
+
+    // Append the LLM's expansions behind the width/case forms already shown,
+    // deduped against them (and against the acronym itself, which the model
+    // sometimes echoes back).
+    std::vector<std::wstring> merged = pending->base;
+    for (auto& c : pending->candidates)
+    {
+        if (c.empty() || c == pending->acronym) continue;
+        // Split "日本語 (English)" into two candidates so LLM answers line up
+        // with the built-in dictionary's separate 日本語 / 英語フル entries.
+        for (auto& piece : SplitAcronymPiece(c))
+        {
+            if (piece.empty() || piece == pending->acronym) continue;
+            if (std::find(merged.begin(), merged.end(), piece) == merged.end())
+                merged.push_back(std::move(piece));
+        }
+    }
+    if (merged.size() == pending->base.size())
+    {
+        delete pending;
+        return;   // nothing new to add
+    }
+
+    m_pCandWnd->SetCandidates(merged);
+    if (pending->tfContext) ApplyCandidateSelection(pending->tfContext);
+    delete pending;
+}
+
 // Best-effort screen position for the candidate popup. Tries three sources
 // in order: (1) TSF's GetTextExt on the live composition range (most accurate,
 // works in modern apps that don't expose a Win32 caret), (2) Win32 caret via
@@ -2825,6 +3068,11 @@ LRESULT CALLBACK CTextService::StaticWndProc(HWND hwnd, UINT msg, WPARAM wParam,
             self->HandleOllamaFallbackDone(reinterpret_cast<PendingOllamaFallbackRequest*>(lParam));
             return 0;
         }
+        if (msg == WM_ACRONYM_DONE)
+        {
+            self->HandleAcronymDone(reinterpret_cast<PendingAcronymRequest*>(lParam));
+            return 0;
+        }
         if (msg == WM_LANGBAR_MENU)
         {
             int x = (int)(short)LOWORD(lParam);
@@ -3021,6 +3269,19 @@ bool CTextService::ShouldEat(WPARAM wParam) const
     // mid-composition still goes to the app, which then either pastes
     // around the composition or replaces it — we let the host decide.
     if (GetKeyState(VK_CONTROL) < 0) return false;
+    // 全角英数 mode: every printable key is committed directly as its
+    // full-width form (ＩＭＥ / １２３ / ！＠＃ / 全角スペース), with no
+    // composition or conversion. Shift/CapsLock therefore produce full-width
+    // uppercase letters. Claim alpha, digits (shifted OR not), OEM symbols
+    // and Space here so OnKeyDown's FullAlnum branch can resolve them; other
+    // keys (Enter, Backspace, arrows) fall through to the host.
+    if (m_imeMode == ImeMode::FullAlnum)
+    {
+        if (IsAlphaKey(wParam)) return true;
+        if (wParam >= '0' && wParam <= '9') return true;
+        if (IsSymbolKey(wParam)) return true;
+        if (wParam == VK_SPACE) return true;
+    }
     if (IsAlphaKey(wParam)) return true;
     if (IsSymbolKey(wParam)) return true;
     // Digit keys during an active composition stay in the buffer so
@@ -3126,22 +3387,60 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         return S_OK;
     }
 
+    // 全角英数 mode: resolve the key to the character the layout would emit
+    // (ToUnicode honors both Shift and CapsLock, so Shift+I → 'I' → 'Ｉ'),
+    // widen it, and drop it straight into the document with no composition.
+    // This matches MS-IME's 全角英数 behavior: each keystroke commits a
+    // full-width character immediately, and uppercase letters are typeable.
+    if (m_imeMode == ImeMode::FullAlnum && !m_pComposition)
+    {
+        wchar_t ch = ResolveSymbolChar(wParam, lParam);
+        if (ch >= 0x20 && ch <= 0x7E)   // printable ASCII incl. space (→ 全角)
+        {
+            std::wstring full = ToFullWidthAscii(std::wstring(1, ch));
+            if (pic) RequestEditSession(pic, EditAction::InsertDirect, full);
+            AppendCommittedText(full);
+            *pfEaten = TRUE;
+            return S_OK;
+        }
+        // Non-printable keys (Enter, Backspace, arrows) fall through to the
+        // host — they were never claimed by ShouldEat in this mode.
+    }
+
     if (IsAlphaKey(wParam))
     {
         // If a candidate was already chosen (m_compositionConverted), close it
         // out first so this alpha key starts a NEW composition rather than
         // mutating m_romajiBuffer underneath the kanji.
         CommitConvertedIfAny(pic);
-        // Preserve the Shift state so「Gsupotto」→ buffer becomes
-        // "Gsupotto" (mixed case) which Convert passes uppercase letters
-        // through unchanged, yielding「Gすぽっと」on the display and
-        // matching the SKK direct entry「Gすぽっと /Gスポット/」. Without
-        // this, everything got lowercased and Shift+G produced「g」in
-        // 全角かな mode - impossible to type an uppercase Roman letter
-        // mid-composition.
-        wchar_t ch = (GetKeyState(VK_SHIFT) < 0)
-            ? static_cast<wchar_t>(wParam)               // 'A'-'Z' verbatim
-            : static_cast<wchar_t>(wParam - 'A' + 'a');  // canonical lowercase
+        // Shift detection: GetKeyState alone is unreliable in the TSF
+        // keystroke-sink context — the calling thread's cached key state
+        // isn't always updated by the time OnKeyDown fires, so a physical
+        // Shift+alpha in 全角ひらがな mode came through lowercase ("ime" →
+        // 「いめ」). GetAsyncKeyState reads the live physical key state and
+        // fills that gap; either signal counts as Shift held.
+        bool shift = (GetKeyState(VK_SHIFT) < 0) || (GetAsyncKeyState(VK_SHIFT) < 0);
+        wchar_t ch;
+        if (!shift)
+        {
+            ch = static_cast<wchar_t>(wParam - 'A' + 'a');   // canonical lowercase romaji
+        }
+        else if (m_imeMode == ImeMode::Hiragana)
+        {
+            // 全角ひらがな mode: Shift+alpha injects a full-width UPPERCASE
+            // letter ('A'-'Z' → 'Ａ'-'Ｚ') straight into the composition, so
+            // typing Shift+I,M,E shows 「ＩＭＥ」. It stays un-converted (the
+            // new full-width branch in romaji::Convert passes it through), so
+            // the user can commit it as-is or open the candidate window to
+            // swap to half-width before committing.
+            ch = static_cast<wchar_t>(wParam + 0xFEE0);
+        }
+        else
+        {
+            // Other modes keep the historical half-width uppercase behavior
+            // that feeds SKK direct entries like「Gすぽっと /Gスポット/」.
+            ch = static_cast<wchar_t>(wParam);               // 'A'-'Z' verbatim
+        }
         m_romajiBuffer.push_back(ch);
         m_compositionConverted = FALSE;
         if (m_pCandWnd) m_pCandWnd->Hide();

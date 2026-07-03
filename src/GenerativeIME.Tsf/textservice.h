@@ -14,6 +14,7 @@ class LearningStore;
 struct PendingOllamaRequest;
 struct PendingOllamaReorderRequest;
 struct PendingOllamaFallbackRequest;
+struct PendingAcronymRequest;
 
 // Active "input mode" inside the IME. Off means IME is bypassing input entirely;
 // the other four shape how m_romajiBuffer renders in the composition.
@@ -171,6 +172,18 @@ private:
                                                   const std::wstring& reading,
                                                   const std::wstring& mecabTop);
     void                HandleOllamaFallbackDone(PendingOllamaFallbackRequest* pending);
+
+    // Fire-and-forget LLM acronym expansion. When an all-uppercase alnum
+    // composition ("ＩＭＦ") has no built-in AcronymExpansions entry, we ask
+    // Ollama for the meaning and append its answers to the width/case
+    // candidate list already on screen. Shares m_reorderSeq for staleness.
+    // `base` is the candidate list currently shown, so the done handler can
+    // append behind it without racing to re-derive it.
+    void                StartAcronymExpandAsync(ITfContext* pContext,
+                                                const std::wstring& acronym,
+                                                const std::wstring& display,
+                                                const std::vector<std::wstring>& base);
+    void                HandleAcronymDone(PendingAcronymRequest* pending);
 
     // Pre-load the Ollama model on Activate so the first real user query
     // doesn't pay a 90-second cold-load. Fire-and-forget — we discard the

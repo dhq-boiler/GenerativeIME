@@ -1,5 +1,6 @@
 ﻿#include "symboldictionary.h"
 #include <unordered_map>
+#include <algorithm>
 
 namespace
 {
@@ -706,5 +707,197 @@ namespace symbols
         v.push_back(std::move(circUp));
         v.push_back(std::move(circLo));
         return v;
+    }
+
+    std::vector<std::wstring> AsciiWidthCaseVariants(std::wstring_view typed)
+    {
+        if (typed.empty()) return {};
+
+        // Every char must be a width-convertible letter or digit, and there
+        // must be at least one letter (a pure-digit run already has its own
+        // number path and shouldn't be hijacked here).
+        bool hasLetter = false;
+        for (wchar_t c : typed)
+        {
+            bool asciiUp   = (c >= L'A' && c <= L'Z');
+            bool asciiLo   = (c >= L'a' && c <= L'z');
+            bool fwUp      = (c >= 0xFF21 && c <= 0xFF3A);
+            bool fwLo      = (c >= 0xFF41 && c <= 0xFF5A);
+            bool asciiDig  = (c >= L'0' && c <= L'9');
+            bool fwDig     = (c >= 0xFF10 && c <= 0xFF19);
+            if (asciiUp || asciiLo || fwUp || fwLo) hasLetter = true;
+            else if (!asciiDig && !fwDig) return {};
+        }
+        if (!hasLetter) return {};
+
+        bool typedFull = false;
+        for (wchar_t c : typed)
+        {
+            if ((c >= 0xFF21 && c <= 0xFF3A) || (c >= 0xFF41 && c <= 0xFF5A) ||
+                (c >= 0xFF10 && c <= 0xFF19)) { typedFull = true; break; }
+        }
+
+        // caseMode: 0 = preserve each char's case, 1 = force lower, 2 = force upper.
+        auto render = [&](bool full, int caseMode) {
+            std::wstring out;
+            out.reserve(typed.size());
+            for (wchar_t c : typed)
+            {
+                bool isUpper = false; int idx = 0; bool letter = false; int dig = -1;
+                if      (c >= L'A' && c <= L'Z')       { letter = true; isUpper = true;  idx = c - L'A'; }
+                else if (c >= L'a' && c <= L'z')       { letter = true; isUpper = false; idx = c - L'a'; }
+                else if (c >= 0xFF21 && c <= 0xFF3A)   { letter = true; isUpper = true;  idx = c - 0xFF21; }
+                else if (c >= 0xFF41 && c <= 0xFF5A)   { letter = true; isUpper = false; idx = c - 0xFF41; }
+                else if (c >= L'0' && c <= L'9')       { dig = c - L'0'; }
+                else                                   { dig = c - 0xFF10; }
+
+                if (letter)
+                {
+                    bool up = (caseMode == 0) ? isUpper : (caseMode == 2);
+                    if (full) out.push_back((wchar_t)((up ? 0xFF21 : 0xFF41) + idx));
+                    else      out.push_back((wchar_t)((up ? L'A' : L'a') + idx));
+                }
+                else
+                {
+                    if (full) out.push_back((wchar_t)(0xFF10 + dig));
+                    else      out.push_back((wchar_t)(L'0' + dig));
+                }
+            }
+            return out;
+        };
+
+        std::vector<std::wstring> v;
+        auto add = [&](std::wstring s) {
+            if (std::find(v.begin(), v.end(), s) == v.end()) v.push_back(std::move(s));
+        };
+        add(std::wstring(typed));   // index 0 = typed form (bare Enter keeps it)
+        add(render(!typedFull, 0)); // opposite width, same case (most common swap)
+        add(render(false, 2));      // half-width upper
+        add(render(false, 1));      // half-width lower
+        add(render(true, 2));       // full-width upper
+        add(render(true, 1));       // full-width lower
+        return v;
+    }
+
+    std::vector<std::wstring> AcronymExpansions(std::wstring_view key)
+    {
+        // Single letters are LetterVariants' job; acronyms are 2+ chars.
+        if (key.size() < 2) return {};
+
+        // Curated built-in acronym table. Value order is {日本語訳, 英語フル
+        // スペル} so a key like「IMF」yields「国際通貨基金 / International
+        // Monetary Fund」in that order behind the width/case forms. Entries
+        // with no natural Japanese name list the English spell-out only.
+        // Multi-sense acronyms keep the most common expansion. Extend freely;
+        // the LLM fallback covers whatever isn't listed here.
+        static const std::unordered_map<std::wstring, std::vector<std::wstring>> table = {
+            // 国際機関・経済
+            { L"IMF",    { L"国際通貨基金", L"International Monetary Fund" } },
+            { L"WHO",    { L"世界保健機関", L"World Health Organization" } },
+            { L"UN",     { L"国際連合", L"United Nations" } },
+            { L"WTO",    { L"世界貿易機関", L"World Trade Organization" } },
+            { L"NATO",   { L"北大西洋条約機構", L"North Atlantic Treaty Organization" } },
+            { L"EU",     { L"欧州連合", L"European Union" } },
+            { L"ASEAN",  { L"東南アジア諸国連合", L"Association of Southeast Asian Nations" } },
+            { L"OPEC",   { L"石油輸出国機構", L"Organization of the Petroleum Exporting Countries" } },
+            { L"UNESCO", { L"国連教育科学文化機関", L"United Nations Educational, Scientific and Cultural Organization" } },
+            { L"UNICEF", { L"国連児童基金", L"United Nations Children's Fund" } },
+            { L"OECD",   { L"経済協力開発機構", L"Organisation for Economic Co-operation and Development" } },
+            { L"APEC",   { L"アジア太平洋経済協力", L"Asia-Pacific Economic Cooperation" } },
+            { L"GATT",   { L"関税及び貿易に関する一般協定", L"General Agreement on Tariffs and Trade" } },
+            { L"FTA",    { L"自由貿易協定", L"Free Trade Agreement" } },
+            { L"TPP",    { L"環太平洋パートナーシップ協定", L"Trans-Pacific Partnership" } },
+            { L"GDP",    { L"国内総生産", L"Gross Domestic Product" } },
+            { L"GNP",    { L"国民総生産", L"Gross National Product" } },
+            { L"NGO",    { L"非政府組織", L"Non-Governmental Organization" } },
+            { L"NPO",    { L"非営利組織", L"Nonprofit Organization" } },
+            // 政府・機関
+            { L"NASA",   { L"アメリカ航空宇宙局", L"National Aeronautics and Space Administration" } },
+            { L"FBI",    { L"連邦捜査局", L"Federal Bureau of Investigation" } },
+            { L"CIA",    { L"中央情報局", L"Central Intelligence Agency" } },
+            // IT・技術
+            { L"AI",     { L"人工知能", L"Artificial Intelligence" } },
+            { L"API",    { L"Application Programming Interface" } },
+            { L"CPU",    { L"中央処理装置", L"Central Processing Unit" } },
+            { L"GPU",    { L"画像処理装置", L"Graphics Processing Unit" } },
+            { L"OS",     { L"基本ソフト", L"Operating System" } },
+            { L"PC",     { L"パソコン", L"Personal Computer" } },
+            { L"USB",    { L"Universal Serial Bus" } },
+            { L"URL",    { L"Uniform Resource Locator" } },
+            { L"HTML",   { L"HyperText Markup Language" } },
+            { L"HTTP",   { L"HyperText Transfer Protocol" } },
+            { L"HTTPS",  { L"HyperText Transfer Protocol Secure" } },
+            { L"DNA",    { L"デオキシリボ核酸", L"Deoxyribonucleic Acid" } },
+            { L"ATM",    { L"現金自動預払機", L"Automated Teller Machine" } },
+            { L"GPS",    { L"全地球測位システム", L"Global Positioning System" } },
+            { L"LED",    { L"発光ダイオード", L"Light Emitting Diode" } },
+            { L"PDF",    { L"Portable Document Format" } },
+            { L"VPN",    { L"仮想プライベートネットワーク", L"Virtual Private Network" } },
+            { L"RAM",    { L"Random Access Memory" } },
+            { L"ROM",    { L"Read Only Memory" } },
+            { L"SSD",    { L"Solid State Drive" } },
+            { L"HDD",    { L"Hard Disk Drive" } },
+            { L"IOT",    { L"モノのインターネット", L"Internet of Things" } },
+            { L"DX",     { L"デジタルトランスフォーメーション", L"Digital Transformation" } },
+            { L"CMS",    { L"コンテンツ管理システム", L"Content Management System" } },
+            { L"CRM",    { L"顧客関係管理", L"Customer Relationship Management" } },
+            { L"ERP",    { L"企業資源計画", L"Enterprise Resource Planning" } },
+            { L"KPI",    { L"重要業績評価指標", L"Key Performance Indicator" } },
+            { L"KGI",    { L"重要目標達成指標", L"Key Goal Indicator" } },
+            { L"OKR",    { L"目標と主要な結果", L"Objectives and Key Results" } },
+            { L"NDA",    { L"秘密保持契約", L"Non-Disclosure Agreement" } },
+            // 役職・ビジネス
+            { L"CEO",    { L"最高経営責任者", L"Chief Executive Officer" } },
+            { L"CFO",    { L"最高財務責任者", L"Chief Financial Officer" } },
+            { L"COO",    { L"最高執行責任者", L"Chief Operating Officer" } },
+            { L"CTO",    { L"最高技術責任者", L"Chief Technology Officer" } },
+            { L"CIO",    { L"最高情報責任者", L"Chief Information Officer" } },
+            { L"CMO",    { L"最高マーケティング責任者", L"Chief Marketing Officer" } },
+            { L"CPA",    { L"公認会計士", L"Certified Public Accountant" } },
+            { L"HR",     { L"人事", L"Human Resources" } },
+            { L"HQ",     { L"本社", L"Headquarters" } },
+            { L"GM",     { L"本部長", L"General Manager" } },
+            { L"VP",     { L"副社長", L"Vice President" } },
+            { L"PM",     { L"プロジェクトマネージャー", L"Project Manager" } },
+            { L"PR",     { L"広報", L"Public Relations" } },
+            { L"QC",     { L"品質管理", L"Quality Control" } },
+            { L"RFP",    { L"提案依頼書", L"Request For Proposal" } },
+            { L"ROI",    { L"投資収益率", L"Return On Investment" } },
+            { L"ROA",    { L"総資産利益率", L"Return On Assets" } },
+            { L"ROE",    { L"自己資本利益率", L"Return On Equity" } },
+            { L"EPS",    { L"一株当たり利益", L"Earnings Per Share" } },
+            { L"PER",    { L"株価収益率", L"Price Earnings Ratio" } },
+            { L"BS",     { L"貸借対照表", L"Balance Sheet" } },
+            { L"SEO",    { L"検索エンジン最適化", L"Search Engine Optimization" } },
+            { L"IT",     { L"情報技術", L"Information Technology" } },
+            { L"MTG",    { L"会議", L"Meeting" } },
+            { L"FIFO",   { L"先入先出", L"First In, First Out" } },
+            { L"LIFO",   { L"後入先出", L"Last In, First Out" } },
+            { L"B2B",    { L"企業間取引", L"Business to Business" } },
+            { L"B2C",    { L"企業対消費者取引", L"Business to Consumer" } },
+            // 定型表現・スラング
+            { L"ASAP",   { L"できるだけ早く", L"As Soon As Possible" } },
+            { L"FYI",    { L"参考まで", L"For Your Information" } },
+            { L"FAQ",    { L"よくある質問", L"Frequently Asked Questions" } },
+            { L"ETA",    { L"到着予定時刻", L"Estimated Time of Arrival" } },
+            { L"TBD",    { L"要決定", L"To Be Decided" } },
+            { L"TBA",    { L"未定", L"To Be Announced" } },
+            { L"TBC",    { L"要確認", L"To Be Confirmed" } },
+            { L"BTW",    { L"ところで", L"By The Way" } },
+            { L"IMO",    { L"私の意見では", L"In My Opinion" } },
+            { L"IDK",    { L"わかりません", L"I Don't Know" } },
+            { L"TMI",    { L"情報が多すぎ", L"Too Much Information" } },
+            { L"TBH",    { L"正直に言うと", L"To Be Honest" } },
+            { L"BRB",    { L"すぐ戻ります", L"Be Right Back" } },
+            { L"POV",    { L"視点", L"Point Of View" } },
+            { L"AKA",    { L"別名", L"Also Known As" } },
+            { L"DIY",    { L"日曜大工", L"Do It Yourself" } },
+            { L"WFH",    { L"在宅勤務", L"Working From Home" } },
+            { L"PTO",    { L"有給休暇", L"Paid Time Off" } },
+        };
+
+        auto it = table.find(std::wstring(key));
+        if (it != table.end()) return it->second;
+        return {};
     }
 }

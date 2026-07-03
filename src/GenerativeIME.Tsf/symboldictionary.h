@@ -35,4 +35,22 @@ namespace symbols
     // arithmetically for all 26 letters instead of hand-listed. Empty for
     // anything that isn't exactly one ASCII letter.
     std::vector<std::wstring> LetterVariants(std::wstring_view typed);
+
+    // Acronym -> expansion lookup. Given an all-uppercase ASCII acronym key
+    // ("IMF") returns the human-readable expansions ({"国際通貨基金",
+    // "International Monetary Fund"}) to append behind the width/case forms
+    // in the candidate window. Curated built-in table (国際機関・経済・IT の
+    // 頻出略語); the long tail is meant to be covered by the LLM fallback.
+    // Empty for anything not in the table. Key must already be uppercase
+    // half-width ASCII.
+    std::vector<std::wstring> AcronymExpansions(std::wstring_view upperAscii);
+
+    // Width/case variants for a MULTI-char alphanumeric composition. Given
+    // the full-width "ＩＭＥ" that Shift+alpha produces in 全角ひらがな mode,
+    // returns {ＩＭＥ, IME, ime, ｉｍｅ} — the typed form stays at index 0 so a
+    // bare Enter keeps it, while Space/↓ cycles to half-width / lower-case
+    // forms. Every character must be an ASCII or full-width letter/digit and
+    // at least one must be a letter; otherwise empty (so pure-kana or
+    // punctuation compositions are left to the normal conversion path).
+    std::vector<std::wstring> AsciiWidthCaseVariants(std::wstring_view typed);
 }

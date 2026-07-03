@@ -203,6 +203,20 @@ namespace romaji
                 continue;
             }
 
+            // Full-width Roman letters (Ａ-Ｚ / ａ-ｚ) also pass through: in
+            // 全角ひらがな mode Shift+alpha injects a full-width uppercase
+            // letter straight into the buffer ("ＩＭＥ") so it can be
+            // committed as-is or swapped to half-width from the candidate
+            // window before commit. Keep scanning so trailing kana in a
+            // mixed buffer ("ＩＭＥです") still convert.
+            if ((romaji[i] >= 0xFF21 && romaji[i] <= 0xFF3A) ||
+                (romaji[i] >= 0xFF41 && romaji[i] <= 0xFF5A))
+            {
+                hira.push_back(romaji[i]);
+                i += 1;
+                continue;
+            }
+
             // Unmatched: leave the rest as romaji for the caller to keep typing.
             return { hira, std::wstring(romaji.substr(i)) };
         }
