@@ -618,6 +618,45 @@ TEST(skk_lookup_miss_returns_empty)
     EXPECT_TRUE(cands.empty());
 }
 
+TEST(skk_enumerate_user_dicts_multiple_and_sorted)
+{
+    // "Import a dictionary" = drop a .utf8 into the user-dict folder. The
+    // loader must pick up ANY number of them (not a single hard-coded file)
+    // in a deterministic, filename-sorted order, ignoring non-.utf8 files.
+    wchar_t tmp[MAX_PATH]{};
+    GetTempPathW(MAX_PATH, tmp);
+    std::wstring dir = std::wstring(tmp) + L"gime_userdict_test";
+    CreateDirectoryW(dir.c_str(), nullptr);
+    auto write = [&](const wchar_t* name){
+        // Win32 (no <fstream> dependency here); enumeration only lists names,
+        // so a 0-byte file is enough.
+        HANDLE h = CreateFileW((dir + L"\\" + name).c_str(), GENERIC_WRITE, 0,
+                               nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
+    };
+    write(L"20-second.utf8");
+    write(L"10-first.utf8");
+    write(L"notes.txt");          // must be ignored (not .utf8)
+
+    auto files = SkkDictionary::EnumerateUserDictFiles(dir);
+    EXPECT_TRUE(files.size() == 2);           // both .utf8, the .txt excluded
+    if (files.size() == 2) {
+        // Sorted by filename: "10-first" before "20-second".
+        EXPECT_TRUE(files[0].find(L"10-first.utf8") != std::wstring::npos);
+        EXPECT_TRUE(files[1].find(L"20-second.utf8") != std::wstring::npos);
+    }
+
+    // Cleanup so repeat runs start clean.
+    DeleteFileW((dir + L"\\20-second.utf8").c_str());
+    DeleteFileW((dir + L"\\10-first.utf8").c_str());
+    DeleteFileW((dir + L"\\notes.txt").c_str());
+    RemoveDirectoryW(dir.c_str());
+
+    // Empty-input contract: callers pass UserDictDir() which is L"" on
+    // AppData failure — must yield no files, never crash.
+    EXPECT_TRUE(SkkDictionary::EnumerateUserDictFiles(L"").empty());
+}
+
 TEST(skk_find_longest_prefix_matches_inner_word)
 {
     auto* skk = SkkDictionary::GetGlobal();

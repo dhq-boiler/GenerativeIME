@@ -81,6 +81,20 @@ public:
     // synthesized garbage like 「ですg /出過/」 -> 「出過」.
     bool HasDirectEntry(const std::wstring& reading) const;
 
+    // User-dictionary directory: %APPDATA%\GenerativeIME\dict\. Created if
+    // absent. This is where the user drops additional SKK-format .utf8
+    // dictionaries — persistent (survives reinstall, unlike the bundled
+    // dicts next to the DLL) and user-writable (no admin, unlike Program
+    // Files). Returns empty on failure to resolve AppData.
+    static std::wstring UserDictDir();
+
+    // Every *.utf8 file directly under `dir`, as full paths, sorted by
+    // filename (deterministic load order). Empty if `dir` is empty or has
+    // none. This is the "import a dictionary" enumeration: any number of
+    // files coexist; adding one is just dropping a file in the folder.
+    // Exposed for unit testing the enumeration independent of AppData.
+    static std::vector<std::wstring> EnumerateUserDictFiles(const std::wstring& dir);
+
 private:
     SkkDictionary() = default;
 

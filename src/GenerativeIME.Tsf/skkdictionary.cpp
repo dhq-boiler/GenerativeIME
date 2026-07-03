@@ -3,6 +3,7 @@
 
 #include <Windows.h>
 #include <Shlwapi.h>
+#include <ShlObj.h>
 #include <algorithm>
 #include <fstream>
 #include <mutex>
@@ -35,6 +36,43 @@ namespace
 
     std::once_flag g_skkOnce;
     SkkDictionary* g_pSkk = nullptr;
+}
+
+std::wstring SkkDictionary::UserDictDir()
+{
+    PWSTR appData = nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &appData)))
+        return L"";
+    std::wstring dir = appData;
+    CoTaskMemFree(appData);
+    dir += L"\\GenerativeIME";
+    CreateDirectoryW(dir.c_str(), nullptr);   // parent (shared with learning.txt)
+    dir += L"\\dict";
+    CreateDirectoryW(dir.c_str(), nullptr);   // the user-dictionary folder itself
+    return dir;
+}
+
+std::vector<std::wstring> SkkDictionary::EnumerateUserDictFiles(const std::wstring& dir)
+{
+    std::vector<std::wstring> files;
+    if (dir.empty()) return files;
+
+    std::wstring pattern = dir + L"\\*.utf8";
+    WIN32_FIND_DATAW fd{};
+    HANDLE h = FindFirstFileW(pattern.c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return files;
+    do
+    {
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+        files.push_back(dir + L"\\" + fd.cFileName);
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
+
+    // Deterministic load order regardless of the filesystem's enumeration
+    // order, so a reading present in two user dicts resolves the same way
+    // every launch.
+    std::sort(files.begin(), files.end());
+    return files;
 }
 
 SkkDictionary* SkkDictionary::GetGlobal()
@@ -75,6 +113,19 @@ HRESULT SkkDictionary::Load(const std::wstring& path)
         size_t slash = path.find_last_of(L"\\/");
         if (slash != std::wstring::npos) dir = path.substr(0, slash + 1);
     }
+
+    // Highest-priority pre-main pass: the user's own dictionaries, loaded
+    // from %APPDATA%\GenerativeIME\dict\*.utf8. Any number of files coexist
+    // and adding one is just dropping a file in the folder ("import"), with
+    // no admin and no rebuild — the folder is user-writable and survives
+    // reinstall (unlike the bundled dicts next to the DLL in Program Files).
+    // Parsed before the bundled companions so an imported pick outranks
+    // everything. Sorted filename order keeps cross-dict ties deterministic.
+    //
+    // NOTE: nothing personal ships in the repo/MSI — user coinages like
+    // 「ふろった → 風呂った」 live only here, on the user's machine.
+    for (const auto& f : EnumerateUserDictFiles(UserDictDir()))
+        ParseFile(f, deferredOkuri);
 
     // Pre-main companion: hand-curated godan / ichidan 終止形 entries. Must
     // be parsed BEFORE the main dict so its verb candidates (買う/飼う/
