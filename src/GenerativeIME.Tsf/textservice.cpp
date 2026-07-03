@@ -2285,8 +2285,18 @@ void CTextService::CommitConvertedIfAny(ITfContext* pContext)
     }
     else if (m_pCandWnd)
     {
-        std::wstring picked = m_pCandWnd->GetSelected();
-        if (m_pLearning && !m_lastReading.empty())
+        // Prefer the F-key-converted form: F6-F10 hide the candidate window
+        // and stash their result in m_fkeyConvertedText, so reading the
+        // (now stale/empty) candidate-window selection here would commit the
+        // wrong text AND record the wrong learning pair. Fall back to the
+        // candidate-window selection for ordinary Space/↓ picks. Mirrors the
+        // VK_RETURN commit path; without it, an F-key conversion auto-
+        // committed by typing the next chunk instead of Enter loses both the
+        // form and its learning.
+        std::wstring picked = !m_fkeyConvertedText.empty()
+                            ? m_fkeyConvertedText
+                            : m_pCandWnd->GetSelected();
+        if (m_pLearning && !m_lastReading.empty() && !picked.empty())
         {
             m_pLearning->Record(m_lastReading, picked, AppContext::Capture());
         }
