@@ -1,4 +1,8 @@
-# GenerativeIME
+<div align="center">
+  <img src="docs/assets/icon.png" alt="GenerativeIME" width="128" height="128">
+
+  <h1>GenerativeIME</h1>
+</div>
 
 > **The idea was by 99% dhq-boiler, but implementation was 100% AI.**
 >
@@ -17,7 +21,18 @@ Windows 用の日本語 IME (TSF テキストサービス) です。SKK 辞書 +
 - **絵文字変換** — かな読み→絵文字 (えがお → 😀、はーと → ❤️)。CLDR 由来の 2,496 エントリ、候補ウィンドウは Direct2D/DirectWrite でカラー絵文字を表示
 - **記号・単位辞書** — へいほうめーとる → ㎡、やじるし → → などの即時変換
 - **F4 リピート貼り付け** — 直前の変換結果を F4 で連続挿入（‼️ や絵文字の連打用。IME ON かつ未確定文字なしのときに動作）
-- **5 つの入力モード** — ひらがな / 全角カナ / 半角カナ / 全角英数 / 半角英数
+- **ユーザー辞書 + マネージャー GUI** — `%APPDATA%\GenerativeIME\dict\*.utf8` に置いた個人辞書を head 最優先で読み込み、一発変換に対応（例: 風呂った〜）。タスクトレイのアイコン右クリック →「ユーザー辞書…」から、辞書の有効化トグル・エントリの追加/編集/削除・インポート/エクスポート・名前変更ができるモダンな WPF アプリ (.NET 10) を同梱
+- **5 つの入力モード** — ひらがな / 全角カナ / 半角カナ / 全角英数 / 半角英数。モードごとにトレイアイコンが切り替わります
+
+<div align="center">
+  <img src="docs/assets/mode-hiragana.png" alt="ひらがな" width="56" height="56">
+  <img src="docs/assets/mode-zenkata.png" alt="全角カナ" width="56" height="56">
+  <img src="docs/assets/mode-hankata.png" alt="半角カナ" width="56" height="56">
+  <img src="docs/assets/mode-zeneisu.png" alt="全角英数" width="56" height="56">
+  <img src="docs/assets/mode-haneisu.png" alt="半角英数" width="56" height="56">
+  <br>
+  <sub>ひらがな &nbsp;/&nbsp; 全角カナ &nbsp;/&nbsp; 半角カナ &nbsp;/&nbsp; 全角英数 &nbsp;/&nbsp; 半角英数</sub>
+</div>
 
 ## 変換パイプライン
 
@@ -25,7 +40,7 @@ Windows 用の日本語 IME (TSF テキストサービス) です。SKK 辞書 +
 ローマ字入力 → かな (romajitokana)
   → 学習 fav 高速パス (learningstore)
   → 記号・単位辞書 (symboldictionary)
-  → SKK 辞書 + 現代語順補正 + 絵文字 (skkdictionary / modernranking)
+  → ユーザー辞書 (head 最優先) + SKK 辞書 + 現代語順補正 + 絵文字 (skkdictionary / modernranking)
   → MeCab 文節分割・活用形再構成 (bunsetsu / mecabanalyzer)
   → Ollama 非同期補完・リランキング (ollamaclient)
 ```

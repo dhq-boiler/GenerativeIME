@@ -37,6 +37,8 @@ $skkGodan   = Join-Path $root 'third_party\skk\SKK-JISYO.godan.utf8'
 $unidicSrc  = Join-Path $root 'third_party\mecab\unidic-lite'
 $setupCpp   = Join-Path $root 'src\GenerativeIME.Setup\GenerativeImeSetup.cpp'
 $setupExe   = Join-Path $buildDir 'GenerativeImeSetup.exe'
+$dmProj     = Join-Path $root 'src\GenerativeIME.DictManager\GenerativeIME.DictManager.csproj'
+$dmPublish  = Join-Path $buildDir 'dictmgr'
 . (Join-Path $root 'scripts\buildenv.ps1')
 $msbuild    = $BuildEnv.MSBuild
 $vcvars     = $BuildEnv.VcVars64
@@ -68,6 +70,17 @@ if (-not $SkipRebuild) {
 }
 if (-not (Test-Path $setupExe)) { throw "Setup EXE missing: $setupExe" }
 
+# --- Build DictManager (WPF, net10, framework-dependent) ---------------
+# Framework-dependent keeps the payload small; the target needs the
+# .NET 10 Desktop Runtime installed (a one-time prerequisite).
+if (-not $SkipRebuild) {
+    Write-Host '[build] GenerativeIME.DictManager (net10 WPF)' -ForegroundColor Cyan
+    & dotnet publish $dmProj -c Release --self-contained false -o $dmPublish --nologo -v m 2>&1 | Select-Object -Last 3
+    if ($LASTEXITCODE -ne 0) { throw "DictManager publish failed" }
+}
+$dmExe = Join-Path $dmPublish 'GenerativeIME.DictManager.exe'
+if (-not (Test-Path $dmExe)) { throw "DictManager exe missing: $dmExe" }
+
 # --- Stage payload ----------------------------------------------------
 Write-Host '[stage] payload' -ForegroundColor Cyan
 Copy-Item $tsfDll                          (Join-Path $payloadDir 'GenerativeIME.Tsf.dll') -Force
@@ -81,6 +94,10 @@ Copy-Item (Join-Path $vcpkgBin 'mecab.dll')       $payloadDir -Force
 Copy-Item (Join-Path $vcpkgBin 'msvcp140.dll')    $payloadDir -Force -ErrorAction SilentlyContinue
 Copy-Item (Join-Path $vcpkgBin 'vcruntime140.dll') $payloadDir -Force -ErrorAction SilentlyContinue
 Copy-Item (Join-Path $vcpkgBin 'vcruntime140_1.dll') $payloadDir -Force -ErrorAction SilentlyContinue
+# user-dictionary manager (exe + dll + runtimeconfig + deps)
+Get-ChildItem $dmPublish -File |
+    Where-Object { $_.Extension -in '.exe', '.dll', '.json' } |
+    ForEach-Object { Copy-Item $_.FullName $payloadDir -Force }
 # unidic-lite bundle
 $unidicDst = Join-Path $payloadDir 'unidic-lite'
 New-Item -ItemType Directory -Force -Path $unidicDst | Out-Null

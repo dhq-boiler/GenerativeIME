@@ -1,0 +1,140 @@
+<Window x:Class="GenerativeIME.DictManager.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="GenerativeIME ユーザー辞書" Height="620" Width="940"
+        MinHeight="440" MinWidth="720"
+        Icon="app.ico"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource AppBg}"
+        FontFamily="{StaticResource UiFont}">
+
+  <Grid Margin="18">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+
+    <!-- ===== Header ===== -->
+    <StackPanel Grid.Row="0" Margin="4,0,4,14">
+      <TextBlock Text="ユーザー辞書" FontSize="20" FontWeight="Bold"/>
+      <TextBlock x:Name="PathHint" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,2,0,0"/>
+    </StackPanel>
+
+    <!-- ===== Body: two panes ===== -->
+    <Grid Grid.Row="1">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="300"/>
+        <ColumnDefinition Width="14"/>
+        <ColumnDefinition Width="*"/>
+      </Grid.ColumnDefinitions>
+
+      <!-- Left: dictionaries -->
+      <Border Grid.Column="0" Background="{StaticResource Surface}" CornerRadius="12"
+              BorderBrush="{StaticResource Border}" BorderThickness="1">
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+          </Grid.RowDefinitions>
+          <TextBlock Grid.Row="0" Text="辞書" FontWeight="SemiBold" Foreground="{StaticResource Muted}"
+                     Margin="16,14,0,8"/>
+          <ListBox x:Name="DictList" Grid.Row="1" BorderThickness="0" Background="Transparent"
+                   ItemContainerStyle="{StaticResource DictItem}"
+                   ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                   SelectionChanged="DictList_SelectionChanged">
+            <ListBox.ItemTemplate>
+              <DataTemplate>
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                  </Grid.ColumnDefinitions>
+                  <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"
+                               TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Text="{Binding EntryCount, StringFormat={}{0} 語}"
+                               Foreground="{StaticResource Muted}" FontSize="11" Margin="0,1,0,0"/>
+                  </StackPanel>
+                  <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}"
+                            IsChecked="{Binding Enabled, Mode=TwoWay}"
+                            ToolTip="この辞書を有効/無効にする"/>
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+          <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="12" HorizontalAlignment="Stretch">
+            <Button Content="＋ 新規" Style="{StaticResource GhostButton}" Click="NewDict_Click"/>
+            <Button Content="インポート" Style="{StaticResource GhostButton}" Margin="8,0,0,0"
+                    Click="Import_Click"/>
+          </StackPanel>
+        </Grid>
+      </Border>
+
+      <!-- Right: entries -->
+      <Border Grid.Column="2" Background="{StaticResource Surface}" CornerRadius="12"
+              BorderBrush="{StaticResource Border}" BorderThickness="1">
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+          </Grid.RowDefinitions>
+
+          <!-- entries header -->
+          <Grid Grid.Row="0" Margin="16,14,16,10">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+              <TextBlock x:Name="EntriesTitle" Text="辞書を選択してください" FontWeight="SemiBold" FontSize="15"/>
+              <TextBlock x:Name="DirtyHint" Text="" Foreground="{StaticResource Muted}" FontSize="11" Margin="0,1,0,0"/>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal">
+              <Button x:Name="RenameBtn" Content="名前変更" Style="{StaticResource GhostButton}"
+                      Click="RenameDict_Click" IsEnabled="False"/>
+              <Button x:Name="ExportBtn" Content="エクスポート" Style="{StaticResource GhostButton}"
+                      Margin="8,0,0,0" Click="Export_Click" IsEnabled="False"/>
+              <Button x:Name="DeleteDictBtn" Content="辞書を削除" Style="{StaticResource GhostButton}"
+                      Margin="8,0,0,0" Click="DeleteDict_Click" IsEnabled="False"/>
+            </StackPanel>
+          </Grid>
+
+          <!-- entries grid -->
+          <Border Grid.Row="1" Margin="16,0,16,0" CornerRadius="8" ClipToBounds="True">
+            <DataGrid x:Name="EntryGrid" AutoGenerateColumns="False" HeadersVisibility="Column"
+                      CanUserAddRows="True" CanUserResizeRows="False" IsEnabled="False"
+                      SelectionMode="Extended" CellEditEnding="EntryGrid_CellEditEnding">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="読み (ひらがな)" Binding="{Binding Reading}" Width="0.42*"/>
+                <DataGridTextColumn Header="変換 (複数は / 区切り)" Binding="{Binding Candidates}" Width="0.58*"/>
+              </DataGrid.Columns>
+            </DataGrid>
+          </Border>
+
+          <!-- entries footer -->
+          <Grid Grid.Row="2" Margin="16,12,16,12">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Orientation="Horizontal">
+              <Button x:Name="AddRowBtn" Content="＋ 行を追加" Style="{StaticResource GhostButton}"
+                      Click="AddRow_Click" IsEnabled="False"/>
+              <Button x:Name="DelRowBtn" Content="選択行を削除" Style="{StaticResource GhostButton}"
+                      Margin="8,0,0,0" Click="DelRow_Click" IsEnabled="False"/>
+            </StackPanel>
+            <Button x:Name="SaveBtn" Grid.Column="1" Content="保存" Style="{StaticResource AccentButton}"
+                    Click="Save_Click" IsEnabled="False" MinWidth="96"/>
+          </Grid>
+        </Grid>
+      </Border>
+    </Grid>
+
+    <!-- ===== Status ===== -->
+    <TextBlock x:Name="Status" Grid.Row="2" Margin="4,12,4,0" Foreground="{StaticResource Muted}"
+               FontSize="12"/>
+  </Grid>
+</Window>

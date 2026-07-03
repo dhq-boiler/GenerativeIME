@@ -4,7 +4,11 @@
 #include <oleauto.h>
 #include <olectl.h>
 #include <strsafe.h>
+#include <shellapi.h>
+#include <string>
 #include <thread>
+
+#pragma comment(lib, "shell32.lib")
 
 // GUID_LBI_INPUTMODE is declared (without an `extern` body) only in some
 // private MS headers; the public Windows SDK ships no header that exposes it.
@@ -29,6 +33,20 @@ namespace
         case ImeMode::Off:
         default:                    return L"A";
         }
+    }
+
+    // Launch the WPF user-dictionary manager. It ships next to our DLL
+    // (build post-build / MSI payload), so resolve the path from our own
+    // module rather than assuming an install location.
+    void LaunchDictManager()
+    {
+        wchar_t path[MAX_PATH]{};
+        if (GetModuleFileNameW(g_hInst, path, MAX_PATH) == 0) return;
+        std::wstring dir(path);
+        size_t slash = dir.find_last_of(L"\\/");
+        if (slash != std::wstring::npos) dir.resize(slash);
+        std::wstring exe = dir + L"\\GenerativeIME.DictManager.exe";
+        ShellExecuteW(nullptr, L"open", exe.c_str(), nullptr, dir.c_str(), SW_SHOWNORMAL);
     }
 }
 
@@ -120,6 +138,7 @@ enum : UINT
     kMenuHalfKatakana = 102,
     kMenuFullAlnum = 103,
     kMenuHalfAlnum = 104,
+    kMenuUserDict = 110,   // "ユーザー辞書…" — launches the WPF manager
 };
 
 STDMETHODIMP CLangBarItemButton::OnClick(TfLBIClick click, POINT pt, const RECT* prcArea)
@@ -167,6 +186,8 @@ STDMETHODIMP CLangBarItemButton::OnClick(TfLBIClick click, POINT pt, const RECT*
             AppendMenuW(menu, MF_STRING,      kMenuHalfKatakana, L"半角カタカナ");
             AppendMenuW(menu, MF_STRING,      kMenuFullAlnum,    L"全角英数");
             AppendMenuW(menu, MF_STRING | lo, kMenuHalfAlnum,    L"半角英数");
+            AppendMenuW(menu, MF_SEPARATOR,   0,                 nullptr);
+            AppendMenuW(menu, MF_STRING,      kMenuUserDict,     L"ユーザー辞書…");
 
             UINT cmd = (UINT)TrackPopupMenu(menu,
                 TPM_RETURNCMD | TPM_NONOTIFY | TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RIGHTBUTTON,
@@ -180,7 +201,13 @@ STDMETHODIMP CLangBarItemButton::OnClick(TfLBIClick click, POINT pt, const RECT*
                 OutputDebugStringW(buf);
             }
 
-            if (service && cmd != 0)
+            if (cmd == kMenuUserDict)
+            {
+                // Not a mode change: open the user-dictionary manager. No IME
+                // state to touch, so this is independent of `service`.
+                LaunchDictManager();
+            }
+            else if (service && cmd != 0)
             {
                 // Translate menu id -> ImeMode wParam for the IME thread.
                 // 0=Off, 1=Hiragana, 2=FullKatakana, 3=HalfKatakana, 4=FullAlnum.
@@ -231,6 +258,7 @@ STDMETHODIMP CLangBarItemButton::InitMenu(ITfMenu* pMenu)
     add(kMenuHalfKatakana, L"半角カタカナ",     false);
     add(kMenuFullAlnum,    L"全角英数",         false);
     add(kMenuHalfAlnum,    L"半角英数",         !imeOn);
+    add(kMenuUserDict,     L"ユーザー辞書…",    false);
     return S_OK;
 }
 
@@ -251,6 +279,9 @@ STDMETHODIMP CLangBarItemButton::OnMenuSelect(UINT wID)
         break;
     case kMenuHalfAlnum:
         if (imeOn) m_pService->ToggleImeFromUI();
+        break;
+    case kMenuUserDict:
+        LaunchDictManager();
         break;
     }
     return S_OK;
