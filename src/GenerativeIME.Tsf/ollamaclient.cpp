@@ -84,6 +84,12 @@ namespace
         snprintf(numbuf, sizeof(numbuf), "%d", opts.numPredict);
         body += "\"num_predict\":";
         body += numbuf;
+        if (opts.numCtx > 0)
+        {
+            snprintf(numbuf, sizeof(numbuf), "%d", opts.numCtx);
+            body += ",\"num_ctx\":";
+            body += numbuf;
+        }
         body += "}}";
         return body;
     }

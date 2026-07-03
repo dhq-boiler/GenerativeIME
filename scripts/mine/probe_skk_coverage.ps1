@@ -116,3 +116,18 @@ if ($missWrongTop.Count -gt 0) {
         Write-Host ("  {0,5}x  {1,-14}  expected: {2,-8}  skk_top: {3}" -f $_.Count, $_.Reading, $_.Expected, $_.SkkTop)
     }
 }
+
+# Dump ALL misses to a TSV so downstream tooling (override-map generators,
+# manual review) has the full list without re-running the probe.
+$dumpFile = Join-Path $PSScriptRoot '..\..\corpus\goldens\skk-misses-100plus.tsv'
+$sb = New-Object System.Text.StringBuilder
+[void]$sb.AppendLine("# skk-misses-100plus.tsv - full miss list from probe_skk_coverage")
+[void]$sb.AppendLine("# columns: reading<TAB>expected<TAB>skk_top<TAB>count<TAB>kind")
+foreach ($m in $missWrongTop | Sort-Object -Property Count -Descending) {
+    [void]$sb.AppendLine(("{0}`t{1}`t{2}`t{3}`twrong_top" -f $m.Reading, $m.Expected, $m.SkkTop, $m.Count))
+}
+foreach ($m in $missNoEntry | Sort-Object -Property Count -Descending) {
+    [void]$sb.AppendLine(("{0}`t{1}`t`t{2}`tno_entry" -f $m.Reading, $m.Expected, $m.Count))
+}
+[System.IO.File]::WriteAllText($dumpFile, $sb.ToString(), [System.Text.UTF8Encoding]::new($false))
+Write-Host ("--- full miss list dumped to {0} ---" -f $dumpFile)

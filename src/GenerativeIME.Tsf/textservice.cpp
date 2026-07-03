@@ -1592,26 +1592,71 @@ void CTextService::StartReorderAsync(ITfContext* pContext,
         if (SUCCEEDED(resp.hr) && !resp.response.empty())
         {
             auto order = ExtractIntArray(resp.response, L"order");
-            // Build the reordered list; drop out-of-range / duplicate indices.
-            std::vector<bool> seen(req->original.size(), false);
-            std::vector<std::wstring> out;
-            out.reserve(req->original.size());
-            for (int idx : order)
+            const size_t N = req->original.size();
+
+            // Permutation-validity gate. gemma4:12b was observed truncating
+            // the returned index list (P1: 4/9, P12: 4/5) and duplicating an
+            // index while dropping another (P4: idx 4 twice, idx 6 missing)
+            // deterministically for specific prompts. The prior "forgiving
+            // merger" (dedup + append missing at tail) silently promoted the
+            // model's wrong pick to top-1 in those cases. Strict-reject keeps
+            // structural safety: bad output leaves req->reordered empty and
+            // HandleOllamaReorderDone drops it — user sees SKK order.
+            bool valid_perm = (order.size() == N);
+            if (valid_perm)
             {
-                if (idx < 0 || (size_t)idx >= req->original.size()) continue;
-                if (seen[idx]) continue;
-                seen[idx] = true;
-                out.push_back(req->original[idx]);
+                std::vector<bool> check(N, false);
+                for (int idx : order)
+                {
+                    if (idx < 0 || (size_t)idx >= N || check[idx])
+                    {
+                        valid_perm = false;
+                        break;
+                    }
+                    check[idx] = true;
+                }
             }
-            // Append anything the model omitted so we never lose candidates.
-            for (size_t i = 0; i < req->original.size(); ++i)
+
+            // RAW-invalidity log (before guard). Reflects the model's true
+            // error rate; independent of whether we adopt the reorder.
+            // Grep DebugView for "reorder:raw=" to compute broken rate.
             {
-                if (!seen[i]) out.push_back(req->original[i]);
+                const wchar_t* reason = L"valid";
+                if (!valid_perm)
+                {
+                    if (order.size() < N)      reason = L"truncation";
+                    else if (order.size() > N) reason = L"overrun";
+                    else                       reason = L"dup-or-oor";
+                }
+                wchar_t buf[160];
+                swprintf_s(buf, L"[GenerativeIME] Ollama reorder:raw=%s returned=%zu expected=%zu\n",
+                           reason, order.size(), N);
+                OutputDebugStringW(buf);
             }
-            // Only adopt the reorder if it actually changed something. Saves
-            // a redundant SetCandidates round-trip and the UI flicker that
-            // would come with it.
-            if (out != req->original) req->reordered = std::move(out);
+
+            if (valid_perm)
+            {
+                std::vector<std::wstring> out;
+                out.reserve(N);
+                for (int idx : order) out.push_back(req->original[idx]);
+                // Only adopt the reorder if it actually changed something.
+                // Saves a redundant SetCandidates round-trip and UI flicker.
+                if (out != req->original)
+                {
+                    req->reordered = std::move(out);
+                    OutputDebugStringW(L"[GenerativeIME] Ollama reorder:adopted=1\n");
+                }
+                else
+                {
+                    OutputDebugStringW(L"[GenerativeIME] Ollama reorder:adopted=0 (identity)\n");
+                }
+            }
+            else
+            {
+                // Strict reject. req->reordered stays empty; HandleOllamaReorderDone
+                // takes the "no-op or failed" branch and drops silently.
+                OutputDebugStringW(L"[GenerativeIME] Ollama reorder:adopted=0 (invalid)\n");
+            }
         }
 
         if (!PostMessageW(hwnd, WM_OLLAMA_REORDER_DONE, 0, (LPARAM)req))

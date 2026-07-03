@@ -1,0 +1,100 @@
+# skk-misses-100plus.tsv - full miss list from probe_skk_coverage
+# columns: reading<TAB>expected<TAB>skk_top<TAB>count<TAB>kind
+だい	第	大	1637	wrong_top
+し	市	死	1185	wrong_top
+けん	県	件	1130	wrong_top
+しゃ	者	車	930	wrong_top
+にん	人	任	636	wrong_top
+ご	後	語	592	wrong_top
+かい	回	会	520	wrong_top
+ぶ	部	分	500	wrong_top
+い	位	胃	458	wrong_top
+きょく	局	曲	439	wrong_top
+か	家	蚊	439	wrong_top
+ごう	号	合	423	wrong_top
+か	化	蚊	410	wrong_top
+しゃ	社	車	405	wrong_top
+やく	役	約	375	wrong_top
+せん	戦	線	354	wrong_top
+さん	三	酸	345	wrong_top
+く	区	苦	342	wrong_top
+じ	時	字	329	wrong_top
+せい	性	生	320	wrong_top
+しん	新	芯	287	wrong_top
+がた	型	方	285	wrong_top
+ばん	版	番	278	wrong_top
+さい	歳	際	270	wrong_top
+さく	作	策	261	wrong_top
+とう	等	党	259	wrong_top
+ぐん	軍	郡	258	wrong_top
+がく	学	額	245	wrong_top
+ち	地	血	240	wrong_top
+か	科	蚊	238	wrong_top
+きゅう	旧	急	232	wrong_top
+うけ	受け	有卦	230	wrong_top
+ぜん	全	善	226	wrong_top
+き	期	気	224	wrong_top
+へん	編	変	217	wrong_top
+つとめ	務め	勤め	214	wrong_top
+ほう	法	方	213	wrong_top
+じゅう	十	獣	211	wrong_top
+こく	国	酷	205	wrong_top
+き	機	気	202	wrong_top
+しゅってん	出典	出展	199	wrong_top
+かん	館	缶	198	wrong_top
+じょう	場	上	189	wrong_top
+じょう	条	上	175	wrong_top
+きかん	機関	期間	173	wrong_top
+しりつ	市立	私立	172	wrong_top
+せい	世	生	168	wrong_top
+いん	員	印	164	wrong_top
+けい	系	刑	162	wrong_top
+きゅう	級	急	161	wrong_top
+どう	道	同	160	wrong_top
+いち	位置	一	159	wrong_top
+と	都	戸	158	wrong_top
+せいさく	制作	政策	155	wrong_top
+み	見	実	148	wrong_top
+し	史	死	145	wrong_top
+がわ	川	側	141	wrong_top
+かん	間	缶	137	wrong_top
+わ	話	和	135	wrong_top
+もつ	持つ	物	135	wrong_top
+たいしょう	大正	対象	135	wrong_top
+ご	五	語	132	wrong_top
+しつ	室	質	130	wrong_top
+じ	次	字	129	wrong_top
+たい	対	他意	128	wrong_top
+かん	巻	缶	127	wrong_top
+さい	再	際	127	wrong_top
+せい	制	生	124	wrong_top
+かん	官	缶	122	wrong_top
+かく	各	核	119	wrong_top
+てん	店	点	119	wrong_top
+かん	艦	缶	119	wrong_top
+むけ	向け	向	119	wrong_top
+たい	隊	他意	118	wrong_top
+だん	団	段	116	wrong_top
+しょ	書	所	116	wrong_top
+しら	知ら	白	116	wrong_top
+おおい	多い	覆い	115	wrong_top
+りょう	両	量	114	wrong_top
+しょう	小	賞	114	wrong_top
+きょう	橋	今日	114	wrong_top
+けん	権	件	113	wrong_top
+び	日	美	111	wrong_top
+ねんせい	年生	粘性	110	wrong_top
+しゅ	種	主	110	wrong_top
+か	下	蚊	109	wrong_top
+き	記	気	105	wrong_top
+だい	代	大	105	wrong_top
+ふく	副	服	102	wrong_top
+かい	階	会	102	wrong_top
+ふ	府	負	101	wrong_top
+おこなわ	行わ		280	no_entry
+よば	呼ば		190	no_entry
+おこなっ	行っ		162	no_entry
+おこなう	行う		146	no_entry
+にたいして	に対して		132	no_entry
+にかんする	に関する		110	no_entry
+とともに	と共に		108	no_entry
