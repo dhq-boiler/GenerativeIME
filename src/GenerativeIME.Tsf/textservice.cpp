@@ -1172,11 +1172,43 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
     auto symHits = symbols::LookupAll(reading);
     if (!symHits.empty() && m_pCandWnd)
     {
-        // Number readings are ordinary homophones too: ご is 5/五 but just
-        // as often 語/碁/後, さん is 3/三 but also 山/産. The symbol hit
-        // used to early-return and starve those, so merge the SKK
-        // homophones onto the tail (same okuri-ari garbage filter as the
-        // main SKK path; symbols keep the head, learning reorders later).
+        // Kanji-containing homophones outrank the symbol. ちいさい typed
+        // by a user in prose is 小さい 99% of the time; the "<" alternate
+        // still needs to be reachable via ↓/Space, but should not sit at
+        // position 0. Same for おおきい/大きい, みまん/未満, たかい/高い etc.
+        // Kanji-check: a candidate contains at least one CJK Unified char.
+        // Non-kanji SKK hits (ぷらす → ＋ is the SKK entry for ぷらす —
+        // fullwidth, same glyph family as the symbol dict's ＋) stay OFF
+        // the priority track so the ASCII + at symHits[0] remains default.
+        auto hasKanji = [](const std::wstring& s) -> bool {
+            for (wchar_t c : s)
+            {
+                if ((c >= 0x4E00 && c <= 0x9FFF) ||  // CJK Unified Ideographs
+                    (c >= 0x3400 && c <= 0x4DBF))    // CJK Extension A
+                    return true;
+            }
+            return false;
+        };
+
+        std::vector<std::wstring> kanjiHead;
+        std::vector<std::wstring> otherTail;
+
+        // (a) MeCab conjugation reconstruction — handles adjectives / verbs
+        //     that SKK stores as an okuri stem (ちいさい has no direct SKK
+        //     entry, only ちいさi /小さ/; MergeMecabVerbForms glues that
+        //     back into the kanji 「小さい」).
+        if (auto* mecab = MecabAnalyzer::GetGlobal(); mecab && mecab->IsReady())
+        {
+            auto mecabForms = bunsetsu::MergeMecabVerbForms(reading, *mecab, {});
+            for (auto& c : mecabForms)
+            {
+                if (hasKanji(c) && std::find(kanjiHead.begin(), kanjiHead.end(), c) == kanjiHead.end())
+                    kanjiHead.push_back(std::move(c));
+            }
+        }
+
+        // (b) SKK direct hits (大きい, 未満, 語/碁/後 for ご, 山/産 for さん,
+        //     etc.). Same okuri-ari garbage filter as the main SKK path.
         if (auto* skk = SkkDictionary::GetGlobal(); skk && skk->IsLoaded())
         {
             auto hits = skk->Lookup(reading);
@@ -1196,13 +1228,32 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
             }
             for (auto& c : hits)
             {
-                if (std::find(symHits.begin(), symHits.end(), c) == symHits.end())
-                    symHits.push_back(std::move(c));
+                auto& dst = hasKanji(c) ? kanjiHead : otherTail;
+                if (std::find(dst.begin(), dst.end(), c) == dst.end())
+                    dst.push_back(std::move(c));
             }
         }
-        if (m_pLearning) symHits = m_pLearning->Reorder(reading, symHits);
+
+        // (c) Symbols keep the middle. Dedup vs kanjiHead / otherTail so
+        //     a symbol form the SKK dict already emitted (ぷらす → ＋)
+        //     doesn't get re-added.
+        std::vector<std::wstring> cands;
+        cands.reserve(kanjiHead.size() + symHits.size() + otherTail.size());
+        for (auto& c : kanjiHead) cands.push_back(std::move(c));
+        for (auto& c : symHits)
+        {
+            if (std::find(cands.begin(), cands.end(), c) == cands.end())
+                cands.push_back(std::move(c));
+        }
+        for (auto& c : otherTail)
+        {
+            if (std::find(cands.begin(), cands.end(), c) == cands.end())
+                cands.push_back(std::move(c));
+        }
+
+        if (m_pLearning) cands = m_pLearning->Reorder(reading, cands);
         m_lastReading = reading;
-        m_pCandWnd->SetCandidates(symHits);
+        m_pCandWnd->SetCandidates(cands);
         POINT pt = QueryCandidateAnchorPos(pContext);
         m_pCandWnd->ShowAt(pt);
         ApplyCandidateSelection(pContext);

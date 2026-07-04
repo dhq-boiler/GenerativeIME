@@ -1284,6 +1284,19 @@ TEST(merge_verb_forms_adjective_branch)
     if (!out.empty()) EXPECT_EQ_W(out[0], L"赤い");
 }
 
+TEST(merge_verb_forms_chiisai_prepends_kanji)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    // 「ちいさい」 collides with the symbol dict's < / ＜. The symbol path
+    // in textservice.cpp relies on MergeMecabVerbForms to synthesize
+    // 「小さい」 from the adjective lemma so the kanji form outranks the
+    // symbol; if this test fails, the ちいさい bug is back.
+    auto out = bunsetsu::MergeMecabVerbForms(L"ちいさい", *m, {});
+    EXPECT_TRUE(!out.empty());
+    if (!out.empty()) EXPECT_EQ_W(out[0], L"小さい");
+}
+
 // ---------------------------------------------------------------------
 // MakeBunsetsuFromReading — called from ResizeFocusedBunsetsu in Phase
 // B. Each test pins one of the four documented layering rules.
