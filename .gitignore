@@ -81,6 +81,12 @@ Desktop.ini
 # DICDIR contents into third_party/mecab/unidic-lite/. See README.
 third_party/mecab/unidic-lite/
 
+# Installer payload zip is a build artifact produced by build_installer.ps1
+# (~50 MB compressed). csproj picks it up via <EmbeddedResource> when
+# present; a bare `dotnet build` from a fresh clone still succeeds because
+# the include is conditional on Exists().
+src/GenerativeIME.Installer/Embedded/
+
 # =============================================================================
 # Secrets (defensive — none expected in this repo today, but cheap to add)
 # =============================================================================
