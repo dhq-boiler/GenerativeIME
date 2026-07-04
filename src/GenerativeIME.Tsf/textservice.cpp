@@ -211,6 +211,22 @@ namespace
         return out;
     }
 
+    // Widen ONLY ASCII digits '0'-'9' to '０'-'９'. Used by DisplayForMode
+    // in 全角ひらがな/全角カタカナ so a bare digit renders full-width, while
+    // the romaji buffer keeps the half-width char so symbols::LookupAll("1")
+    // still finds ①/一/Ⅰ etc. on Space.
+    std::wstring WidenAsciiDigits(const std::wstring& s)
+    {
+        std::wstring out;
+        out.reserve(s.size());
+        for (wchar_t c : s)
+        {
+            if (c >= L'0' && c <= L'9') out.push_back((wchar_t)(c + 0xFEE0));
+            else                        out.push_back(c);
+        }
+        return out;
+    }
+
     // Split an LLM acronym answer of the shape "日本語 (English)" /
     // "日本語（English）" into its two halves so they land as separate
     // candidates, matching the built-in dictionary's {日本語, 英語フル}
@@ -254,7 +270,8 @@ namespace
         case ImeMode::FullKatakana:
         {
             auto r = romaji::Convert(romaji);
-            return ToFullKatakana(r.hira) + ToFullKatakana(r.remaining);
+            // Widen digits so a full-width-katakana-mode digit shows 全角.
+            return WidenAsciiDigits(ToFullKatakana(r.hira) + ToFullKatakana(r.remaining));
         }
         case ImeMode::HalfKatakana:
         {
@@ -264,6 +281,10 @@ namespace
         case ImeMode::FullAlnum:
             return ToFullWidthAscii(romaji);
         case ImeMode::Hiragana:
+            // 全角ひらがな mode: bare digits render full-width ('１') to match
+            // MS-IME, but the buffer keeps the half-width char so Space still
+            // finds the ①/一/Ⅰ candidates keyed on "1" in the symbol dict.
+            return WidenAsciiDigits(BuildHiraganaDisplay(romaji));
         case ImeMode::Off:
         default:
             return BuildHiraganaDisplay(romaji);
@@ -3286,10 +3307,19 @@ bool CTextService::ShouldEat(WPARAM wParam) const
     if (IsSymbolKey(wParam)) return true;
     // Digit keys during an active composition stay in the buffer so
     // mixed input like「dai1kai」→「だい1かい」→ Space → 第1回 works.
-    // Outside a composition, digits pass through to the app so plain
-    // number typing in a document isn't intercepted. Candidate-window
-    // digit-select handling (1-9 picks a candidate) lives further down.
-    if (wParam >= '0' && wParam <= '9' && !m_romajiBuffer.empty()) return true;
+    // In the full-width kana modes we ALSO claim a fresh (empty-buffer)
+    // digit so it opens a composition as a full-width digit that Space can
+    // convert to ①/一/Ⅰ (candidates keyed on "1" in the symbol dict).
+    // Half-width / Off modes still pass a bare digit through to the app so
+    // plain number typing in a document isn't intercepted. (Shift+digit is
+    // number-row punctuation, already claimed by IsSymbolKey above, so only
+    // unshifted digits reach here.) Candidate-window digit-select handling
+    // (1-9 picks a candidate) lives further down.
+    if (wParam >= '0' && wParam <= '9')
+    {
+        if (!m_romajiBuffer.empty()) return true;
+        if (m_imeMode == ImeMode::Hiragana || m_imeMode == ImeMode::FullKatakana) return true;
+    }
     if (wParam == VK_BACK && !m_romajiBuffer.empty()) return true;
     if ((wParam == VK_RETURN || wParam == VK_ESCAPE || wParam == VK_SPACE) && m_pComposition) return true;
     if (m_pCandWnd && m_pCandWnd->IsVisible())
@@ -3456,8 +3486,11 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         }
         *pfEaten = TRUE;
     }
-    else if (wParam >= '0' && wParam <= '9' && !m_romajiBuffer.empty()
+    else if (wParam >= '0' && wParam <= '9'
              && GetKeyState(VK_SHIFT) >= 0
+             && (!m_romajiBuffer.empty()
+                 || m_imeMode == ImeMode::Hiragana
+                 || m_imeMode == ImeMode::FullKatakana)
              && (wParam == '0' || m_predictionActive ||
                  !m_pCandWnd || !m_pCandWnd->IsVisible()))
     {
@@ -3583,6 +3616,15 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
             // No conversion happened: resolve any trailing lone "n" to ん and commit.
             auto r = romaji::Convert(m_romajiBuffer);
             std::wstring finalText = r.hira + romaji::FinalizeTrailingN(r.remaining);
+            // Mirror DisplayForMode: in the full-width kana modes commit the
+            // form the user actually saw in the composition. Without this a
+            // bare digit '1' was displayed as '１' via WidenAsciiDigits but
+            // Enter committed the half-width '1' from the buffer (Bug 1).
+            // FullKatakana additionally needs the kana widened to katakana.
+            if (m_imeMode == ImeMode::FullKatakana)
+                finalText = ToFullKatakana(finalText);
+            if (m_imeMode == ImeMode::Hiragana || m_imeMode == ImeMode::FullKatakana)
+                finalText = WidenAsciiDigits(finalText);
             AppendCommittedText(finalText);
             if (pic) RequestEditSession(pic, EditAction::EndCommit, finalText);
         }
