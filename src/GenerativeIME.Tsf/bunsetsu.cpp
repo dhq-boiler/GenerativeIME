@@ -467,6 +467,32 @@ std::vector<Bunsetsu> SplitMecab(const std::wstring& reading,
             {
                 b.candidates.push_back(m.lemma);
             }
+            // Modern-usage top override for inflected forms, applied in a
+            // deliberately conservative "move-only" mode: promote the
+            // corpus-preferred kanji ONLY when it's already a candidate for
+            // this exact surface (never front-insert). This fixes
+            // つかって→浸かって (使っ is present via the SKK okuri-ari path
+            // above, but the KanjifyByReading lemma 浸かる sat at the head)
+            // while the ≥2-mora guard keeps single-mora 連用形 like「し」
+            // from pulling in noun-usage overrides (し→市) that belong to
+            // the noun branch. GetPreferred returns empty for readings not
+            // in the table, so most verbs are untouched.
+            // IsShadowedAuxiliary guard: kTable is noun-frequency-derived, so
+            // auxiliary surfaces like ない/ます/です would be rewritten to their
+            // noun homophones (ない→内 etc.) — block those explicitly.
+            if (m.surface.size() >= 2 && !IsShadowedAuxiliary(m.surface))
+            {
+                std::wstring pref = modernranking::GetPreferred(m.surface);
+                if (!pref.empty())
+                {
+                    auto pit = std::find(b.candidates.begin(), b.candidates.end(), pref);
+                    if (pit != b.candidates.end() && pit != b.candidates.begin())
+                    {
+                        b.candidates.erase(pit);
+                        b.candidates.insert(b.candidates.begin(), pref);
+                    }
+                }
+            }
         }
         else
         {
@@ -724,7 +750,24 @@ std::vector<std::wstring> MergeMecabVerbForms(
         }
         else if (m.pos == L"動詞")
         {
-            mecabTop += KanjifyByReading(m.surface, m.lemma, m.lemmaReading);
+            std::wstring k = KanjifyByReading(m.surface, m.lemma, m.lemmaReading);
+            // Modern-usage override for homophonic 音便 stems. UniDic-Lite
+            // picks a dictionary-correct but low-frequency lemma for some
+            // て/た forms — つかっ → lemma 浸かる, so the stitch yields 浸かっ
+            // and the whole reading「つかってよい」merges as「浸かって良い」.
+            // Corpus frequency wants 使っ. When modernranking has a preferred
+            // surface for this exact morpheme reading, use it in place of the
+            // lemma stitch. The ≥2-mora guard keeps single-mora 連用形 (し/き/
+            // …) from pulling in noun-usage overrides (し→市) that belong to
+            // the noun path, matching SplitMecab's verb-branch guard.
+            // IsShadowedAuxiliary guard: same reason as SplitMecab — block
+            // ない/ます/です from being rewritten to their noun homophones.
+            if (m.surface.size() >= 2 && !IsShadowedAuxiliary(m.surface))
+            {
+                std::wstring pref = modernranking::GetPreferred(m.surface);
+                if (!pref.empty()) k = pref;
+            }
+            mecabTop += k;
         }
         else
         {

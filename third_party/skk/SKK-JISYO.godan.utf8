@@ -467,6 +467,14 @@
 とけ /解け/溶け/
 とける /解ける/溶ける/
 
+;; ---- 同音異義動詞の 音便 stem (UniDic-Lite lemma 誤選択救援) ----
+;; つかっ の lemma は UniDic-Lite が 浸かる を選び KanjifyByReading が
+;; 浸かっ を組み立てるため、「つかってよい」→「浸かって良い」となる。
+;; modernranking に つかっ→使っ の corpus-preferred がある一方、bunsetsu
+;; の isInflected 分岐は move-only モードで、使っ が候補に無いと発火しない。
+;; SKK 経由で使っを候補入りさせ既存の移動ロジックに拾わせる。
+つかっ /使っ/
+
 ;; ---- 一段 命令形 (-ろ ending) ----
 あけろ /開けろ/明けろ/空けろ/
 あげろ /上げろ/挙げろ/揚げろ/
