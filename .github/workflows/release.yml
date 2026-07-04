@@ -1,10 +1,11 @@
-# Release pipeline: every push to main builds a version-bumped MSI and
-# publishes it as a GitHub Release. Release notes are auto-generated
-# (--generate-notes), so the body lists every commit since the previous
-# release tag.
+# Release pipeline: every push to main builds a version-bumped WPF
+# installer exe and publishes it as a GitHub Release. Release notes are
+# hand-assembled from git log (--generate-notes only lists PRs, which is
+# empty under this repo's direct-push-to-main flow).
 #
 # Versioning: latest v* tag's patch + 1. Before the first release tag
-# exists, the fallback version in installer/Package.wxs + 1 is used.
+# exists, the fallback comes from the <Version> element in
+# GenerativeIME.Installer.csproj + 1.
 name: Release
 
 on:
@@ -40,13 +41,20 @@ jobs:
           if ($latest -and $latest -match '^v(\d+)\.(\d+)\.(\d+)$') {
             $ver = "$($Matches[1]).$($Matches[2]).$([int]$Matches[3] + 1)"
           } else {
-            $wxs = Get-Content installer/Package.wxs -Raw
-            if ($wxs -notmatch 'ProductVersion = "(\d+)\.(\d+)\.(\d+)"') { throw 'version fallback not found in Package.wxs' }
+            $csproj = Get-Content src/GenerativeIME.Installer/GenerativeIME.Installer.csproj -Raw
+            if ($csproj -notmatch "InstallerVersion\)' == ''\s*"">(\d+)\.(\d+)\.(\d+)<") {
+              throw 'version fallback not found in installer csproj'
+            }
             $ver = "$($Matches[1]).$($Matches[2]).$([int]$Matches[3] + 1)"
           }
           "version=$ver" >> $env:GITHUB_OUTPUT
           "prev_tag=$latest" >> $env:GITHUB_OUTPUT
           Write-Host "Next version: v$ver (previous tag: $latest)"
+
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
 
       - name: Cache vcpkg (mecab)
         uses: actions/cache@v4
@@ -76,17 +84,11 @@ jobs:
           python -m pip install --quiet unidic-lite
           ./scripts/setup-mecab-dict.ps1
 
-      - name: Install WiX
-        shell: pwsh
-        # Pin to the v5 line: this project is developed against WiX 5, and
-        # WiX 7+ refuses to build until the OSMF EULA is accepted.
-        run: dotnet tool install --global wix --version '5.*'
-
-      - name: Build MSI
+      - name: Build installer
         shell: pwsh
         env:
           VcpkgRoot: C:\vcpkg
-        run: ./installer/build_msi.ps1 -Version '${{ steps.ver.outputs.version }}'
+        run: ./installer/build_installer.ps1 -Version '${{ steps.ver.outputs.version }}'
 
       - name: Create GitHub Release
         shell: pwsh
@@ -95,9 +97,6 @@ jobs:
         run: |
           $ver  = '${{ steps.ver.outputs.version }}'
           $prev = '${{ steps.ver.outputs.prev_tag }}'
-          # List every commit since the previous release as the release
-          # body. GitHub's --generate-notes only enumerates pull requests,
-          # which stays empty under this repo's direct-push-to-main flow.
           $range = if ($prev) { "$prev..HEAD" } else { 'HEAD' }
           $lines = @('## 変更点', '')
           $lines += git log $range --no-merges --format='- %s (%h)'
@@ -107,9 +106,7 @@ jobs:
           Set-Content -Path notes.md -Value ($lines -join "`n") -Encoding utf8
           Get-Content notes.md | Write-Host
           gh release create "v$ver" `
-            installer/build/GenerativeIME.msi `
-            installer/build/install.cmd `
-            installer/build/install.ps1 `
+            installer/build/GenerativeImeInstaller.exe `
             --title "GenerativeIME v$ver" `
             --target $env:GITHUB_SHA `
             --notes-file notes.md

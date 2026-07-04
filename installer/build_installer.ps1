@@ -34,8 +34,6 @@ $skkEmoji   = Join-Path $root 'third_party\skk\SKK-JISYO.emoji.utf8'
 $skkLoan    = Join-Path $root 'third_party\skk\SKK-JISYO.loanwords.utf8'
 $skkGodan   = Join-Path $root 'third_party\skk\SKK-JISYO.godan.utf8'
 $unidicSrc  = Join-Path $root 'third_party\mecab\unidic-lite'
-$setupCpp   = Join-Path $root 'src\GenerativeIME.Setup\GenerativeImeSetup.cpp'
-$setupExe   = Join-Path $buildDir 'GenerativeImeSetup.exe'
 $dmProj     = Join-Path $root 'src\GenerativeIME.DictManager\GenerativeIME.DictManager.csproj'
 $dmPublish  = Join-Path $buildDir 'dictmgr'
 $installerProj = Join-Path $root 'src\GenerativeIME.Installer\GenerativeIME.Installer.csproj'
@@ -45,7 +43,6 @@ $publishDir    = Join-Path $buildDir 'installer-publish'
 
 . (Join-Path $root 'scripts\buildenv.ps1')
 $msbuild = $BuildEnv.MSBuild
-$vcvars  = $BuildEnv.VcVars64
 $vcpkgBin = Join-Path $BuildEnv.VcpkgRoot 'installed\x64-windows\bin'
 $env:PATH = "$($BuildEnv.VswhereDir);" + $env:PATH
 
@@ -65,15 +62,6 @@ if (-not $SkipRebuild) {
 }
 if (-not (Test-Path $tsfDll)) { throw "TSF DLL missing: $tsfDll" }
 
-# --- Build GenerativeImeSetup.exe ---
-if (-not $SkipRebuild) {
-    Write-Host '[build] GenerativeImeSetup.exe' -ForegroundColor Cyan
-    $clCmd = "`"$vcvars`" >nul && cl /nologo /EHsc /W3 /MT /Fe:`"$setupExe`" `"$setupCpp`""
-    cmd /c $clCmd
-    if ($LASTEXITCODE -ne 0) { throw 'Setup EXE compile failed' }
-}
-if (-not (Test-Path $setupExe)) { throw "Setup EXE missing: $setupExe" }
-
 # --- Build DictManager (net10 WPF publish, framework-dependent) ---
 if (-not $SkipRebuild) {
     Write-Host '[build] DictManager' -ForegroundColor Cyan
@@ -89,7 +77,6 @@ Copy-Item $skkEmoji   $payloadDir -Force
 Copy-Item $skkLoan    $payloadDir -Force
 Copy-Item $skkGodan   $payloadDir -Force
 Copy-Item (Join-Path $installer 'payload\SeedHkcu.ps1') $payloadDir -Force
-Copy-Item $setupExe   $payloadDir -Force
 Copy-Item (Join-Path $vcpkgBin 'mecab.dll')          $payloadDir -Force
 Copy-Item (Join-Path $vcpkgBin 'msvcp140.dll')       $payloadDir -Force -ErrorAction SilentlyContinue
 Copy-Item (Join-Path $vcpkgBin 'vcruntime140.dll')   $payloadDir -Force -ErrorAction SilentlyContinue
