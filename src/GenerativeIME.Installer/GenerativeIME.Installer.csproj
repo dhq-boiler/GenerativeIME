@@ -25,8 +25,12 @@
 
   <!-- Single-file publish pulls the WPF native deps into the extractor so a bare
        "copy setup.exe to a clean machine" workflow doesn't crash on missing
-       PresentationNative_cor3 / wpfgfx_cor3 / etc. Brotli compression brings the
-       self-contained bundle down from ~200MB to ~100MB. -->
+       PresentationNative_cor3 / wpfgfx_cor3 / etc. build_installer.ps1 pairs
+       this with SelfContained=true and EnableCompressionInSingleFile=true;
+       the compression cuts the self-contained bundle (runtime + WPF deps +
+       our code + embedded payload) from ~230 MB to ~130 MB. Combining
+       compression with framework-dependent was disallowed by SDK 10.0.301
+       (NETSDK1176). -->
   <PropertyGroup Condition="'$(PublishSingleFile)' == 'true'">
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>

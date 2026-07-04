@@ -112,7 +112,14 @@ $publishArgs = @(
     'publish', $installerProj,
     '-c', 'Release',
     '-r', 'win-x64',
-    '--self-contained', 'false',
+    # Self-contained: bundles the .NET 10 Desktop Runtime so the installer
+    # runs on a machine that doesn't have it. Without this, we couldn't
+    # combine PublishSingleFile with EnableCompressionInSingleFile (SDK
+    # 10.0.301+ errors NETSDK1176), and the framework-dependent uncompressed
+    # exe was ~207 MB — larger than the compressed self-contained one at
+    # ~130 MB. IME users installing on a fresh Windows box also don't have
+    # to hunt for a Desktop Runtime download first.
+    '--self-contained', 'true',
     '-p:PublishSingleFile=true',
     '-p:IncludeNativeLibrariesForSelfExtract=true',
     '-p:EnableCompressionInSingleFile=true',
