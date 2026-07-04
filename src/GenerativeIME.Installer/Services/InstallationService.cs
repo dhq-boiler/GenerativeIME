@@ -50,29 +50,40 @@ public sealed class InstallationService : IInstallationService
             progress?.Report(new InstallProgress("準備しています…", 0.02));
             Directory.CreateDirectory(installRoot);
 
-            // Aggressive mode: kill anything holding the target files BEFORE unregister
-            // so regsvr32 /u itself doesn't sit behind a stale ctfmon lock.
-            if (context.Mode == UpgradeMode.Aggressive)
-            {
-                progress?.Report(new InstallProgress("実行中のプロセスを終了しています…", 0.06));
-                KillIfRunning("GenerativeIME.DictManager");
-                KillIfRunning("GenerativeImeSetup");
-                KillIfRunning("ctfmon");
-            }
-
-            // Best-effort unregister of a currently-installed TSF DLL so the
-            // registry hive is clean before we drop new files. Safe to call
-            // when nothing is installed — regsvr32 fails silently.
+            // Sequence matters: HKLM MUST be cleared BEFORE ctfmon is killed.
+            // If we kill ctfmon first, Windows may auto-respawn it while our
+            // regsvr32 /u subprocess is still running, and the new ctfmon
+            // will read the old (still-registered) HKLM entry and re-map
+            // GenerativeIME.Tsf.dll before we get to wipe — which then fails
+            // with SharingViolation.
             var oldDll = _paths.TsfDllPath(installRoot);
             if (File.Exists(oldDll))
             {
-                progress?.Report(new InstallProgress("既存の TSF DLL を登録解除しています…", 0.10));
+                progress?.Report(new InstallProgress("既存の TSF DLL を登録解除しています…", 0.06));
                 _tsf.Unregister(oldDll);
+            }
+
+            // Aggressive mode: NOW kill anything holding the target files.
+            // Any respawned ctfmon after this point re-reads HKLM and finds
+            // no GenerativeIME entry, so it will not remap the DLL.
+            if (context.Mode == UpgradeMode.Aggressive)
+            {
+                progress?.Report(new InstallProgress("実行中のプロセスを終了しています…", 0.10));
+                KillIfRunning("GenerativeIME.DictManager");
+                KillIfRunning("GenerativeImeSetup");
+                KillIfRunning("ctfmon");
+                // Small settle so the OS actually releases the memory-mapped
+                // sections the killed processes had on GenerativeIME.Tsf.dll
+                // before we try to overwrite it. Without this, File.Create
+                // on the DLL raced ctfmon's teardown ~10% of the time.
+                await Task.Delay(500, ct);
             }
 
             // If files are still locked in safe mode, tell the user which
             // process to close and stop cleanly. Aggressive mode already
-            // killed them above, so the check re-runs for defense-in-depth.
+            // killed them above, so this check is defense-in-depth for the
+            // corner case where a non-ctfmon consumer (a text-service-using
+            // app that had focus at kill time) is still holding the DLL.
             var probe = new[]
             {
                 oldDll,
@@ -86,6 +97,7 @@ public sealed class InstallationService : IInstallationService
                     if (context.Mode == UpgradeMode.Aggressive)
                     {
                         _fileLocks.KillProcesses(lockers.Select(p => p.Pid), KillWait);
+                        await Task.Delay(300, ct);
                     }
                     else
                     {
