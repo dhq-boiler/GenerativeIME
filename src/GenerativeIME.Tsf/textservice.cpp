@@ -3691,10 +3691,33 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         //     itself as the picked form.
         //   - No window / pre-conversion → cycle the composition's kana
         //     form (ひらがな / 全角カナ / 半角カナ / ローマ字).
-        if (m_pCandWnd && m_pCandWnd->IsVisible() && !m_lastReading.empty())
+        if (InBunsetsuMode())
+        {
+            // Phase B (multi-bunsetsu): revert ONLY the focused clause to its
+            // bare reading and keep every other clause intact. The old code
+            // called LeaveBunsetsuMode()+Update(m_lastReading), but in Phase B
+            // m_lastReading is just the FOCUSED clause's reading (set by
+            // RepaintBunsetsu), so that replaced the whole composition with
+            // one clause's kana and dropped all the others — the "無変換で
+            // 他の文節が消える" bug. Instead, point the focused clause at its
+            // reading (insert it as a candidate if absent) and repaint the
+            // joined composition so the other clauses survive.
+            Bunsetsu& cur = m_bunsetsuList[m_focusedBunsetsu];
+            auto it = std::find(cur.candidates.begin(), cur.candidates.end(), cur.reading);
+            if (it != cur.candidates.end())
+            {
+                cur.selected = (size_t)std::distance(cur.candidates.begin(), it);
+            }
+            else
+            {
+                cur.candidates.insert(cur.candidates.begin(), cur.reading);
+                cur.selected = 0;
+            }
+            RepaintBunsetsu(pic);
+        }
+        else if (m_pCandWnd && m_pCandWnd->IsVisible() && !m_lastReading.empty())
         {
             m_pCandWnd->Hide();
-            LeaveBunsetsuMode();
             if (pic) RequestEditSession(pic, EditAction::Update, m_lastReading);
             m_compositionConverted = TRUE;
             m_fkeyConvertedText    = m_lastReading;
@@ -4119,6 +4142,19 @@ STDMETHODIMP CTextService::OnCompositionTerminated(TfEditCookie /*ecWrite*/, ITf
     SetComposition(nullptr);
     m_romajiBuffer.clear();
     m_compositionConverted = FALSE;
+    // Full state reset — mirror the VK_RETURN commit path. Previously only
+    // the romaji buffer and the converted flag were cleared, so a forced
+    // termination mid-conversion left m_bunsetsuList / m_lastReading /
+    // m_fkeyConvertedText behind. InBunsetsuMode() then stayed true into the
+    // NEXT fresh composition, and a bare Enter re-committed the PREVIOUS
+    // conversion's JoinSelected — the "直前の変換結果がコンポジションに出る"
+    // bug. Clearing all of it here makes the next input start clean.
+    LeaveBunsetsuMode();
+    m_lastReading.clear();
+    m_fkeyConvertedText.clear();
+    m_nonconvertCycle = 0;
+    m_predictionActive = false;
+    m_predictionReadings.clear();
     if (m_pCandWnd) m_pCandWnd->Hide();
     return S_OK;
 }
