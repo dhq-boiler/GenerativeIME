@@ -106,7 +106,10 @@ jobs:
           }
           Set-Content -Path notes.md -Value ($lines -join "`n") -Encoding utf8
           Get-Content notes.md | Write-Host
-          gh release create "v$ver" installer/build/GenerativeIME.msi `
+          gh release create "v$ver" `
+            installer/build/GenerativeIME.msi `
+            installer/build/install.cmd `
+            installer/build/install.ps1 `
             --title "GenerativeIME v$ver" `
             --target $env:GITHUB_SHA `
             --notes-file notes.md

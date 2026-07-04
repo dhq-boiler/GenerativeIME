@@ -117,6 +117,12 @@ if ($Version) {
 & wix @wixArgs -o $msiOut $wxs
 if ($LASTEXITCODE -ne 0) { throw "wix build failed" }
 
+# Copy the mode-selection wrapper next to the MSI so a release ships
+# both files together (install.cmd resolves GenerativeIME.msi via %~dp0).
+Copy-Item (Join-Path $installer 'install.cmd') $buildDir -Force
+Copy-Item (Join-Path $installer 'install.ps1') $buildDir -Force
+
 Write-Host ''
 Write-Host ('[done] {0}  ({1:N0} bytes)' -f $msiOut, (Get-Item $msiOut).Length) -ForegroundColor Green
 Write-Host ('       SHA256 {0}' -f (Get-FileHash $msiOut -Algorithm SHA256).Hash)
+Write-Host ('       Wrapper: {0}, {1}' -f (Join-Path $buildDir 'install.cmd'), (Join-Path $buildDir 'install.ps1'))

@@ -10,7 +10,14 @@
            Scope="perMachine" Compressed="yes">
 
     <SummaryInformation Description="GenerativeIME TSF Input Method" Manufacturer="GenerativeIME" />
-    <MajorUpgrade DowngradeErrorMessage="A newer version of GenerativeIME is already installed." />
+    <!-- AllowSameVersionUpgrades: a same-version rebuild (developer hotfix
+         or a CI re-release with the same version tag) reinstalls in place
+         instead of hitting "already installed". Also makes WIX_UPGRADE_DETECTED
+         fire on same-version reinstall, so the wipe / kill-app / stop-ctfmon
+         custom actions below apply to that path too. -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of GenerativeIME is already installed."
+                  AllowSameVersionUpgrades="yes"
+                  Schedule="afterInstallInitialize" />
     <MediaTemplate EmbedCab="yes" />
 
     <StandardDirectory Id="ProgramFiles64Folder">
@@ -42,11 +49,86 @@
     <CustomAction Id="SeedTipForCurrentUser" FileRef="GenerativeImeSetupExe"
         ExeCommand="" Execute="deferred" Impersonate="yes" Return="ignore" />
 
+    <!-- ==== 上書きアップデート用の custom actions ====
+         Two modes, chosen by the FORCE_KILL public property:
+
+           FORCE_KILL not set (default) — SAFE MODE.
+             The taskkill CAs do NOT run. Windows Installer's built-in
+             RestartManager detects file locks and either prompts the
+             user (interactive install) or schedules a reboot to finish
+             the replacement (silent install). Nothing gets terminated
+             behind the user's back — a running DictManager, an active
+             typing session, a chat window using the IME all survive.
+
+           FORCE_KILL=1 — AGGRESSIVE MODE (installer/install.cmd sets this
+             when the user picks "強引にアップデート").
+             DictManager, GenerativeImeSetup and ctfmon are all killed
+             before RemoveExistingProducts so file locks are released and
+             the upgrade completes without a reboot. Cost: any unsaved
+             work in DictManager is lost, and every app's IME state is
+             re-initialized when ctfmon respawns.
+
+         All three CAs use Directory=System64Folder so the working
+         directory is stable even mid-wipe (INSTALLFOLDER may not exist
+         yet). Return=ignore so a missing process (nothing to kill) isn't
+         an install failure. -->
+
+    <CustomAction Id="CloseDictMgr" Directory="System64Folder"
+        ExeCommand="taskkill.exe /F /T /IM GenerativeIME.DictManager.exe"
+        Execute="deferred" Impersonate="no" Return="ignore" />
+
+    <CustomAction Id="CloseSetupExe" Directory="System64Folder"
+        ExeCommand="taskkill.exe /F /T /IM GenerativeImeSetup.exe"
+        Execute="deferred" Impersonate="no" Return="ignore" />
+
+    <CustomAction Id="StopCtfmon" Directory="System64Folder"
+        ExeCommand="taskkill.exe /F /IM ctfmon.exe"
+        Execute="deferred" Impersonate="no" Return="ignore" />
+
+    <!-- 「違うバージョンをインストールするとき真っさらにしてから」:
+         after the old product's nested uninstall has removed the files
+         it tracked, wipe INSTALLFOLDER clean so anything untracked (old
+         .bak-* DLL backups, hand-copied dev artifacts, orphaned files
+         from a previous install left behind by an interrupted uninstall)
+         does not survive into the new install. RemoveExistingProducts is
+         guaranteed to have finished before this by the sequence order.
+         Same-version reinstall (AllowSameVersionUpgrades) also triggers
+         WIX_UPGRADE_DETECTED, so a hotfix rebuild gets the same clean
+         slate.
+
+         Runs in BOTH safe and aggressive modes — it does not terminate
+         any user process, it only deletes files the old MSI already
+         "released" via RemoveExistingProducts. User-owned data lives
+         OUTSIDE this folder (user dictionaries at %APPDATA%\GenerativeIME
+         \dict, HKCU seed at Software\Microsoft\CTF\Assemblies) so
+         wiping INSTALLFOLDER doesn't destroy anything the user configured. -->
+    <CustomAction Id="WipeInstallFolder" Directory="System64Folder"
+        ExeCommand="cmd.exe /c if exist &quot;[INSTALLFOLDER]&quot; ( rmdir /s /q &quot;[INSTALLFOLDER]&quot; )"
+        Execute="deferred" Impersonate="no" Return="ignore" />
+
     <InstallExecuteSequence>
-      <Custom Action="RegisterTsf" After="InstallFiles" Condition="NOT REMOVE" />
+      <!-- Aggressive-only: kill anything holding file locks BEFORE the
+           old product's nested uninstall runs. Gated on both
+           FORCE_KILL=1 AND WIX_UPGRADE_DETECTED so a fresh install
+           never fires them (nothing to kill) and a safe upgrade skips
+           them (that's the whole point of safe mode). -->
+      <Custom Action="CloseDictMgr"  Before="RemoveExistingProducts" Condition="WIX_UPGRADE_DETECTED AND FORCE_KILL = &quot;1&quot;" />
+      <Custom Action="CloseSetupExe" After="CloseDictMgr"            Condition="WIX_UPGRADE_DETECTED AND FORCE_KILL = &quot;1&quot;" />
+      <Custom Action="StopCtfmon"    After="CloseSetupExe"           Condition="WIX_UPGRADE_DETECTED AND FORCE_KILL = &quot;1&quot;" />
+
+      <!-- After the old MSI is gone, wipe the folder. Safe in both modes.
+           Then InstallFiles re-creates it from scratch. -->
+      <Custom Action="WipeInstallFolder" After="RemoveExistingProducts" Condition="WIX_UPGRADE_DETECTED" />
+
+      <Custom Action="RegisterTsf"          After="InstallFiles" Condition="NOT REMOVE" />
       <Custom Action="SeedTipForCurrentUser" After="RegisterTsf" Condition="NOT REMOVE" />
-      <Custom Action="UnregisterTsf" Before="RemoveFiles" Condition="REMOVE" />
+      <Custom Action="UnregisterTsf"        Before="RemoveFiles" Condition="REMOVE" />
     </InstallExecuteSequence>
+
+    <!-- FORCE_KILL declared here so the CLI/wrapper can override with
+         msiexec /i ... FORCE_KILL=1. Secure=yes lets the property cross
+         from client to server context (deferred CAs need it). -->
+    <Property Id="FORCE_KILL" Secure="yes" />
   </Package>
 
   <Fragment>

@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <Platforms>x64</Platforms>
+    <Platform>x64</Platform>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>GenerativeImeInstaller</AssemblyName>
+    <RootNamespace>GenerativeIME.Installer</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <StartupObject>GenerativeIME.Installer.Program</StartupObject>
+    <!-- Version supplied by build_installer.ps1 (-Version) or CI. -->
+    <Version Condition=" '$(InstallerVersion)' == '' ">0.2.20</Version>
+    <Version Condition=" '$(InstallerVersion)' != '' ">$(InstallerVersion)</Version>
+    <AssemblyVersion>$(Version).0</AssemblyVersion>
+    <FileVersion>$(Version).0</FileVersion>
+  </PropertyGroup>
+
+  <!-- Single-file publish pulls the WPF native deps into the extractor so a bare
+       "copy setup.exe to a clean machine" workflow doesn't crash on missing
+       PresentationNative_cor3 / wpfgfx_cor3 / etc. Brotli compression brings the
+       self-contained bundle down from ~200MB to ~100MB. -->
+  <PropertyGroup Condition="'$(PublishSingleFile)' == 'true'">
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="app.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+  </ItemGroup>
+
+  <!-- Embedded payload zip is produced by build_installer.ps1 and dropped into
+       Embedded/payload.zip. Included only when present so `dotnet build` from
+       a fresh clone succeeds even before the packaging step runs. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Embedded\payload.zip" Condition="Exists('Embedded\payload.zip')">
+      <LogicalName>GenerativeIME.Installer.Embedded.payload.zip</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+</Project>
