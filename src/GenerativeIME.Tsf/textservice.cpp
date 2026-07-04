@@ -2569,6 +2569,19 @@ void CTextService::ScanDocumentVocab(ITfContext* pContext)
 // away the chosen kanji.
 void CTextService::CommitConvertedIfAny(ITfContext* pContext)
 {
+    // Defensive: clear stale bunsetsu state that leaked from an earlier
+    // commit path (e.g. number-key candidate pick before the Phase-B fix,
+    // or any future path that forgets LeaveBunsetsuMode). Without this,
+    // the next fresh composition's ApplyCandidateSelection hits its
+    // InBunsetsuMode branch and paints JoinSelected of the OLD clauses
+    // over what the user just typed — the「使って良い」→「１」bug where
+    // Space showed digit candidates in the popup but stale bunsetsu text
+    // in the composition. Only trigger when there's no live conversion
+    // to commit, so the normal commit-and-cleanup path below still fires.
+    if (InBunsetsuMode() && (!m_compositionConverted || !m_pComposition))
+    {
+        LeaveBunsetsuMode();
+    }
     if (!m_compositionConverted || !m_pComposition) return;
     if (InBunsetsuMode())
     {
@@ -3635,6 +3648,15 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
     m_nonconvertCycle = 0;
         m_predictionActive = false;
         m_predictionReadings.clear();
+        // Defense in depth: only the InBunsetsuMode branch above calls
+        // LeaveBunsetsuMode explicitly, but m_bunsetsuList residue leaked
+        // into the next composition when a converted-single-candidate or
+        // no-conversion Enter path somehow left it populated. Downstream
+        // ApplyCandidateSelection's InBunsetsuMode branch then overwrote
+        // the new composition with JoinSelected of the OLD clauses (bug:
+        // 「使って良い」変換後に「１」変換でコンポジションに「使って良い」が
+        // 残る). Idempotent when the list is already empty.
+        LeaveBunsetsuMode();
         if (m_pCandWnd) m_pCandWnd->Hide();
         *pfEaten = TRUE;
     }
@@ -4114,16 +4136,51 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         {
             m_pCandWnd->SelectIndex(idx);
             ApplyCandidateSelection(pic);
-            std::wstring picked = m_pCandWnd->GetSelected();
-            if (m_pLearning && !m_lastReading.empty())
+            if (InBunsetsuMode())
             {
-                m_pLearning->Record(m_lastReading, picked, AppContext::Capture());
+                // Phase B: mirror the VK_RETURN bunsetsu-commit path. The
+                // number key picked ONE clause; ApplyCandidateSelection has
+                // already synced that pick into m_bunsetsuList and rendered
+                // JoinSelected into the composition range. Commit the full
+                // join (not just the single clause's Selected()) and record
+                // per-clause learning like Enter does. Without this branch
+                // the previous code committed only the focused clause's
+                // text to AppendCommittedText / learning, and left
+                // m_bunsetsuList behind — the next composition then hit
+                // ApplyCandidateSelection's InBunsetsuMode branch and
+                // painted a stale JoinSelected over its display.
+                SyncFocusedBunsetsuSelection();
+                std::wstring text = bunsetsu::JoinSelected(m_bunsetsuList);
+                if (m_pLearning)
+                {
+                    AppContext ctx = AppContext::Capture();
+                    for (const auto& b : m_bunsetsuList)
+                    {
+                        if (b.reading.empty() || b.candidates.empty()) continue;
+                        if (b.selected >= b.candidates.size())          continue;
+                        m_pLearning->Record(b.reading, b.candidates[b.selected], ctx);
+                    }
+                }
+                AppendCommittedText(text);
+                if (pic) RequestEditSession(pic, EditAction::EndCommit, L"");
+                LeaveBunsetsuMode();
             }
-            AppendCommittedText(picked);
-            if (pic) RequestEditSession(pic, EditAction::EndCommit, L"");
+            else
+            {
+                std::wstring picked = m_pCandWnd->GetSelected();
+                if (m_pLearning && !m_lastReading.empty())
+                {
+                    m_pLearning->Record(m_lastReading, picked, AppContext::Capture());
+                }
+                AppendCommittedText(picked);
+                if (pic) RequestEditSession(pic, EditAction::EndCommit, L"");
+            }
             m_romajiBuffer.clear();
             m_compositionConverted = FALSE;
             m_lastReading.clear();
+            m_fkeyConvertedText.clear();
+            m_predictionActive = false;
+            m_predictionReadings.clear();
             m_pCandWnd->Hide();
         }
         *pfEaten = TRUE;
