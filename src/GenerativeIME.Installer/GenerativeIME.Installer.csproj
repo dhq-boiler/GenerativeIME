@@ -35,6 +35,13 @@
 
   <ItemGroup>
     <Resource Include="app.ico" />
+    <!-- app-256.png is the largest frame extracted from app.ico. WPF's
+         Image binding on a .ico picks the SMALLEST frame (16x16) and
+         scales it up to whatever the layout wants, which is why the
+         wizard icon rendered pixel-mud at 96 px. Bind to app-256.png
+         instead for anything above 32 px; the .ico stays as the window
+         Icon so the title bar / taskbar can pick its own resolution. -->
+    <Resource Include="app-256.png" />
   </ItemGroup>
 
   <ItemGroup>

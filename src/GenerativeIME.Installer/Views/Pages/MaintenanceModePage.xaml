@@ -8,29 +8,41 @@
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
-    <StackPanel Grid.Row="0" Margin="36,32,36,0">
-      <TextBlock Style="{StaticResource TitleText}" Text="GenerativeIME メンテナンス"/>
-      <TextBlock Style="{StaticResource SubtitleText}" Margin="0,6,0,20">
-        <Run Text="現在のバージョン: "/>
-        <Run Text="{Binding InstalledVersion}"/>
-      </TextBlock>
+    <Grid Grid.Row="0" Margin="36,32,36,0">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="20"/>
+        <ColumnDefinition Width="*"/>
+      </Grid.ColumnDefinitions>
 
-      <RadioButton Style="{StaticResource ChoiceTile}" IsChecked="{Binding IsReinstallSelected}" GroupName="Mode">
-        <StackPanel>
-          <TextBlock FontWeight="Bold" FontSize="14" Text="上書きインストール / 再インストール"/>
-          <TextBlock Style="{StaticResource SubtitleText}" Margin="0,6,0,0"
-                     Text="既存のファイルを削除してからすべてを新しいバージョンで置き換えます。ユーザー辞書 (%APPDATA%\GenerativeIME\dict) と学習データは保持されます。"/>
-        </StackPanel>
-      </RadioButton>
+      <Image Grid.Column="0" Width="64" Height="64" VerticalAlignment="Top"
+             Source="pack://application:,,,/app-256.png"
+             RenderOptions.BitmapScalingMode="HighQuality"/>
 
-      <RadioButton Style="{StaticResource ChoiceTile}" IsChecked="{Binding IsUninstallSelected}" GroupName="Mode">
-        <StackPanel>
-          <TextBlock FontWeight="Bold" FontSize="14" Text="アンインストール"/>
-          <TextBlock Style="{StaticResource SubtitleText}" Margin="0,6,0,0"
-                     Text="GenerativeIME を完全に削除します。インストール先フォルダも消去されます。ユーザー辞書は残ります。"/>
-        </StackPanel>
-      </RadioButton>
-    </StackPanel>
+      <StackPanel Grid.Column="2">
+        <TextBlock Style="{StaticResource TitleText}" Text="GenerativeIME メンテナンス"/>
+        <TextBlock Style="{StaticResource SubtitleText}" Margin="0,6,0,20">
+          <Run Text="現在のバージョン: "/>
+          <Run Text="{Binding InstalledVersion}"/>
+        </TextBlock>
+
+        <RadioButton Style="{StaticResource ChoiceTile}" IsChecked="{Binding IsReinstallSelected}" GroupName="Mode">
+          <StackPanel>
+            <TextBlock FontWeight="Bold" FontSize="14" Text="上書きインストール / 再インストール"/>
+            <TextBlock Style="{StaticResource SubtitleText}" Margin="0,6,0,0"
+                       Text="既存のファイルを削除してからすべてを新しいバージョンで置き換えます。ユーザー辞書 (%APPDATA%\GenerativeIME\dict) と学習データは保持されます。"/>
+          </StackPanel>
+        </RadioButton>
+
+        <RadioButton Style="{StaticResource ChoiceTile}" IsChecked="{Binding IsUninstallSelected}" GroupName="Mode">
+          <StackPanel>
+            <TextBlock FontWeight="Bold" FontSize="14" Text="アンインストール"/>
+            <TextBlock Style="{StaticResource SubtitleText}" Margin="0,6,0,0"
+                       Text="GenerativeIME を完全に削除します。インストール先フォルダも消去されます。ユーザー辞書は残ります。"/>
+          </StackPanel>
+        </RadioButton>
+      </StackPanel>
+    </Grid>
 
     <Border Grid.Row="1" Background="{StaticResource Surface}"
             BorderBrush="{StaticResource Border}" BorderThickness="0,1,0,0" Padding="20,14">

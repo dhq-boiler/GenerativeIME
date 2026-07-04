@@ -8,22 +8,37 @@
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
-    <StackPanel Grid.Row="0" Margin="36,36,36,0" VerticalAlignment="Center">
-      <TextBlock Style="{StaticResource TitleText}" Text="GenerativeIME"/>
-      <TextBlock Style="{StaticResource SubtitleText}" Margin="0,6,0,20"
-                 Text="生成AIを使った日本語 IME をインストールします。"/>
+    <Grid Grid.Row="0" Margin="36,36,36,0">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="24"/>
+        <ColumnDefinition Width="*"/>
+      </Grid.ColumnDefinitions>
 
-      <TextBlock Style="{StaticResource SubtitleText}" Margin="0,0,0,10"
-                 Text="このセットアップでは以下を実行します:"/>
-      <TextBlock Style="{StaticResource SubtitleText}" Margin="12,2,0,2"
-                 Text="  • C:\Program Files\GenerativeIME に必要ファイルを配置"/>
-      <TextBlock Style="{StaticResource SubtitleText}" Margin="12,2,0,2"
-                 Text="  • TSF テキストサービス (GenerativeIME.Tsf.dll) を登録"/>
-      <TextBlock Style="{StaticResource SubtitleText}" Margin="12,2,0,2"
-                 Text="  • Win+Space の入力方式一覧に追加"/>
-      <TextBlock Style="{StaticResource SubtitleText}" Margin="12,2,0,2"
-                 Text="  • アンインストール用エントリを「アプリと機能」に登録"/>
-    </StackPanel>
+      <!-- Bound to app-256.png (the largest frame extracted from app.ico).
+           A raw .ico Source picks the 16 px frame and scales up muddy;
+           the 256 px PNG downscales cleanly at any wizard-icon size. -->
+      <Image Grid.Column="0" Width="96" Height="96" VerticalAlignment="Top"
+             Source="pack://application:,,,/app-256.png"
+             RenderOptions.BitmapScalingMode="HighQuality"/>
+
+      <StackPanel Grid.Column="2" VerticalAlignment="Center">
+        <TextBlock Style="{StaticResource TitleText}" Text="GenerativeIME"/>
+        <TextBlock Style="{StaticResource SubtitleText}" Margin="0,6,0,20"
+                   Text="生成AIを使った日本語 IME をインストールします。"/>
+
+        <TextBlock Style="{StaticResource SubtitleText}" Margin="0,0,0,10"
+                   Text="このセットアップでは以下を実行します:"/>
+        <TextBlock Style="{StaticResource SubtitleText}" Margin="12,2,0,2"
+                   Text="  • C:\Program Files\GenerativeIME に必要ファイルを配置"/>
+        <TextBlock Style="{StaticResource SubtitleText}" Margin="12,2,0,2"
+                   Text="  • TSF テキストサービス (GenerativeIME.Tsf.dll) を登録"/>
+        <TextBlock Style="{StaticResource SubtitleText}" Margin="12,2,0,2"
+                   Text="  • Win+Space の入力方式一覧に追加"/>
+        <TextBlock Style="{StaticResource SubtitleText}" Margin="12,2,0,2"
+                   Text="  • アンインストール用エントリを「アプリと機能」に登録"/>
+      </StackPanel>
+    </Grid>
 
     <Border Grid.Row="1" Background="{StaticResource Surface}"
             BorderBrush="{StaticResource Border}" BorderThickness="0,1,0,0" Padding="20,14">

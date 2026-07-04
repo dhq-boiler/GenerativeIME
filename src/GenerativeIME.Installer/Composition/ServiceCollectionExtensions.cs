@@ -18,6 +18,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<InstallationContext>();
 
         // Services.
+        services.AddSingleton<IDialogService, DialogService>();
         services.AddSingleton<IPathService, PathService>();
         services.AddSingleton<IFileLockResolver, RestartManagerFileLockResolver>();
         services.AddSingleton<IArpService, ArpService>();
