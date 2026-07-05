@@ -43,6 +43,9 @@ extern const GUID c_guidKeyImeOn =
 // {79050DAF-16D2-4214-9CE7-16A9C2E17B49}
 extern const GUID c_guidKeyImeOff =
     { 0x79050DAF, 0x16D2, 0x4214, { 0x9C, 0xE7, 0x16, 0xA9, 0xC2, 0xE1, 0x7B, 0x49 } };
+// {A1B29E7C-3F4D-4E7A-9C21-4E5F62A81D9B}  Ctrl+F5 misconversion log
+extern const GUID c_guidKeyDebugLog =
+    { 0xA1B29E7C, 0x3F4D, 0x4E7A, { 0x9C, 0x21, 0x4E, 0x5F, 0x62, 0xA8, 0x1D, 0x9B } };
 
 extern const wchar_t c_szTextServiceDesc[] = L"GenerativeIME";
 extern const wchar_t c_szInfoKeyPrefix[]   = L"CLSID\\";

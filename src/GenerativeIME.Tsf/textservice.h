@@ -124,6 +124,15 @@ private:
     // (no composition, no Enter needed), and a second F5 flips back.
     // Returns true iff the replacement actually landed.
     bool    ToggleCodepointInPlace(ITfContext* pContext);
+    // Ctrl+F5 handler. Appends the current attempt state to
+    // %APPDATA%\GenerativeIME\misconversions.log as a UTF-8 block —
+    // timestamp, buffer, reading, last displayed candidates, last
+    // committed text, recent LLM context. Silently no-ops on I/O
+    // failure (a full-disk or permission problem should never break
+    // typing). Intended for the developer / power user grepping the
+    // file later to spot patterns that need dictionary or ranking
+    // improvements.
+    void    LogMisconversionAttempt();
     POINT   QueryCandidateAnchorPos(ITfContext* pContext);
     POINT   QueryBunsetsuAnchorPos(ITfContext* pContext, size_t offset, size_t length);
     HRESULT RequestEditSession(ITfContext* pContext, EditAction action, const std::wstring& text);

@@ -18,6 +18,7 @@
 #include <thread>
 #include <vector>
 #include <unordered_map>
+#include <ShlObj.h>   // SHGetKnownFolderPath / FOLDERID_RoamingAppData for the misconversion log
 
 constexpr UINT WM_OLLAMA_DONE         = WM_USER + 1;
 constexpr UINT WM_LANGBAR_MENU        = WM_USER + 2;
@@ -26,6 +27,11 @@ constexpr UINT WM_OLLAMA_REORDER_DONE  = WM_USER + 4;
 constexpr UINT WM_OLLAMA_FALLBACK_DONE = WM_USER + 5;
 constexpr UINT WM_ACRONYM_DONE         = WM_USER + 6;
 constexpr wchar_t kMsgWndClass[] = L"GenerativeIME_MsgWnd_v1";
+
+// Forward declaration — full body sits near LogMisconversionAttempt at
+// the bottom of this file. Prototype up here so early callers
+// (InitPreservedKeys, OnPreservedKey) can reach it.
+static void AppendDebugLine(const wchar_t* line);
 
 // Posted from worker thread back to the IME thread via PostMessage.
 // Owned by the worker until PostMessage handoff; then owned by WndProc which
@@ -631,6 +637,25 @@ HRESULT CTextService::InitPreservedKeys()
     preserve(c_guidKeyKanji,  VK_KANJI,    kIgnoreAllMods, L"GenerativeIME Toggle");
     preserve(c_guidKeyImeOn,  VK_OEM_AUTO, kIgnoreAllMods, L"GenerativeIME ON");
     preserve(c_guidKeyImeOff, VK_OEM_ENLW, kIgnoreAllMods, L"GenerativeIME OFF");
+    // Ctrl+Shift+F5 → misconversion logger. We used to register this as
+    // a preserved key too, but observationally OnPreservedKey never fired
+    // (nor did OnKeyDown, because preserved-key registration blocks the
+    // regular key-sink path). Rely on ShouldEat + OnKeyDown alone —
+    // that's already working for other Ctrl-modified keys we claim.
+    //
+    // Modifier journey:
+    //   - Ctrl+F5 alone: conflicts with browser hard-refresh; a preserved
+    //     key would permanently steal that shortcut.
+    //   - Ctrl+Alt+F5: preserved-key registration succeeded (HRESULT 0)
+    //     but delivery silently failed — Alt is a menu-accelerator
+    //     modifier the OS starts interpreting before TSF matches, and
+    //     Ctrl+Alt can fold into AltGr on some paths.
+    //   - Ctrl+Shift+F5 via preserved key: same silent-drop symptom.
+    //     Some hosts appear to swallow Ctrl+Shift combos before TSF's
+    //     InputProcessorProfiles gets a look at them.
+    //   - Ctrl+Shift+F5 via OnKeyDown (ShouldEat claim): the ordinary
+    //     key-sink path this project already uses for every other Ctrl-
+    //     eaten combo. Works.
 
     pMgr->Release();
     return S_OK;
@@ -647,6 +672,10 @@ void CTextService::UninitPreservedKeys()
     pk = { VK_KANJI,    0 }; pMgr->UnpreserveKey(c_guidKeyKanji,  &pk);
     pk = { VK_OEM_AUTO, 0 }; pMgr->UnpreserveKey(c_guidKeyImeOn,  &pk);
     pk = { VK_OEM_ENLW, 0 }; pMgr->UnpreserveKey(c_guidKeyImeOff, &pk);
+    // Best-effort UnpreserveKey in case an older DLL had it registered.
+    pk = { VK_F5, TF_MOD_CONTROL | TF_MOD_SHIFT }; pMgr->UnpreserveKey(c_guidKeyDebugLog, &pk);
+    pk = { VK_F5, TF_MOD_CONTROL | TF_MOD_ALT   }; pMgr->UnpreserveKey(c_guidKeyDebugLog, &pk);
+    pk = { VK_F5, TF_MOD_CONTROL                }; pMgr->UnpreserveKey(c_guidKeyDebugLog, &pk);
 
     pMgr->Release();
 }
@@ -3147,6 +3176,168 @@ void CTextService::AppendCommittedText(const std::wstring& text)
     }
 }
 
+// Writes a short debug line to a log file so we can diagnose things
+// like preserved-key routing without needing DebugView. UTF-8, CRLF.
+// Two-path strategy: prefer %APPDATA%\GenerativeIME\ime-debug.log; on
+// any failure (COM not initialized in the loading process, ACL denies
+// the write, whatever) fall back to %TEMP%\GenerativeIME-debug.log.
+// TIP DLLs load into arbitrary host processes and %APPDATA% resolution
+// via SHGetKnownFolderPath needs COM in a state we can't count on;
+// %TEMP% only needs the plain env-var and is writable from every user
+// process. Silently no-ops if BOTH targets are unreachable — a log
+// helper must never break IME input.
+static void AppendDebugLine(const wchar_t* line)
+{
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    wchar_t stamped[512];
+    swprintf_s(stamped, L"%04d-%02d-%02dT%02d:%02d:%02d [pid=%lu] %s\r\n",
+               st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond,
+               (unsigned long)GetCurrentProcessId(), line);
+
+    int utf8Len = WideCharToMultiByte(CP_UTF8, 0, stamped, -1, nullptr, 0, nullptr, nullptr);
+    if (utf8Len <= 1) return;
+    std::string utf8((size_t)utf8Len - 1, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, stamped, -1, utf8.data(), utf8Len - 1, nullptr, nullptr);
+
+    auto tryWrite = [&](const std::wstring& path) -> bool {
+        HANDLE h = CreateFileW(path.c_str(), FILE_APPEND_DATA,
+                               FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                               nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (h == INVALID_HANDLE_VALUE) return false;
+        DWORD w = 0;
+        BOOL ok = WriteFile(h, utf8.data(), (DWORD)utf8.size(), &w, nullptr);
+        CloseHandle(h);
+        return ok != FALSE;
+    };
+
+    // Primary path via env var (avoids SHGetKnownFolderPath / COM dep).
+    wchar_t appdata[MAX_PATH * 2];
+    DWORD n = GetEnvironmentVariableW(L"APPDATA", appdata, (DWORD)_countof(appdata));
+    if (n > 0 && n < _countof(appdata))
+    {
+        std::wstring dir = appdata;
+        dir += L"\\GenerativeIME";
+        CreateDirectoryW(dir.c_str(), nullptr);
+        if (tryWrite(dir + L"\\ime-debug.log")) return;
+    }
+
+    // Fallback path.
+    wchar_t tmp[MAX_PATH * 2];
+    n = GetEnvironmentVariableW(L"TEMP", tmp, (DWORD)_countof(tmp));
+    if (n > 0 && n < _countof(tmp))
+    {
+        std::wstring path = tmp;
+        path += L"\\GenerativeIME-debug.log";
+        tryWrite(path);
+    }
+}
+
+void CTextService::LogMisconversionAttempt()
+{
+    // Resolve %APPDATA%\GenerativeIME\misconversions.log using the env
+    // var (SHGetKnownFolderPath needs COM initialized in the host
+    // process — some TIP hosts don't guarantee that at load time, and
+    // AppendDebugLine hit exactly that failure earlier). Reuses the
+    // parent directory of SkkDictionary::UserDictDir so users already
+    // looking there for their dict files find the log alongside.
+    wchar_t appdata[MAX_PATH * 2];
+    DWORD n = GetEnvironmentVariableW(L"APPDATA", appdata, (DWORD)_countof(appdata));
+    if (n == 0 || n >= _countof(appdata)) return;
+    std::wstring dir = appdata;
+    dir += L"\\GenerativeIME";
+    CreateDirectoryW(dir.c_str(), nullptr);
+    std::wstring path = dir + L"\\misconversions.log";
+
+    // Snapshot the state we care about. Reading DisplayForMode's output
+    // gives us what the user was actually SEEING in the composition,
+    // which is often more informative than the raw ASCII buffer alone
+    // (a lone "j" in Hiragana mode still shows as "j"; a "watashi" shows
+    // as「わたし」).
+    std::wstring display = DisplayForMode(m_romajiBuffer, m_imeMode);
+
+    std::wstring cands;
+    std::wstring selected;
+    if (m_pCandWnd)
+    {
+        selected = m_pCandWnd->GetSelected();
+        const auto& list = m_pCandWnd->GetCandidates();
+        for (size_t i = 0; i < list.size(); ++i)
+        {
+            if (i > 0) cands += L" | ";
+            cands += list[i];
+        }
+    }
+
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    wchar_t timestamp[64];
+    swprintf_s(timestamp, L"%04d-%02d-%02dT%02d:%02d:%02d",
+               st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+
+    // Build the entry. One block per Ctrl+F5 tap, separated by blank
+    // line, ASCII field names so `grep buffer:` etc. works on the file.
+    // CRLF line endings so it opens cleanly in Notepad without turning
+    // into one long line.
+    auto boolStr = [](bool b) { return b ? L"true" : L"false"; };
+    std::wstring entry;
+    entry += L"--- ";
+    entry += timestamp;
+    entry += L" ---\r\n";
+    entry += L"buffer: ";       entry += m_romajiBuffer;       entry += L"\r\n";
+    entry += L"display: ";      entry += display;              entry += L"\r\n";
+    entry += L"lastReading: ";  entry += m_lastReading;        entry += L"\r\n";
+    entry += L"selected: ";     entry += selected;             entry += L"\r\n";
+    entry += L"candidates: ";   entry += cands;                entry += L"\r\n";
+    entry += L"lastCommitted: ";entry += m_lastCommittedText;  entry += L"\r\n";
+    entry += L"context: ";      entry += m_recentContext;      entry += L"\r\n";
+    entry += L"imeMode: ";      entry += std::to_wstring((int)m_imeMode);       entry += L"\r\n";
+    entry += L"converted: ";    entry += boolStr(m_compositionConverted != 0);  entry += L"\r\n";
+    entry += L"predictionActive: "; entry += boolStr(m_predictionActive);       entry += L"\r\n";
+    entry += L"bunsetsuMode: "; entry += boolStr(InBunsetsuMode());             entry += L"\r\n";
+    entry += L"\r\n";
+
+    // Convert to UTF-8 for cross-tool friendliness (grep / rg / VS Code
+    // default to UTF-8; wchar_t writes would need a BOM and produce a
+    // file most Unix tools mishandle).
+    int utf8Len = WideCharToMultiByte(CP_UTF8, 0, entry.c_str(), (int)entry.size(),
+                                       nullptr, 0, nullptr, nullptr);
+    if (utf8Len <= 0) return;
+    std::string utf8((size_t)utf8Len, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, entry.c_str(), (int)entry.size(),
+                        utf8.data(), utf8Len, nullptr, nullptr);
+
+    HANDLE h = CreateFileW(path.c_str(),
+                           FILE_APPEND_DATA,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE,
+                           nullptr,
+                           OPEN_ALWAYS,
+                           FILE_ATTRIBUTE_NORMAL,
+                           nullptr);
+    if (h == INVALID_HANDLE_VALUE) return;
+
+    // Write a UTF-8 BOM only if the file was just created (size==0).
+    // OPEN_ALWAYS returns the existing file if it was already there, so
+    // this preserves the BOM state for repeated appends.
+    LARGE_INTEGER size = {};
+    GetFileSizeEx(h, &size);
+    if (size.QuadPart == 0)
+    {
+        const unsigned char bom[3] = { 0xEF, 0xBB, 0xBF };
+        DWORD written = 0;
+        WriteFile(h, bom, 3, &written, nullptr);
+    }
+
+    DWORD written = 0;
+    WriteFile(h, utf8.data(), (DWORD)utf8.size(), &written, nullptr);
+    CloseHandle(h);
+
+    wchar_t debugbuf[300];
+    swprintf_s(debugbuf, L"[GenerativeIME] Ctrl+F5: logged misconversion to %s (%zu bytes)\n",
+               path.c_str(), utf8.size());
+    OutputDebugStringW(debugbuf);
+}
+
 bool CTextService::ToggleCodepointInPlace(ITfContext* pContext)
 {
     if (!pContext) return false;
@@ -3547,6 +3738,15 @@ bool CTextService::ShouldEat(WPARAM wParam) const
         wParam == 0xF1 /* VK_DBE_KATAKANA */ ||
         wParam == VK_KANA) return true;
     if (!m_isImeOn) return false;
+    // Ctrl+Shift+F5 fallback claim. Preserved-key registration should
+    // already have TSF routing this to OnPreservedKey, but observationally
+    // that path fails in some hosts (browsers with their own key hooks,
+    // certain Windows layouts) and the log never fires. Claiming it via
+    // ShouldEat + OnKeyDown gives a second chance — whichever fires first
+    // is fine, the misconversion logger is idempotent per tap.
+    if (wParam == VK_F5
+        && (GetKeyState(VK_CONTROL) < 0)
+        && (GetKeyState(VK_SHIFT)   < 0)) return true;
     // Ctrl-modified keys are host shortcuts (Ctrl+X / C / V / A / Z / S /
     // arrow / etc) and belong to the application, not the IME. Without
     // this passthrough, IsAlphaKey would eat Ctrl+V and silently drop
@@ -3683,6 +3883,21 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
 
     // Mode-switch key handling intentionally absent — see ShouldEat() comment.
     if (!m_isImeOn) return S_OK;
+
+    // Ctrl+Shift+F5 fallback: preserved-key delivery is preferred but
+    // observationally unreliable in some hosts. When ShouldEat claimed
+    // this combo (matching predicate above), route it into the same
+    // logger. AppendDebugLine breadcrumb makes it clear WHICH path
+    // fired — preserved key vs OnKeyDown — for future diagnosis.
+    if (wParam == VK_F5
+        && (GetKeyState(VK_CONTROL) < 0)
+        && (GetKeyState(VK_SHIFT)   < 0))
+    {
+        AppendDebugLine(L"[GenerativeIME] Ctrl+Shift+F5 hit via OnKeyDown fallback");
+        LogMisconversionAttempt();
+        *pfEaten = TRUE;
+        return S_OK;
+    }
 
     // Ctrl-modified keys are host shortcuts (Ctrl+X / C / V / A / Z / S /
     // …) and never produce IME input. ShouldEat already returns false for
@@ -4617,6 +4832,15 @@ STDMETHODIMP CTextService::OnPreservedKey(ITfContext* /*pic*/, REFGUID rguid, BO
         // "give me the opposite of whatever state I'm in now."
         SyncImeStateFromCompartments();
         SetImeOpenClose(!m_isImeOn);
+        *pfEaten = TRUE;
+    }
+    else if (IsEqualGUID(rguid, c_guidKeyDebugLog))
+    {
+        // Ctrl+F5: append the current attempt state to the misconversion
+        // log. Runs regardless of composition/commit state — an empty
+        // buffer just produces an entry with blank fields, which is still
+        // useful ("I was in App X and nothing was queued").
+        LogMisconversionAttempt();
         *pfEaten = TRUE;
     }
     return S_OK;

@@ -32,6 +32,7 @@ extern const GUID  c_guidLangBarItemButton;
 extern const GUID  c_guidKeyKanji;       // VK_KANJI    (0x19) — toggle
 extern const GUID  c_guidKeyImeOn;       // VK_OEM_AUTO (0xF3) — explicit ON
 extern const GUID  c_guidKeyImeOff;      // VK_OEM_ENLW (0xF4) — explicit OFF
+extern const GUID  c_guidKeyDebugLog;    // Ctrl+F5 — append misconversion state to log file
 
 // Resolved TfGuidAtom for c_guidDisplayAttributeInput. Populated by CTextService::Activate
 // via ITfCategoryMgr::RegisterGUID, consumed by edit sessions to stamp GUID_PROP_ATTRIBUTE.
