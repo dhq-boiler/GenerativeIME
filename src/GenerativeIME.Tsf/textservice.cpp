@@ -4339,28 +4339,37 @@ STDMETHODIMP CTextService::OnPreservedKey(ITfContext* /*pic*/, REFGUID rguid, BO
     if (!pfEaten) return E_INVALIDARG;
     *pfEaten = FALSE;
 
-    if (IsEqualGUID(rguid, c_guidKeyKanji))
+    if (IsEqualGUID(rguid, c_guidKeyKanji) ||
+        IsEqualGUID(rguid, c_guidKeyImeOn) ||
+        IsEqualGUID(rguid, c_guidKeyImeOff))
     {
+        // All three preserved keys map to the same physical 半角/全角 key
+        // on JIS keyboards — the choice between VK_KANJI, VK_OEM_AUTO
+        // ("activate IME"), and VK_OEM_ENLW ("deactivate IME") is what
+        // Windows emits based on ITS view of the OPENCLOSE compartment.
+        // The old handler trusted that view: OEM_AUTO → SetImeOpenClose(TRUE),
+        // OEM_ENLW → SetImeOpenClose(FALSE). That works while Windows and
+        // our m_isImeOn agree, but breaks when they drift.
+        //
+        // Observed drift (cmd launched from Explorer): m_isImeOn defaults
+        // to TRUE in the constructor and Activate assumes the follow-on
+        // SetIMEStateCompartments(TRUE) reaches the global OPENCLOSE.
+        // In conhost that write can silently no-op (foreign-writer
+        // gating), leaving OPENCLOSE=0 while our cache still says TRUE.
+        // Windows then emits VK_OEM_AUTO on the first 半角/全角 tap ("I
+        // think IME is off, turn it on"), and our old handler called
+        // SetImeOpenClose(TRUE) — which merely synced the compartment
+        // up to what m_isImeOn already claimed. Nothing visibly changed.
+        // The user tapped again, Windows now saw OPENCLOSE=1, emitted
+        // VK_OEM_ENLW, and only THEN did the IME turn off. Two taps to
+        // reach half-width instead of one.
+        //
+        // Fix: sync m_isImeOn from the compartment first (so a stale
+        // cache doesn't trip us), then toggle. All three keys go through
+        // this same path because the physical intent is identical —
+        // "give me the opposite of whatever state I'm in now."
+        SyncImeStateFromCompartments();
         SetImeOpenClose(!m_isImeOn);
-        *pfEaten = TRUE;
-    }
-    else if (IsEqualGUID(rguid, c_guidKeyImeOn))
-    {
-        // VK_OEM_AUTO (0xF3): the "activate IME" half of the 半角/全角 key's
-        // alternating trigger on Japanese keyboards. NOT the カタカナひらがな
-        // key — that one emits VK_DBE_HIRAGANA (0xF2) and is handled in
-        // OnKeyDown. Turning IME on here (without changing the conversion
-        // mode) matches MS-IME behavior; the previous implementation forced
-        // Hiragana mode and never let IME go off, producing 全角かな⇄全角カナ
-        // instead of the expected 全角かな⇄半角英数 toggle.
-        SetImeOpenClose(TRUE);
-        *pfEaten = TRUE;
-    }
-    else if (IsEqualGUID(rguid, c_guidKeyImeOff))
-    {
-        // VK_OEM_ENLW (0xF4): the "deactivate IME" half of the 半角/全角 key's
-        // alternating trigger — sends the IME to 半角英数 passthrough.
-        SetImeOpenClose(FALSE);
         *pfEaten = TRUE;
     }
     return S_OK;
