@@ -1512,101 +1512,41 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
                 }
                 else
                 {
-                    // Multi-morpheme. Two cases:
-                    //   (a) Trustworthy split  → enter Phase B, the user
-                    //       Tab-steps between bunsetsu and Space-cycles
-                    //       each one's candidates.
-                    //   (b) LooksSuspect split → don't lock the user into
-                    //       a Phase B UI built on a bad analysis. Show the
-                    //       MeCab combined string as a single candidate and
-                    //       let Ollama fallback prepend a saner whole-input
-                    //       answer (the 学生 vs 顎所為 case).
+                    // Multi-morpheme: always enter Phase B. The previous
+                    // "suspect split" branch showed a short seed + spinner
+                    // and swapped the candidate list when Ollama returned,
+                    // producing two visually different UIs for what the user
+                    // perceived as "the same thing". Unify on Phase B:
+                    // consistent split-and-navigate UX regardless of how
+                    // MeCab feels about the input.
+                    //
+                    // Ollama still runs in the background — HandleOllamaFallbackDone
+                    // now splits each whole-phrase suggestion along
+                    // m_bunsetsuList's reading boundaries (via SplitByReadings)
+                    // and merges the per-piece surfaces into the corresponding
+                    // bunsetsu's candidate list. Suggestions that don't align
+                    // with the current split are silently dropped, so a bad
+                    // MeCab split can be rescued by resizing (Shift+←/→) and
+                    // waiting for the LLM catch-up. No spinner — the UI stays
+                    // stable and Ollama's picks trickle in behind the scenes.
                     std::wstring combined = bunsetsu::JoinSelected(parts);
-                    bool suspect = bunsetsu::LooksSuspect(reading, *mecab);
-
-                    // Boundary blacklist: the user previously said this
-                    // exact partition was wrong. Force the suspect path
-                    // so Phase B doesn't reappear with the same shape;
-                    // Ollama gets a chance to propose a different shape.
-                    std::vector<size_t> endOffsets;
-                    {
-                        size_t cum = 0;
-                        for (const auto& p : parts)
-                        {
-                            cum += p.reading.size();
-                            endOffsets.push_back(cum);
-                        }
-                        if (!endOffsets.empty()) endOffsets.pop_back();
-                    }
-                    bool boundaryBlocked = (m_pLearning &&
-                        m_pLearning->IsBoundaryBlacklisted(reading, endOffsets));
-                    if (boundaryBlocked)
-                    {
-                        suspect = true;
-                        OutputDebugStringW(L"[GenerativeIME] Boundary blacklisted — forcing Ollama fallback\n");
-                    }
-
                     swprintf_s(logbuf,
-                               L"[GenerativeIME] MeCab split: %zu parts -> %s (suspect=%d)\n",
-                               parts.size(), combined.c_str(), (int)suspect);
+                               L"[GenerativeIME] MeCab split: %zu parts -> %s\n",
+                               parts.size(), combined.c_str());
                     OutputDebugStringW(logbuf);
-                    shownTop = combined;
-                    if (suspect)
-                    {
-                        // Candidate list seed: MeCab's combined first
-                        // (lowest-confidence default), then a katakana-
-                        // probe answer if MeCab can parse the all-kana
-                        // version into a clean small morpheme count
-                        // (典型: 外来語連結 "えくすくらめーしょんまーく"
-                        // → "エクスクラメーションマーク" parses as 1
-                        // morpheme). The Ollama fallback will prepend
-                        // its own picks above these when it lands.
-                        std::vector<std::wstring> seed = { combined };
-                        std::wstring kataReading = bunsetsu::ToKatakanaPublic(reading);
-                        if (!kataReading.empty() && kataReading != reading)
-                        {
-                            auto kataMorphemes = mecab->Analyze(kataReading);
-                            if (!kataMorphemes.empty() && kataMorphemes.size() <= 3)
-                            {
-                                seed.push_back(kataReading);
-                                wchar_t logbuf[200];
-                                swprintf_s(logbuf,
-                                           L"[GenerativeIME] Katakana probe accepted: %s (%zu morphemes)\n",
-                                           kataReading.c_str(), kataMorphemes.size());
-                                OutputDebugStringW(logbuf);
-                            }
-                        }
-
-                        m_pCandWnd->SetCandidates(seed);
-                        POINT pt = QueryCandidateAnchorPos(pContext);
-                        m_pCandWnd->ShowAt(pt);
-                        ApplyCandidateSelection(pContext);
-                        m_pCandWnd->SetOllamaPending(true);
-                        StartMecabSupplementAsync(pContext, reading, shownTop);
-                    }
-                    else
-                    {
-                        EnterBunsetsuMode(std::move(parts), pContext);
-                    }
+                    EnterBunsetsuMode(std::move(parts), pContext);
+                    StartMecabSupplementAsync(pContext, reading, combined);
                     return;
                 }
 
                 POINT pt = QueryCandidateAnchorPos(pContext);
                 m_pCandWnd->ShowAt(pt);
                 ApplyCandidateSelection(pContext);
-
-                // #13: when MeCab's split looks like the kind of over-literal
-                // answer UniDic-Lite tends to give for everyday phrases
-                // (3+ morphemes, lemma contains a rare-in-practice kanji
-                // like 顎 / 所為 / 為), fire Ollama in parallel and let it
-                // overrule. The user sees MeCab's answer immediately; the
-                // LLM result lands a beat later and prepends saner choices.
-                if (bunsetsu::LooksSuspect(reading, *mecab))
-                {
-                    OutputDebugStringW(L"[GenerativeIME] MeCab split looks suspect — kicking Ollama fallback\n");
-                    if (m_pCandWnd) m_pCandWnd->SetOllamaPending(true);
-                    StartMecabSupplementAsync(pContext, reading, shownTop);
-                }
+                // Single-morpheme cases used to fire an Ollama supplement
+                // when the lemma looked rare (顎所為-tier); removed for the
+                // same UX-unification reason as the multi-morpheme branch
+                // above. Reorder (SKK candidate ranking) still runs behind
+                // the scenes and is silent — no spinner, no list swap.
                 return;
             }
         }
@@ -2089,16 +2029,54 @@ void CTextService::HandleOllamaFallbackDone(PendingOllamaFallbackRequest* pendin
         return;
     }
 
-    // Phase B's per-bunsetsu UI doesn't have anywhere clean to slot a
-    // whole-reading LLM suggestion — the candidate window is showing the
-    // focused bunsetsu's options, not the full input. Drop the response;
-    // the user still has Tab/Space to navigate the MeCab split, and a
-    // future Phase B polish could expose the LLM answer as a "replace
-    // whole composition" gesture (e.g. F-key) if it turns out to be
-    // useful in practice.
+    // Phase B integration: split each whole-phrase suggestion into pieces
+    // along m_bunsetsuList's reading boundaries and merge each piece into
+    // the corresponding bunsetsu's candidate list. Suggestions that don't
+    // cleanly split (misaligned boundaries or drifted reading) are dropped.
+    // Reorder + repaint if the focused bunsetsu picked up a new head so
+    // the user sees the LLM's take without any visible spinner or list-swap.
     if (InBunsetsuMode())
     {
-        OutputDebugStringW(L"[GenerativeIME] Ollama fallback: skipping in Phase B mode\n");
+        auto* mecabForSplit = MecabAnalyzer::GetGlobal();
+        if (mecabForSplit && mecabForSplit->IsReady() && !m_bunsetsuList.empty())
+        {
+            std::vector<std::wstring> readings;
+            readings.reserve(m_bunsetsuList.size());
+            for (const auto& b : m_bunsetsuList) readings.push_back(b.reading);
+
+            bool anyMerged = false;
+            for (const auto& cand : pending->candidates)
+            {
+                auto pieces = bunsetsu::SplitByReadings(cand, readings, *mecabForSplit);
+                if (pieces.size() != m_bunsetsuList.size()) continue;
+                for (size_t i = 0; i < pieces.size(); ++i)
+                {
+                    if (pieces[i].empty()) continue;
+                    auto& cur = m_bunsetsuList[i];
+                    if (std::find(cur.candidates.begin(), cur.candidates.end(), pieces[i])
+                            != cur.candidates.end())
+                        continue;
+                    // Prepend Ollama pieces to the head so the LLM's take
+                    // beats the SKK / MeCab defaults; learning fav still
+                    // reorders on top of this via the next Reorder pass.
+                    cur.candidates.insert(cur.candidates.begin(), pieces[i]);
+                    anyMerged = true;
+                }
+            }
+            if (anyMerged)
+            {
+                if (m_pLearning)
+                {
+                    for (auto& b : m_bunsetsuList)
+                    {
+                        if (b.candidates.empty()) continue;
+                        b.candidates = m_pLearning->Reorder(b.reading, b.candidates);
+                        b.selected = 0;
+                    }
+                }
+                RepaintBunsetsu(pending->tfContext);
+            }
+        }
         delete pending;
         return;
     }

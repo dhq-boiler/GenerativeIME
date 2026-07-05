@@ -626,6 +626,82 @@ bool ReadsAs(const std::wstring& candidate,
     return normalizeTailHaWa(reading) == normalizeTailHaWa(expectedReading);
 }
 
+std::vector<std::wstring> SplitByReadings(
+    const std::wstring& text,
+    const std::vector<std::wstring>& expectedReadings,
+    const MecabAnalyzer& analyzer)
+{
+    if (text.empty() || expectedReadings.empty()) return {};
+
+    auto morphemes = analyzer.Analyze(text);
+    if (morphemes.empty()) return {};
+
+    // Walk MeCab's morphemes and find boundaries where the cumulative
+    // pronunciation length matches the cumulative expected-reading length.
+    // Every expected boundary must land exactly on a morpheme boundary —
+    // otherwise the split can't respect the caller's per-bunsetsu seams
+    // and we bail. Note: uses pronunciation.size() not surface.size(); the
+    // surface can be kanji while the reading is kana, so we compare on
+    // the reading axis.
+    std::vector<size_t> morphemeReadingCum;
+    morphemeReadingCum.reserve(morphemes.size() + 1);
+    morphemeReadingCum.push_back(0);
+    for (const auto& m : morphemes)
+    {
+        size_t r = (!m.pronunciation.empty() ? m.pronunciation.size() : m.surface.size());
+        morphemeReadingCum.push_back(morphemeReadingCum.back() + r);
+    }
+
+    // Total reading must match the concatenation of expectedReadings —
+    // guards against Ollama drifting from the user's input.
+    size_t expectedTotal = 0;
+    for (const auto& r : expectedReadings) expectedTotal += r.size();
+    if (morphemeReadingCum.back() != expectedTotal) return {};
+
+    // Also each per-piece pronunciation must equal expectedReadings[i]
+    // (not just the length): a same-length but different reading means
+    // the surface belongs to a different reading of the boundary and the
+    // per-clause commit would learn a bogus (reading, text) pair.
+    std::vector<std::wstring> pieces;
+    pieces.reserve(expectedReadings.size());
+    size_t morphIdx = 0;
+    size_t surfaceCur = 0;
+    size_t readingCurExpected = 0;
+    for (const auto& r : expectedReadings)
+    {
+        readingCurExpected += r.size();
+        // Find the morpheme index whose cumulative reading matches
+        // readingCurExpected. If no exact match, the boundary doesn't
+        // align with MeCab's morphemes — bail.
+        size_t nextMorphIdx = morphIdx;
+        while (nextMorphIdx < morphemeReadingCum.size()
+               && morphemeReadingCum[nextMorphIdx] < readingCurExpected)
+            ++nextMorphIdx;
+        if (nextMorphIdx >= morphemeReadingCum.size()
+            || morphemeReadingCum[nextMorphIdx] != readingCurExpected)
+            return {};
+
+        // Assemble surface slice and its concatenated pronunciation for
+        // the strict per-piece reading check.
+        std::wstring pieceSurface;
+        std::wstring piecePron;
+        for (size_t k = morphIdx; k < nextMorphIdx; ++k)
+        {
+            pieceSurface += morphemes[k].surface;
+            piecePron += (!morphemes[k].pronunciation.empty()
+                              ? morphemes[k].pronunciation
+                              : morphemes[k].surface);
+        }
+        if (piecePron != r) return {};
+
+        pieces.push_back(std::move(pieceSurface));
+        surfaceCur += 0;  // unused; kept for future diagnostic
+        morphIdx = nextMorphIdx;
+    }
+    if (pieces.size() != expectedReadings.size()) return {};
+    return pieces;
+}
+
 bool LooksSuspect(const std::wstring& reading,
                   const MecabAnalyzer& analyzer)
 {

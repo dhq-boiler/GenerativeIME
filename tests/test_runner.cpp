@@ -2523,6 +2523,48 @@ TEST(skk_godan_companion_imperative_and_past_top_is_verb)
     }
 }
 
+// SplitByReadings: distribute a whole-phrase text into per-bunsetsu pieces
+// along a reading-length seam. Used at Ollama-fallback landing time to
+// splice an LLM whole-phrase suggestion into an active Phase B session.
+TEST(bunsetsu_split_by_readings_two_pieces)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    std::vector<std::wstring> readings = { L"ついかした", L"じっそう" };
+    auto pieces = bunsetsu::SplitByReadings(L"追加した実装", readings, *m);
+    EXPECT_TRUE(pieces.size() == 2);
+    if (pieces.size() == 2) {
+        EXPECT_EQ_W(pieces[0], L"追加した");
+        EXPECT_EQ_W(pieces[1], L"実装");
+    }
+}
+
+// A whole-phrase result whose morpheme reading doesn't line up with the
+// requested boundary must fail cleanly. Otherwise Phase B would pick up
+// a piece whose reading doesn't match its bunsetsu.reading, and the
+// per-clause commit learning would record a bogus (reading, text) pair.
+TEST(bunsetsu_split_by_readings_bad_boundary_rejected)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    // Same total length (9) but the second piece's reading disagrees
+    // with what「追加した実装」actually sums to — the strict per-piece
+    // pronunciation check should reject the split.
+    std::vector<std::wstring> readings = { L"ついかした", L"あいうえ" };
+    auto pieces = bunsetsu::SplitByReadings(L"追加した実装", readings, *m);
+    EXPECT_TRUE(pieces.empty());
+}
+
+// Mismatched total reading length — should bail before per-piece checks.
+TEST(bunsetsu_split_by_readings_length_mismatch)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    if (!m || !m->IsReady()) { std::printf("  SKIP\n"); return; }
+    std::vector<std::wstring> readings = { L"あいう", L"えお" };  // 5 vs text's 9
+    auto pieces = bunsetsu::SplitByReadings(L"追加した実装", readings, *m);
+    EXPECT_TRUE(pieces.empty());
+}
+
 // Head-priority overrides added from misconversion.log entries:
 //   - おし: SKK-JISYO.L lists 唖;dumb FIRST which makes MeCab
 //     reconstruct「おしました」as「唖ました」 (log 2026-07-06T00:23:31).

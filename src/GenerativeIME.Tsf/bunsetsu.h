@@ -70,6 +70,23 @@ namespace bunsetsu
                  const std::wstring& expectedReading,
                  const MecabAnalyzer& analyzer);
 
+    // Split `text` into pieces whose per-piece readings line up with the
+    // given `expectedReadings` list, one entry per requested bunsetsu.
+    // Returns an equally-sized vector on success (each element is the
+    // surface slice for that bunsetsu), or empty when the split fails —
+    // either MeCab's morpheme boundaries in `text` don't align with the
+    // reading-length seams the caller requires, or the per-piece
+    // pronunciation doesn't equal `expectedReadings[i]` verbatim.
+    //
+    // Used to distribute an Ollama whole-phrase suggestion into an active
+    // Phase B session's per-bunsetsu candidate lists: only suggestions
+    // whose morphology matches the user's already-visible split get
+    // spliced in, keeping Phase B's per-clause navigation intact.
+    std::vector<std::wstring> SplitByReadings(
+        const std::wstring& text,
+        const std::vector<std::wstring>& expectedReadings,
+        const MecabAnalyzer& analyzer);
+
     // True iff MeCab's analysis of `reading` looks dubious enough that we
     // should ask Ollama for a second opinion. Triggers when the split has
     // 3+ morphemes AND at least one morpheme's lemma uses kanji that almost
