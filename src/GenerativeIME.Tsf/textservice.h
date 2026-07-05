@@ -173,6 +173,26 @@ private:
     // doesn't need a full convert round-trip per repeat.
     std::wstring        m_lastCommittedText;
 
+    // Reading that produced m_lastCommittedText. m_lastReading gets cleared
+    // aggressively during commit + prediction refresh, so it's empty by
+    // the time Ctrl+Shift+F5 fires for a misconvert log. This mirror
+    // survives across those clears specifically for the "record + forget
+    // the learning entry" path — LogMisconversionAttempt hands it to
+    // LearningStore::ForgetReading so the wrong pick that just went to
+    // disk stops overriding the dictionary head next time.
+    std::wstring        m_lastCommittedReading;
+
+    // Per-clause readings from the last committed bunsetsu conversion.
+    // Empty for single-candidate commits (m_lastCommittedReading covers
+    // those). Populated in Phase B: each entry is one bunsetsu's reading
+    // in commit order. Ctrl+Shift+F5 iterates over these on top of the
+    // joined m_lastCommittedReading so per-clause learnings — the
+    // ones bunsetsu commits Record individually — are also purged. Without
+    // this, forgetting「ついかしたじっそう」leaves the per-clause
+    //「ついかした→付いかした」 and 「じっそう→下実装」 entries behind
+    // and the wrong split resurfaces the next time.
+    std::vector<std::wstring> m_lastCommittedClauseReadings;
+
     // Monotonically increasing counter bumped whenever we start a SKK
     // lookup. The reorder worker stamps the active counter into its request;
     // by the time it returns, if the counter has moved (the user typed more,

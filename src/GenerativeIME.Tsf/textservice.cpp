@@ -2689,6 +2689,8 @@ bool CTextService::CommitConvertedIfAny(ITfContext* pContext)
         // state so the new keystroke starts a fresh composition.
         SyncFocusedBunsetsuSelection();
         std::wstring text = bunsetsu::JoinSelected(m_bunsetsuList);
+        std::wstring joinedReading;
+        std::vector<std::wstring> clauseReadings;
         if (m_pLearning)
         {
             AppContext ctx = AppContext::Capture();
@@ -2697,9 +2699,26 @@ bool CTextService::CommitConvertedIfAny(ITfContext* pContext)
                 if (b.reading.empty() || b.candidates.empty()) continue;
                 if (b.selected >= b.candidates.size())          continue;
                 m_pLearning->Record(b.reading, b.candidates[b.selected], ctx);
+                joinedReading += b.reading;
+                clauseReadings.push_back(b.reading);
+            }
+            // Also seed the WHOLE-phrase learning. Per-clause records above
+            // let Phase B's Reorder promote the right pick on each clause
+            // next time, but that still routes the user through the split-
+            // and-navigate UI. Recording (joinedReading → joined text) too
+            // means the fav fast path in TryOllamaConvertAsync grabs the
+            // corrected sentence in a single Space, skipping Phase B
+            // entirely for inputs the user has already resolved. Guarded on
+            // ≥2 clauses so we don't clobber single-clause records with
+            // duplicates of the same (reading, text).
+            if (!joinedReading.empty() && !text.empty() && m_bunsetsuList.size() >= 2)
+            {
+                m_pLearning->Record(joinedReading, text, ctx);
             }
         }
         AppendCommittedText(text);
+        if (!joinedReading.empty()) m_lastCommittedReading = joinedReading;
+        m_lastCommittedClauseReadings = std::move(clauseReadings);
         if (pContext) RequestEditSession(pContext, EditAction::EndCommit, L"");
         LeaveBunsetsuMode();
     }
@@ -2721,6 +2740,7 @@ bool CTextService::CommitConvertedIfAny(ITfContext* pContext)
             m_pLearning->Record(m_lastReading, picked, AppContext::Capture());
         }
         AppendCommittedText(picked);
+        if (!m_lastReading.empty()) m_lastCommittedReading = m_lastReading;
         if (pContext) RequestEditSession(pContext, EditAction::EndCommit, L"");
     }
     m_romajiBuffer.clear();
@@ -3085,7 +3105,17 @@ void CTextService::ResizeFocusedBunsetsu(int delta, ITfContext* pContext)
     auto* mecab = MecabAnalyzer::GetGlobal();
     auto* skk   = SkkDictionary::GetGlobal();
 
-    auto& cur = m_bunsetsuList[m_focusedBunsetsu];
+    // NB: reference-into-vector semantics. We used to hold `auto& cur =
+    // m_bunsetsuList[m_focusedBunsetsu]` across mutations of the same
+    // vector — every push_back/erase can reallocate the backing storage
+    // and turn `cur` into a dangling reference. Writing to it then leaves
+    // the actual m_bunsetsuList[m_focusedBunsetsu] unchanged and the join
+    // ended up with the pre-shrink reading followed by the popped-off
+    // character (「したじっそう」→「したじっそうう」on Shift+← was the
+    // concrete case). Snapshot the current reading as a plain string,
+    // mutate the vector freely, and index into it afresh at the very
+    // end to write the new focused bunsetsu.
+    const std::wstring curReading = m_bunsetsuList[m_focusedBunsetsu].reading;
 
     if (delta > 0)
     {
@@ -3093,21 +3123,22 @@ void CTextService::ResizeFocusedBunsetsu(int delta, ITfContext* pContext)
         // end of the focused one. No-op when there's no next bunsetsu
         // to draw from.
         if (m_focusedBunsetsu + 1 >= m_bunsetsuList.size()) return;
-        auto& nxt = m_bunsetsuList[m_focusedBunsetsu + 1];
-        if (nxt.reading.empty()) return;
+        const std::wstring nxtReading = m_bunsetsuList[m_focusedBunsetsu + 1].reading;
+        if (nxtReading.empty()) return;
 
-        std::wstring newCur = cur.reading + nxt.reading.substr(0, 1);
-        std::wstring newNxt = nxt.reading.substr(1);
+        std::wstring newCur = curReading + nxtReading.substr(0, 1);
+        std::wstring newNxt = nxtReading.substr(1);
 
-        cur = bunsetsu::MakeBunsetsuFromReading(newCur, mecab, skk);
-        if (m_pLearning && !cur.candidates.empty())
+        Bunsetsu newFocused = bunsetsu::MakeBunsetsuFromReading(newCur, mecab, skk);
+        if (m_pLearning && !newFocused.candidates.empty())
         {
-            cur.candidates = m_pLearning->Reorder(cur.reading, cur.candidates);
-            cur.selected   = 0;
+            newFocused.candidates = m_pLearning->Reorder(newFocused.reading, newFocused.candidates);
+            newFocused.selected   = 0;
         }
         if (newNxt.empty())
         {
-            // The next bunsetsu's reading was fully absorbed.
+            // The next bunsetsu's reading was fully absorbed. Erase FIRST
+            // so the focused-slot write at the end doesn't need to shift.
             m_bunsetsuList.erase(m_bunsetsuList.begin() + m_focusedBunsetsu + 1);
         }
         else
@@ -3120,6 +3151,7 @@ void CTextService::ResizeFocusedBunsetsu(int delta, ITfContext* pContext)
             }
             m_bunsetsuList[m_focusedBunsetsu + 1] = std::move(rebuilt);
         }
+        m_bunsetsuList[m_focusedBunsetsu] = std::move(newFocused);
     }
     else
     {
@@ -3127,29 +3159,32 @@ void CTextService::ResizeFocusedBunsetsu(int delta, ITfContext* pContext)
         // reading and prepend it to the next bunsetsu (creating one if
         // there isn't a next). No-op if focused is already one char —
         // we can't shrink to zero.
-        if (cur.reading.size() <= 1) return;
-        wchar_t moved = cur.reading.back();
-        std::wstring newCur = cur.reading.substr(0, cur.reading.size() - 1);
+        if (curReading.size() <= 1) return;
+        wchar_t moved = curReading.back();
+        std::wstring newCur = curReading.substr(0, curReading.size() - 1);
 
         if (m_focusedBunsetsu + 1 < m_bunsetsuList.size())
         {
-            auto& nxt = m_bunsetsuList[m_focusedBunsetsu + 1];
+            std::wstring nxtReading = m_bunsetsuList[m_focusedBunsetsu + 1].reading;
             std::wstring newNxt;
             newNxt.push_back(moved);
-            newNxt += nxt.reading;
+            newNxt += nxtReading;
             m_bunsetsuList[m_focusedBunsetsu + 1] =
                 bunsetsu::MakeBunsetsuFromReading(newNxt, mecab, skk);
         }
         else
         {
             // No tail bunsetsu — create one for the orphaned character so
-            // the user can still navigate to it with → / Tab.
+            // the user can still navigate to it with → / Tab. push_back
+            // can reallocate the vector, which is exactly why we snapshot
+            // curReading up top and index the focused-slot write at the
+            // very end instead of holding a reference across this call.
             Bunsetsu tail;
             tail.reading = std::wstring(1, moved);
             tail = bunsetsu::MakeBunsetsuFromReading(tail.reading, mecab, skk);
             m_bunsetsuList.push_back(std::move(tail));
         }
-        cur = bunsetsu::MakeBunsetsuFromReading(newCur, mecab, skk);
+        m_bunsetsuList[m_focusedBunsetsu] = bunsetsu::MakeBunsetsuFromReading(newCur, mecab, skk);
     }
 
     wchar_t logbuf[200];
@@ -3295,6 +3330,7 @@ void CTextService::LogMisconversionAttempt()
     entry += L"converted: ";    entry += boolStr(m_compositionConverted != 0);  entry += L"\r\n";
     entry += L"predictionActive: "; entry += boolStr(m_predictionActive);       entry += L"\r\n";
     entry += L"bunsetsuMode: "; entry += boolStr(InBunsetsuMode());             entry += L"\r\n";
+    entry += L"forgetReading: "; entry += m_lastCommittedReading;                entry += L"\r\n";
     entry += L"\r\n";
 
     // Convert to UTF-8 for cross-tool friendliness (grep / rg / VS Code
@@ -3331,6 +3367,36 @@ void CTextService::LogMisconversionAttempt()
     DWORD written = 0;
     WriteFile(h, utf8.data(), (DWORD)utf8.size(), &written, nullptr);
     CloseHandle(h);
+
+    // Forget the bad pick — the commit that just went to disk (and its
+    // scoped variants) gets stripped so it stops overriding the dict
+    // head next time this reading comes up. Without this, dictionary
+    // fixes to promote the correct kanji have no effect until the user
+    // manually greps learning.txt because GetFav's cascade returns the
+    // wrong learned candidate before Reorder ever sees the fresh SKK
+    // ordering.
+    //
+    // For a bunsetsu commit we ALSO forget each clause reading
+    // individually. The join covers the whole-phrase fav entry, but
+    // Record wrote a separate per-clause row for each 文節 in the same
+    // pass, and if we don't remove those the wrong per-clause pick
+    // still resurfaces on future compositions that split the same way.
+    // Concrete case: ついかしたじっそう → 付いか下実装 committed both
+    //「ついかした/付いかした」 AND 「じっそう/下実装」 as per-clause
+    // learnings; forgetting only the whole reading left the two rows
+    // behind.
+    //
+    // Clears both trackers so a second Ctrl+Shift+F5 tap in a row
+    // doesn't attempt to re-forget readings that are already gone.
+    if (m_pLearning)
+    {
+        if (!m_lastCommittedReading.empty())
+            m_pLearning->ForgetReading(m_lastCommittedReading);
+        for (const auto& r : m_lastCommittedClauseReadings)
+            if (!r.empty()) m_pLearning->ForgetReading(r);
+        m_lastCommittedReading.clear();
+        m_lastCommittedClauseReadings.clear();
+    }
 
     wchar_t debugbuf[300];
     swprintf_s(debugbuf, L"[GenerativeIME] Ctrl+F5: logged misconversion to %s (%zu bytes)\n",
@@ -4082,6 +4148,8 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
             // window is showing, then commit the joined-selected text.
             SyncFocusedBunsetsuSelection();
             std::wstring text = bunsetsu::JoinSelected(m_bunsetsuList);
+            std::wstring joinedReading;
+            std::vector<std::wstring> clauseReadings;
             // Per-bunsetsu learning: each (reading, chosen kanji) pair gets
             // recorded independently so future SKK/MeCab lookups of that
             // same reading promote what the user picked this time.
@@ -4093,9 +4161,22 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
                     if (b.reading.empty() || b.candidates.empty()) continue;
                     if (b.selected >= b.candidates.size())          continue;
                     m_pLearning->Record(b.reading, b.candidates[b.selected], ctx);
+                    joinedReading += b.reading;
+                    clauseReadings.push_back(b.reading);
+                }
+                // Also seed the whole-phrase learning (see the matching
+                // comment in CommitConvertedIfAny's Phase B branch). Next
+                // time the same multi-clause reading comes in, the fav
+                // fast path in TryOllamaConvertAsync hands back the
+                // committed sentence directly and Phase B is skipped.
+                if (!joinedReading.empty() && !text.empty() && m_bunsetsuList.size() >= 2)
+                {
+                    m_pLearning->Record(joinedReading, text, ctx);
                 }
             }
             AppendCommittedText(text);
+            if (!joinedReading.empty()) m_lastCommittedReading = joinedReading;
+            m_lastCommittedClauseReadings = std::move(clauseReadings);
             if (pic) RequestEditSession(pic, EditAction::EndCommit, L"");
             LeaveBunsetsuMode();
         }
@@ -4116,6 +4197,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
                 if (m_pLearning && !m_lastReading.empty())
                     m_pLearning->Record(m_lastReading, picked, AppContext::Capture());
                 AppendCommittedText(picked);
+                if (!m_lastReading.empty()) m_lastCommittedReading = m_lastReading;
             }
             if (pic) RequestEditSession(pic, EditAction::EndCommit, L"");
         }
@@ -4745,6 +4827,8 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
                 // painted a stale JoinSelected over its display.
                 SyncFocusedBunsetsuSelection();
                 std::wstring text = bunsetsu::JoinSelected(m_bunsetsuList);
+                std::wstring joinedReading;
+                std::vector<std::wstring> clauseReadings;
                 if (m_pLearning)
                 {
                     AppContext ctx = AppContext::Capture();
@@ -4753,9 +4837,17 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
                         if (b.reading.empty() || b.candidates.empty()) continue;
                         if (b.selected >= b.candidates.size())          continue;
                         m_pLearning->Record(b.reading, b.candidates[b.selected], ctx);
+                        joinedReading += b.reading;
+                        clauseReadings.push_back(b.reading);
+                    }
+                    if (!joinedReading.empty() && !text.empty() && m_bunsetsuList.size() >= 2)
+                    {
+                        m_pLearning->Record(joinedReading, text, ctx);
                     }
                 }
                 AppendCommittedText(text);
+                if (!joinedReading.empty()) m_lastCommittedReading = joinedReading;
+                m_lastCommittedClauseReadings = std::move(clauseReadings);
                 if (pic) RequestEditSession(pic, EditAction::EndCommit, L"");
                 LeaveBunsetsuMode();
             }
@@ -4767,6 +4859,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
                     m_pLearning->Record(m_lastReading, picked, AppContext::Capture());
                 }
                 AppendCommittedText(picked);
+                if (!m_lastReading.empty()) m_lastCommittedReading = m_lastReading;
                 if (pic) RequestEditSession(pic, EditAction::EndCommit, L"");
             }
             m_romajiBuffer.clear();

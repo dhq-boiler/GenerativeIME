@@ -77,6 +77,17 @@ public:
     // restart. Idempotent — re-blacklisting the same pair is a no-op.
     HRESULT Blacklist(const std::wstring& reading, const std::wstring& word);
 
+    // Wipe every previously-recorded pick for `reading` from BOTH the
+    // in-memory maps and the on-disk learning.txt. Used by the Ctrl+Shift+
+    // F5 misconvert log: when the user flags a bad commit we want the
+    // wrong pick to stop overriding the dictionary head. Empty `reading`
+    // is a no-op. Rewrites learning.txt to drop matching lines (streaming
+    // read + atomic replace) — the file is normally small so the compact
+    // is cheap; on I/O failure the in-memory clear still stands and the
+    // next process restart will pick up the leftover disk lines, which
+    // callers can either accept or retry the compact for.
+    HRESULT ForgetReading(const std::wstring& reading);
+
     // Negative bunsetsu-boundary learning. When the user opts out of a
     // bunsetsu partition (Shift+Delete in Phase B), the offending
     // boundary array — END character indices of every bunsetsu except

@@ -328,6 +328,79 @@ HRESULT LearningStore::Blacklist(const std::wstring& reading, const std::wstring
     return S_OK;
 }
 
+HRESULT LearningStore::ForgetReading(const std::wstring& reading)
+{
+    if (reading.empty()) return E_INVALIDARG;
+
+    // In-memory wipe: global + every scoped variant. The context maps use
+    // MakeCtxKey which puts `reading` at the tail after 3 RS separators;
+    // a suffix match is enough to catch every (proc, class, title, reading)
+    // slot regardless of what the ctx prefix looked like.
+    m_lastPicked.erase(reading);
+    for (auto it = m_ctxPicked.begin(); it != m_ctxPicked.end(); )
+    {
+        // Suffix check with RS boundary — the reading always sits after the
+        // third RS. Comparing against "\x1E" + reading rules out false
+        // positives where `reading` happens to appear inside a title.
+        std::wstring tail = std::wstring(1, L'\x1E') + reading;
+        if (it->first.size() >= tail.size()
+            && it->first.compare(it->first.size() - tail.size(), tail.size(), tail) == 0)
+        {
+            it = m_ctxPicked.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
+
+    // Disk compact: rewrite learning.txt without any row for this reading.
+    // Streaming read into memory, filter, atomic replace. The file is
+    // typically small (a few thousand lines at most before the user gets
+    // around to a full cleanup), so the O(N) rewrite is cheap and the
+    // append-only fast path stays unchanged for the common commit case.
+    std::wstring path = StorePath();
+    if (path.empty()) return E_FAIL;
+
+    std::ifstream in(path, std::ios::binary);
+    if (!in.is_open())
+    {
+        // No file yet is fine (in-memory clear above was still work).
+        return S_OK;
+    }
+
+    std::vector<std::string> keep;
+    keep.reserve(1024);
+    std::string readingUtf8 = ToUtf8(reading);
+    std::string line;
+    while (std::getline(in, line))
+    {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        // Row starts with reading + '\t'. Any row whose first tab-separated
+        // field EQUALS our reading is dropped; everything else survives.
+        auto tab = line.find('\t');
+        if (tab != std::string::npos && line.compare(0, tab, readingUtf8) == 0)
+            continue;
+        keep.push_back(std::move(line));
+    }
+    in.close();
+
+    // Atomic replace via a tmp file next door so a crash mid-write leaves
+    // the old learning.txt intact rather than a half-truncated one.
+    std::wstring tmp = path + L".tmp";
+    {
+        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+        if (!out.is_open()) return E_FAIL;
+        for (const auto& row : keep) out << row << '\n';
+    }
+    if (!MoveFileExW(tmp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING))
+    {
+        DeleteFileW(tmp.c_str());
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+    return S_OK;
+}
+
 HRESULT LearningStore::BlacklistBoundary(const std::wstring& reading,
                                          const std::vector<size_t>& endOffsets)
 {
