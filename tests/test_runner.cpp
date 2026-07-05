@@ -122,6 +122,59 @@ TEST(romaji_sokuon)
     EXPECT_EQ_W(r.remaining, L"");
 }
 
+// Regression: doubled DIGITS must NOT produce っ. The Unicode-codepoint
+// F5 input flow types「3099」 into the buffer, which is exactly two 9s
+// in a row — the pre-fix IsSokuonConsonant("9") returned true (it was
+// "anything that isn't a vowel or n"), so the display painted「３０っ９」
+// instead of「３０９９」and the F5 hex parse then rejected the buffer.
+TEST(romaji_doubled_digits_no_sokuon)
+{
+    auto r = romaji::Convert(L"3099");
+    EXPECT_EQ_W(r.hira, L"3099");
+    EXPECT_EQ_W(r.remaining, L"");
+
+    // A digit run of any length must pass through untouched — no っ,
+    // no ん, no re-interpretation.
+    auto r2 = romaji::Convert(L"1122334455");
+    EXPECT_EQ_W(r2.hira, L"1122334455");
+    EXPECT_EQ_W(r2.remaining, L"");
+}
+
+// Digits mixed with hex letters (needed to type U+309A / U+30FC / …
+// via the F5 codepoint shortcut). Alpha portions still convert as
+// romaji — the buffer format we feed is the raw ASCII the user typed,
+// so unshifted "a" is "あ" and Shift+A in Hiragana mode lands as the
+// full-width Ａ (not exercised here — that's a display-layer thing).
+TEST(romaji_hex_looking_input_no_sokuon)
+{
+    auto r = romaji::Convert(L"309a");
+    // Digits pass through; trailing "a" becomes あ. No っ from "9a".
+    EXPECT_EQ_W(r.hira, L"309あ");
+    EXPECT_EQ_W(r.remaining, L"");
+}
+
+// Symbols in the buffer (via IsSymbolKey path) also must not trigger
+// sokuon — the pre-fix predicate accepted them too, so doubled OEM
+// chars would have painted a spurious っ. Unmatched symbols fall to
+// the caller's remaining bucket; the important thing is that no
+// spurious っ shows up in `hira`.
+TEST(romaji_doubled_symbols_no_sokuon)
+{
+    auto r = romaji::Convert(L"..");
+    EXPECT_TRUE(r.hira.find(L'っ') == std::wstring::npos);
+}
+
+// Digits followed by an alpha still convert cleanly — the digit passes
+// through and the alpha continues into the kana table. Regression for
+// the same predicate: "3k" would double-check against the neighbor if
+// we ever let a digit into the sokuon predicate.
+TEST(romaji_digit_then_alpha_no_sokuon)
+{
+    auto r = romaji::Convert(L"3ka");
+    EXPECT_EQ_W(r.hira, L"3か");
+    EXPECT_EQ_W(r.remaining, L"");
+}
+
 TEST(romaji_n_before_consonant)
 {
     auto r = romaji::Convert(L"kandou");

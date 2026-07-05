@@ -118,6 +118,14 @@ namespace
 
     bool IsSokuonConsonant(wchar_t c)
     {
+        // Sokuon triggers on a doubled ROMAJI consonant only ("kk" → っk,
+        // "tt" → っt …). Restricting the check to a-z prevents doubled
+        // digits ("99") and symbols ("..") from spuriously producing っ —
+        // e.g. typing 「３０９９」 was rendered as 「３０っ９」 because '9'
+        // is not a vowel and not 'n', so the previous "anything not a
+        // vowel/n" predicate accepted it. Vowels and 'n' are still excluded
+        // (they never form sokuon in Hepburn romaji).
+        if (c < L'a' || c > L'z') return false;
         return c != L'a' && c != L'i' && c != L'u' && c != L'e' && c != L'o' && c != L'n';
     }
 }
