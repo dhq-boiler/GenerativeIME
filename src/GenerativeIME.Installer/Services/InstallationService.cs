@@ -182,6 +182,18 @@ public sealed class InstallationService : IInstallationService
         }
     }
 
+    // True iff `relativePath` sits inside the unidic-lite/ subtree (case-
+    // insensitive, both `/` and `\` separators). Payload entries use `/`;
+    // GetRelativePath on Windows uses `\`. Callers use this to decide
+    // whether the same-size skip in ExtractPayloadAsync / CopyDirectoryAsync
+    // is allowed — see the fuller comments there.
+    private static bool IsUnidicPath(string relativePath)
+    {
+        if (string.IsNullOrEmpty(relativePath)) return false;
+        var normalized = relativePath.Replace('\\', '/');
+        return normalized.StartsWith("unidic-lite/", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static void WipeFolderContents(string folder)
     {
         if (!Directory.Exists(folder)) return;
@@ -227,8 +239,24 @@ public sealed class InstallationService : IInstallationService
                 if (!dst.StartsWith(Path.GetFullPath(installRoot), StringComparison.OrdinalIgnoreCase))
                     throw new IOException($"ZIP entry escapes destination: {entry.FullName}");
                 Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
-                // Same size-skip as the loose-folder path (see CopyDirectoryAsync).
-                if (File.Exists(dst) && new FileInfo(dst).Length == entry.Length)
+                // Compare-by-size skip is limited to unidic-lite/*, which is
+                // static reference data (~200MB) that stays memory-mapped in
+                // every process that loaded mecab.dll. Skipping it there is
+                // safe because same size means same content in practice.
+                //
+                // For every OTHER file (TSF DLL, DictManager, SKK dicts) the
+                // skip was a real bug: two builds of GenerativeIME.Tsf.dll
+                // frequently share the same size (linker rounds up section
+                // padding), so a same-size-different-content DLL survived
+                // the install and the user kept running the old code. The
+                // Wipe step earlier already tries to delete these files, but
+                // if the delete failed silently (file lock), the size skip
+                // then kept the stale copy. Always overwrite for non-unidic
+                // paths — the extract itself will throw a clear SharingViolation
+                // if the file is actually locked, which is a much better
+                // failure mode than a silent skip.
+                if (IsUnidicPath(entry.FullName)
+                    && File.Exists(dst) && new FileInfo(dst).Length == entry.Length)
                 {
                     done++;
                     continue;
@@ -268,15 +296,14 @@ public sealed class InstallationService : IInstallationService
             var dstFile = Path.Combine(dst, rel);
             Directory.CreateDirectory(Path.GetDirectoryName(dstFile)!);
 
-            // Compare-by-size skip: if the destination already exists and
-            // is byte-identical in size to the source, don't overwrite. This
-            // is a workaround for unidic-lite/*, which stays memory-mapped
-            // in every process that loaded mecab.dll via GenerativeIME.Tsf.
-            // The dictionary is static reference data — same size means
-            // same content in practice — so skipping is safe. Without this,
-            // the install fails with SharingViolation on char.bin/*.bin.
+            // Compare-by-size skip is limited to unidic-lite/*, which is
+            // static reference data (~200MB) that stays memory-mapped in
+            // every process that loaded mecab.dll via GenerativeIME.Tsf.
+            // For every other file (TSF DLL, DictManager, SKK dicts) we
+            // ALWAYS overwrite — see the matching comment in the zip path
+            // above for why a size-only compare would ship a stale build.
             var srcInfo = new FileInfo(srcFile);
-            if (File.Exists(dstFile))
+            if (IsUnidicPath(rel) && File.Exists(dstFile))
             {
                 var dstInfo = new FileInfo(dstFile);
                 if (dstInfo.Length == srcInfo.Length)
