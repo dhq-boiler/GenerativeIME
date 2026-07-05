@@ -4,6 +4,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -155,6 +156,17 @@ public sealed class InstallationService : IInstallationService
             progress?.Report(new InstallProgress("プログラムの追加と削除に登録しています…", 0.97));
             _arp.Register(manifest, installerCopy ?? GetSelfPath());
 
+            // Final stash sweep: RestartCtfmon just replaced the old
+            // ctfmon (which was still holding the previous DLL under
+            // its stash name) with a fresh instance that maps the new
+            // DLL. That releases the last common source of "still locked
+            // even after Kill" — so any stash created earlier in THIS
+            // install often deletes cleanly now. Anything still held by
+            // a foreign app (Explorer / a browser) stays for reboot via
+            // the MOVEFILE_DELAY_UNTIL_REBOOT hint already registered.
+            progress?.Report(new InstallProgress("残置ファイルを整理しています…", 0.99));
+            CleanupStashes(installRoot);
+
             progress?.Report(new InstallProgress("完了", 1.0));
             return new InstallResult(true, manifest, null);
         }
@@ -194,12 +206,115 @@ public sealed class InstallationService : IInstallationService
         return normalized.StartsWith("unidic-lite/", StringComparison.OrdinalIgnoreCase);
     }
 
+    private const string StashSuffix = ".gimeoldstash-";
+    private const int MOVEFILE_REPLACE_EXISTING = 0x1;
+    private const int MOVEFILE_DELAY_UNTIL_REBOOT = 0x4;
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool MoveFileExW(string lpExistingFileName, string? lpNewFileName, int dwFlags);
+
+    // If `dst` exists and cannot be deleted (a process still has it memory-
+    // mapped — the classic case is GenerativeIME.Tsf.dll being pulled in by
+    // every ctfmon/explorer/browser instance the moment HKLM registration
+    // was in place, and staying mapped through our kill+respawn dance),
+    // rename it out of the way so the fresh write can land at the original
+    // path. NTFS rename works on locked files — it's only the directory
+    // entry that changes; the open handles keep pointing at the same MFT
+    // record. Schedule the stashed copy for delete-on-reboot as a hint to
+    // Windows to clean it up eventually.
+    //
+    // Garbage-accumulation contract:
+    //   - Before creating a new stash we sweep any EXISTING stashes for
+    //     the same base filename. If the process that had them mapped is
+    //     now gone (typical after ctfmon respawns fresh), those delete
+    //     cleanly and we're left with exactly one stash per base file.
+    //   - The just-created stash is registered for delete-on-reboot via
+    //     MoveFileEx. Windows honors this for elevated writers, so a
+    //     reboot is guaranteed to reclaim the disk space even if every
+    //     subsequent install fails to clean up.
+    //   - CleanupStashes is also called on install completion, on the
+    //     next install's Wipe pass, and on uninstall. Combined worst
+    //     case: one 1 MB stash per install session until reboot.
+    //
+    // Silent no-op when `dst` doesn't exist. Silent fallback to a pure
+    // Delete attempt when the rename itself fails (some antivirus filter
+    // drivers block MoveFile even in-directory); the caller's overwrite
+    // then throws a clean SharingViolation if that path also fails.
+    private static void RelocateIfLocked(string dst)
+    {
+        if (!File.Exists(dst)) return;
+        try { File.SetAttributes(dst, FileAttributes.Normal); } catch { }
+        try { File.Delete(dst); return; } catch (IOException) { } catch (UnauthorizedAccessException) { }
+
+        var dir = Path.GetDirectoryName(dst);
+        if (string.IsNullOrEmpty(dir)) return;
+        var name = Path.GetFileName(dst);
+
+        // Prune any prior stashes of THIS specific file first. Only stashes
+        // that are still locked survive; the rest go away NOW instead of
+        // waiting until reboot / next install.
+        try
+        {
+            foreach (var prior in Directory.EnumerateFiles(dir, name + StashSuffix + "*"))
+            {
+                try { File.SetAttributes(prior, FileAttributes.Normal); File.Delete(prior); } catch { }
+            }
+        }
+        catch { }
+
+        var stashName = name + StashSuffix + DateTime.UtcNow.Ticks.ToString("X");
+        var stash = Path.Combine(dir, stashName);
+        try
+        {
+            File.Move(dst, stash);
+            // Hint the OS to nuke the stash at next reboot in case no
+            // future install ever runs. Failure here is fine — the next
+            // RelocateIfLocked / CleanupStashes call cleans it up if
+            // the mapping was released in the meantime.
+            MoveFileExW(stash, null, MOVEFILE_DELAY_UNTIL_REBOOT);
+        }
+        catch
+        {
+            // Rename failed too. Leave `dst` in place; the caller's
+            // overwrite will surface the real lock error to the user.
+        }
+    }
+
+    // Sweep away stashed copies from previous installs. Locked stashes
+    // stay behind for the next pass; the MOVEFILE_DELAY_UNTIL_REBOOT
+    // registration from RelocateIfLocked catches them at reboot.
+    // Callable from UninstallationService too — same suffix, same rules.
+    internal static void CleanupStashes(string folder)
+    {
+        if (!Directory.Exists(folder)) return;
+        try
+        {
+            foreach (var f in Directory.EnumerateFiles(folder, "*" + StashSuffix + "*", SearchOption.AllDirectories))
+            {
+                try { File.SetAttributes(f, FileAttributes.Normal); File.Delete(f); } catch { }
+            }
+        }
+        catch { }
+    }
+
     private static void WipeFolderContents(string folder)
     {
         if (!Directory.Exists(folder)) return;
+        // First drain any leftover stashes from previous installs. If the
+        // process that had them mapped has since exited, this finally
+        // reclaims the disk space.
+        CleanupStashes(folder);
         foreach (var f in Directory.EnumerateFiles(folder))
         {
-            try { File.SetAttributes(f, FileAttributes.Normal); File.Delete(f); } catch { }
+            // Files that fail to delete (still locked) get relocated to a
+            // stash name so the fresh write can land at the original path.
+            // We can't rely on the extract's own retry for this because two
+            // Delete calls in a row against a mapped file just fail twice —
+            // the mapping doesn't release from repeated poking.
+            try { File.SetAttributes(f, FileAttributes.Normal); } catch { }
+            try { File.Delete(f); }
+            catch (IOException)         { RelocateIfLocked(f); }
+            catch (UnauthorizedAccessException) { RelocateIfLocked(f); }
         }
         foreach (var d in Directory.EnumerateDirectories(folder))
         {
@@ -261,6 +376,7 @@ public sealed class InstallationService : IInstallationService
                     done++;
                     continue;
                 }
+                RelocateIfLocked(dst);
                 entry.ExtractToFile(dst, overwrite: true);
                 done++;
                 if (progress is not null && total > 0)
@@ -318,6 +434,7 @@ public sealed class InstallationService : IInstallationService
                 }
             }
 
+            RelocateIfLocked(dstFile);
             await using (var s = File.OpenRead(srcFile))
             await using (var d = File.Create(dstFile))
                 await s.CopyToAsync(d, ct);

@@ -78,6 +78,11 @@ public sealed class UninstallationService : IUninstallationService
             if (File.Exists(tsfDll)) _tsf.Unregister(tsfDll);
 
             progress?.Report(new InstallProgress("ファイルを削除しています…", 0.55));
+            // Sweep prior install-time stashes first: with ctfmon just
+            // killed, their common holder is gone and they usually delete
+            // cleanly. Anything still held by an Explorer / browser is
+            // caught by the folder tree pass below or reboot cleanup.
+            InstallationService.CleanupStashes(installRoot);
             DeleteFolderTree(installRoot);
 
             progress?.Report(new InstallProgress("プログラムの追加と削除エントリを削除しています…", 0.90));
