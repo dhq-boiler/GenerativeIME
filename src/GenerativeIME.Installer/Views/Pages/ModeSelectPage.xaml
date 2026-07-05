@@ -35,6 +35,9 @@
                      Text="DictManager と ctfmon を強制終了してから DLL を差し替えます。再起動不要でアップデートが完了します。"/>
           <TextBlock Style="{StaticResource SubtitleText}" Margin="0,4,0,0" Foreground="{StaticResource Danger}"
                      Text="⚠ DictManager の未保存作業は失われます。他のアプリの IME 状態も一瞬リセットされます。"/>
+          <TextBlock Style="{StaticResource SubtitleText}" Margin="0,4,0,0" Foreground="{StaticResource Danger}"
+                     Text="⚠ 本製品で日本語変換をしたアプリはプロセス終了の影響を受ける事があります。作業中のウィンドウがない場合に選択してください。"
+                     TextWrapping="Wrap"/>
         </StackPanel>
       </RadioButton>
     </StackPanel>
