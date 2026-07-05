@@ -115,6 +115,15 @@ private:
     // EndCommit to the async fallback path, so the pointer can still be non-null
     // when we return here.
     bool    CommitConvertedIfAny(ITfContext* pContext);
+    // F5 idle-state "codepoint ⇔ character" in-place toggle. Reads
+    // m_lastCommittedText and either replaces its trailing 4-6 hex chars
+    // with the character they encode (hex → char direction) or replaces
+    // its trailing single-char / surrogate-pair with its U+xxxx hex form
+    // (char → hex direction). Both directions edit the document in place
+    // via a sync edit session, so a bare F5 on「任」just gets you「4EFB」
+    // (no composition, no Enter needed), and a second F5 flips back.
+    // Returns true iff the replacement actually landed.
+    bool    ToggleCodepointInPlace(ITfContext* pContext);
     POINT   QueryCandidateAnchorPos(ITfContext* pContext);
     POINT   QueryBunsetsuAnchorPos(ITfContext* pContext, size_t offset, size_t length);
     HRESULT RequestEditSession(ITfContext* pContext, EditAction action, const std::wstring& text);

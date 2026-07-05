@@ -996,6 +996,24 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
             for (const auto& e : dictExpansions)
                 if (std::find(variants.begin(), variants.end(), e) == variants.end())
                     variants.push_back(e);
+            // Single-letter glyph variants (🇯/Ⓙ/ⓙ for "j"). The alnum
+            // path is where a bare "j" lands (it's a valid alphanumeric
+            // run of length 1), so this is where the regional-indicator
+            // form has to be surfaced — the whole-reading fav path below
+            // never fires for a fresh "j".
+            for (auto& lv : symbols::LetterVariants(ascii)) {
+                if (std::find(variants.begin(), variants.end(), lv) == variants.end())
+                    variants.push_back(lv);
+            }
+            // Two-letter ISO code → country flag emoji ("jp" → 🇯🇵).
+            // Runs after AcronymExpansions so "us" still shows US /
+            // United States above the flag, matching the "typed form is
+            // the default" contract; the flag rides at the tail as an
+            // extra option.
+            for (auto& fl : symbols::FlagFromIso2(ascii)) {
+                if (std::find(variants.begin(), variants.end(), fl) == variants.end())
+                    variants.push_back(fl);
+            }
             m_lastReading = display;
             m_pCandWnd->SetCandidates(variants);
             POINT pt = QueryCandidateAnchorPos(pContext);
@@ -3129,6 +3147,189 @@ void CTextService::AppendCommittedText(const std::wstring& text)
     }
 }
 
+bool CTextService::ToggleCodepointInPlace(ITfContext* pContext)
+{
+    if (!pContext) return false;
+
+    // Decide direction based on the LAST commit we saw. Two shapes flip:
+    //   Hex → Char: 4-6 hex chars representing a valid scalar → the char
+    //   Char → Hex: 1-2 wchars (single BMP char or a surrogate pair) → hex
+    // Any other last-commit shape (empty, longer than 6, non-hex etc.)
+    // means we can't do a clean toggle — return false so the caller can
+    // fall back or just no-op.
+    const std::wstring& last = m_lastCommittedText;
+    if (last.empty()) return false;
+
+    std::wstring rep;
+    LONG replaceLen = 0;
+
+    auto hexVal = [](wchar_t c) -> int {
+        if (c >= L'0' && c <= L'9') return (int)(c - L'0');
+        if (c >= L'a' && c <= L'f') return 10 + (int)(c - L'a');
+        if (c >= L'A' && c <= L'F') return 10 + (int)(c - L'A');
+        return -1;
+    };
+
+    // Hex → Char: check ONLY when the entire last-commit is 4-6 hex chars,
+    // to avoid grabbing arbitrary trailing hex-looking characters the user
+    // may have typed for other reasons (e.g. "cafe" ends in valid hex but
+    // is a word). The 4-6 length gate is the same one the forward F5 branch
+    // uses to parse a hex codepoint.
+    bool hexToChar = false;
+    if (last.size() >= 4 && last.size() <= 6)
+    {
+        unsigned cp = 0;
+        bool ok = true;
+        for (wchar_t c : last)
+        {
+            int v = hexVal(c);
+            if (v < 0) { ok = false; break; }
+            cp = (cp << 4) | (unsigned)v;
+        }
+        if (ok && cp <= 0x10FFFF && (cp < 0xD800 || cp > 0xDFFF))
+        {
+            if (cp <= 0xFFFF)
+            {
+                rep.push_back((wchar_t)cp);
+            }
+            else
+            {
+                unsigned s = cp - 0x10000;
+                rep.push_back((wchar_t)(0xD800 | (s >> 10)));
+                rep.push_back((wchar_t)(0xDC00 | (s & 0x3FF)));
+            }
+            replaceLen = (LONG)last.size();
+            hexToChar = true;
+        }
+    }
+
+    // Char → Hex: fall back when it wasn't clean hex. Take the last one
+    // or two wchars off the commit — surrogate pairs go together — and
+    // emit the U+xxxx form as hex text. Digits render 4 wide for BMP,
+    // 5-6 wide for supplementary planes; the width matches what the
+    // forward F5 branch expects when the user hits F5 again.
+    if (!hexToChar)
+    {
+        unsigned cp = 0;
+        LONG take = 1;
+        if (last.size() >= 2)
+        {
+            wchar_t hi = last[last.size() - 2];
+            wchar_t lo = last[last.size() - 1];
+            if (hi >= 0xD800 && hi <= 0xDBFF && lo >= 0xDC00 && lo <= 0xDFFF)
+            {
+                cp = 0x10000 + (((unsigned)(hi - 0xD800)) << 10)
+                             +  (unsigned)(lo - 0xDC00);
+                take = 2;
+            }
+            else
+            {
+                cp = (unsigned)lo;
+            }
+        }
+        else
+        {
+            cp = (unsigned)last.back();
+        }
+        wchar_t hex[8];
+        swprintf_s(hex, cp <= 0xFFFF ? L"%04X" : L"%05X", cp);
+        rep = hex;
+        replaceLen = take;
+    }
+
+    // Sync edit session: extend the current selection backwards `replaceLen`
+    // chars (the tail of the commit we want to replace) and SetText it with
+    // `rep`. We snapshotted the last-commit shape from m_lastCommittedText
+    // above; the session runs on the same UI thread so no host input can
+    // have moved the tail between now and DoEditSession.
+    struct ToggleSession : ITfEditSession
+    {
+        LONG m_cRef = 1;
+        ITfContext* m_ctx;
+        LONG m_len;
+        const wchar_t* m_repText;
+        LONG m_repLen;
+        bool m_ok = false;
+
+        ToggleSession(ITfContext* c, LONG len, const wchar_t* rep, LONG repLen)
+            : m_ctx(c), m_len(len), m_repText(rep), m_repLen(repLen)
+        { if (m_ctx) m_ctx->AddRef(); }
+        ~ToggleSession() { if (m_ctx) m_ctx->Release(); }
+
+        STDMETHODIMP QueryInterface(REFIID riid, void** pp) override {
+            if (!pp) return E_INVALIDARG;
+            *pp = nullptr;
+            if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfEditSession)) {
+                *pp = static_cast<ITfEditSession*>(this); AddRef(); return S_OK;
+            }
+            return E_NOINTERFACE;
+        }
+        STDMETHODIMP_(ULONG) AddRef() override { return InterlockedIncrement(&m_cRef); }
+        STDMETHODIMP_(ULONG) Release() override {
+            LONG c = InterlockedDecrement(&m_cRef);
+            if (c == 0) delete this;
+            return c;
+        }
+
+        STDMETHODIMP DoEditSession(TfEditCookie ec) override {
+            TF_SELECTION sel = {};
+            ULONG fetched = 0;
+            if (FAILED(m_ctx->GetSelection(ec, TF_DEFAULT_SELECTION, 1, &sel, &fetched))
+                || fetched == 0 || !sel.range) return S_OK;
+
+            ITfRange* pRange = nullptr;
+            sel.range->Clone(&pRange);
+            sel.range->Release();
+            if (!pRange) return S_OK;
+
+            LONG shifted = 0;
+            pRange->ShiftStart(ec, -m_len, &shifted, nullptr);
+            if (shifted != -m_len)
+            {
+                // Fewer chars before the caret than we thought — the host
+                // moved the caret or edited between our commit snapshot and
+                // now. Bail without touching the document.
+                pRange->Release();
+                return S_OK;
+            }
+
+            HRESULT hr = pRange->SetText(ec, 0, m_repText, m_repLen);
+            if (SUCCEEDED(hr))
+            {
+                pRange->Collapse(ec, TF_ANCHOR_END);
+                TF_SELECTION newSel = {};
+                newSel.range = pRange;
+                newSel.style.ase = TF_AE_END;
+                newSel.style.fInterimChar = FALSE;
+                m_ctx->SetSelection(ec, 1, &newSel);
+                m_ok = true;
+            }
+            pRange->Release();
+            return S_OK;
+        }
+    };
+
+    auto* s = new ToggleSession(pContext, replaceLen, rep.c_str(), (LONG)rep.length());
+    HRESULT hrSess = S_OK;
+    HRESULT hr = pContext->RequestEditSession(m_tfClientId, s,
+        TF_ES_SYNC | TF_ES_READWRITE, &hrSess);
+    bool ok = s->m_ok;
+    s->Release();
+    if (FAILED(hr) || FAILED(hrSess) || !ok) return false;
+
+    // Refresh our commit snapshot so a subsequent F5 tap toggles again
+    // from the newly-inserted form, not the old one. Also patch
+    // m_recentContext (LLM prompt context) so we don't send an
+    // inconsistent tail.
+    m_lastCommittedText = rep;
+    if (m_recentContext.size() >= (size_t)replaceLen)
+        m_recentContext.erase(m_recentContext.size() - (size_t)replaceLen);
+    m_recentContext.append(rep);
+    if (m_recentContext.size() > kRecentContextMax)
+        m_recentContext.erase(0, m_recentContext.size() - kRecentContextMax);
+    return true;
+}
+
 LRESULT CALLBACK CTextService::StaticWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     if (msg == WM_NCCREATE)
@@ -3403,15 +3604,20 @@ bool CTextService::ShouldEat(WPARAM wParam) const
         if (wParam == VK_DELETE && (GetKeyState(VK_SHIFT) < 0)) return true;
     }
     if (m_pComposition && wParam >= VK_F6 && wParam <= VK_F10) return true;
-    // F5: Unicode-codepoint input. Composition buffer treated as a
-    // 4-hex-digit BMP scalar value → replaced with that character. Handy
-    // for combining marks (「３０９９」+ F5 → U+3099 combining dakuten,
-    // 「３０９Ａ」+ F5 → U+309A combining handakuten); the mark then binds
-    // to whatever character sits immediately before the composition on
-    // commit. Claim the key whenever a composition is live so hosts don't
-    // steal it mid-input; the handler itself validates the buffer before
-    // acting and no-ops for non-hex payloads.
-    if (m_pComposition && wParam == VK_F5) return true;
+    // F5: Unicode-codepoint input. Two modes depending on composition state:
+    //   - Composition live: buffer treated as 4-6 hex digits (BMP scalar
+    //     for 4 digits, surrogate-pair-encoded supplementary plane scalar
+    //     for 5-6 digits) → replaced with the resulting character.
+    //     Combining marks: 「３０９９」+ F5 → U+3099 (dakuten),
+    //     「３０９Ａ」+ F5 → U+309A (handakuten). Emoji: 「1F600」+ F5 → 😀.
+    //   - Composition idle: reverse-lookup — open a fresh composition
+    //     showing the hex codepoint of the LAST committed character,
+    //     so pressing F5 after committing「任」opens a "4EFB" composition
+    //     the user can Enter to keep or Escape to drop. Pressing F5 on
+    //     that composition round-trips back to「任」via the normal path.
+    // We claim the key whenever the IME could react (composition or a
+    // remembered last commit) so hosts don't steal it mid-input.
+    if (wParam == VK_F5 && (m_pComposition || !m_lastCommittedText.empty())) return true;
     // F4 repeat-paste: with no composition open, re-insert the previous
     // commit (symbol/emoji spam: ‼️‼️‼️…). Only claimed while there IS a
     // previous commit, so a fresh session leaves F4 to the host app.
@@ -4165,7 +4371,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
             *pfEaten = TRUE;
         }
     }
-    else if (wParam == VK_F5 && m_pComposition)
+    else if (wParam == VK_F5)
     {
         // Unicode-codepoint input. When the current buffer is exactly
         // 4 hex digits (half-width digits, half/full-width A-F, or full-
@@ -4191,35 +4397,76 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
             if (c >= 0xFF21 && c <= 0xFF26) return 10 + (int)(c - 0xFF21); // 'Ａ'-'Ｆ'
             return -1;
         };
-        if (m_romajiBuffer.size() == 4)
+        if (m_pComposition)
         {
-            int d[4];
-            bool ok = true;
-            for (int i = 0; i < 4; ++i) {
-                d[i] = hexVal(m_romajiBuffer[i]);
-                if (d[i] < 0) { ok = false; break; }
-            }
-            if (ok)
+            // Forward: 4-6 hex digits → Unicode scalar value.
+            // 4 digits addresses the BMP directly; 5-6 digits address the
+            // supplementary planes and get UTF-16 surrogate-pair encoded.
+            //
+            // Source is normally the romaji buffer (the user typed the
+            // hex directly). For the roundtrip case — reverse F5 wrote
+            // its hex string into m_fkeyConvertedText and cleared the
+            // buffer to keep DisplayForMode from mangling it — we fall
+            // back to that field so a second F5 tap flips「4EFB」back
+            // to「任」.
+            const std::wstring& src = !m_romajiBuffer.empty()
+                                    ? m_romajiBuffer
+                                    : m_fkeyConvertedText;
+            const size_t n = src.size();
+            if (n >= 4 && n <= 6)
             {
-                unsigned cp = (unsigned)((d[0] << 12) | (d[1] << 8)
-                                       | (d[2] << 4)  |  d[3]);
-                // Reject the UTF-16 surrogate range — those aren't valid
-                // scalar values on their own. Higher planes need 5+ hex
-                // digits (surrogate pair) and are out of scope for this
-                // 4-digit shorthand; the base target is the combining
-                // marks in U+3099/U+309A anyway.
-                if (cp < 0xD800 || cp > 0xDFFF)
+                unsigned cp = 0;
+                bool ok = true;
+                for (size_t i = 0; i < n; ++i) {
+                    int v = hexVal(src[i]);
+                    if (v < 0) { ok = false; break; }
+                    cp = (cp << 4) | (unsigned)v;
+                }
+                // Valid Unicode scalar: 0..10FFFF minus the surrogate
+                // range D800..DFFF (those are code units, not scalar
+                // values on their own).
+                if (ok && cp <= 0x10FFFF && (cp < 0xD800 || cp > 0xDFFF))
                 {
-                    std::wstring text(1, (wchar_t)cp);
+                    std::wstring text;
+                    if (cp <= 0xFFFF)
+                    {
+                        text.push_back((wchar_t)cp);
+                    }
+                    else
+                    {
+                        // Supplementary plane → UTF-16 surrogate pair.
+                        // U+1F600 → 0xD83D 0xDE00 = a 😀 emoji.
+                        unsigned s = cp - 0x10000;
+                        text.push_back((wchar_t)(0xD800 | (s >> 10)));
+                        text.push_back((wchar_t)(0xDC00 | (s & 0x3FF)));
+                    }
                     if (m_pCandWnd) m_pCandWnd->Hide();
                     if (pic) RequestEditSession(pic, EditAction::Update, text);
                     m_compositionConverted = TRUE;
                     m_fkeyConvertedText    = text;
-                    m_lastReading          = m_romajiBuffer;
+                    m_lastReading          = src;
                     m_predictionActive     = false;
                     m_predictionReadings.clear();
                 }
             }
+        }
+        else if (!m_lastCommittedText.empty() && pic)
+        {
+            // Idle F5 → in-place toggle. If the last commit was a normal
+            // character (「任」), the trailing 1-2 wchars of the document
+            // are swapped for the U+xxxx hex form ("4EFB"). If the last
+            // commit was 4-6 hex chars we ourselves emitted, they're
+            // swapped back for the encoded character. No composition
+            // opens, no Enter needed — the doc mutates in place and F5
+            // becomes a clean toggle key.
+            //
+            // We used to open a composition holding the hex string, but
+            // that stranded「任」in the document (F5 → doc:「任4EFB[composition]」
+            // → Enter →「任4EFB」 which is not what "show me the codepoint of
+            // 任" was meant to produce). In-place matches the user's
+            // mental model of "F5 replaces the last thing I typed with its
+            // Unicode counterpart".
+            ToggleCodepointInPlace(pic);
         }
         *pfEaten = TRUE;
     }
