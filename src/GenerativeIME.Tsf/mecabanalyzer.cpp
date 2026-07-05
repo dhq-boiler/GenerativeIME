@@ -224,7 +224,22 @@ std::vector<MecabMorpheme> MecabAnalyzer::Analyze(const std::wstring& text) cons
         auto fields = SplitFeatureCsv(n->feature);
         if (!fields.empty()) m.pos = fields[0];
         if (fields.size() > 7 && !fields[7].empty() && fields[7] != L"*")
-            m.lemma = fields[7];
+        {
+            // UniDic lemma disambiguation suffix: 助動詞 / 補助動詞 / 特殊
+            // conjugation classes get a "-XXX" tag appended so the same
+            // surface can lemma-uniquely across classes (「そう」 →
+            // 「そう-様態」 vs 「そう-伝聞」, 「ある」 → 「ある-助動詞」,
+            // 「おる」 → 「おる-補助」). Downstream code stitches lemmas
+            // into user-facing candidates (「じっそう」 was surfacing
+            // 「爺そう-様態」 as a candidate because MakeBunsetsuFromReading
+            // concatenates lemma verbatim for non-verb non-particle
+            // morphemes). Strip anything after the first ASCII '-' — no
+            // real Japanese lemma contains it.
+            std::wstring lemma = fields[7];
+            auto dash = lemma.find(L'-');
+            if (dash != std::wstring::npos) lemma.resize(dash);
+            m.lemma = lemma.empty() ? m.surface : lemma;
+        }
         else
             m.lemma = m.surface;
 
