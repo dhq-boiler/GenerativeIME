@@ -2523,6 +2523,50 @@ TEST(skk_godan_companion_imperative_and_past_top_is_verb)
     }
 }
 
+// Head-priority overrides added from misconversion.log entries:
+//   - おし: SKK-JISYO.L lists 唖;dumb FIRST which makes MeCab
+//     reconstruct「おしました」as「唖ました」 (log 2026-07-06T00:23:31).
+//     Companion pins 押し at the head; the rest stay reachable behind.
+//   - ちんぎすはん / ふびらいはん: no direct SKK entry, greedy split
+//     produced「珍ぎす半」 / 「不ビラ違反」 (log 2026-07-06T00:03:35 /
+//     T00:23:09). Direct proper-noun entries short-circuit the split.
+TEST(skk_godan_companion_misconvert_overrides)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    struct Case { const wchar_t* reading; const wchar_t* expected; };
+    static const Case cases[] = {
+        {L"おし",         L"押し"},
+        {L"ちんぎすはん", L"チンギスハン"},
+        {L"ふびらいはん", L"フビライハン"},
+    };
+    for (const auto& c : cases) {
+        auto cands = skk->Lookup(c.reading);
+        EXPECT_TRUE(!cands.empty());
+        if (!cands.empty()) EXPECT_EQ_W(cands[0], c.expected);
+    }
+}
+
+// Full pipeline check for「おしました」: MeCab splits it and pulls the
+// SKK candidate for the verb-stem clause. Without the head-priority
+// override for「おし」, the top became「唖ました」 in the misconversion
+// log; with the override the reconstructed form must be「押しました」.
+TEST(split_mecab_oshimashita_top_is_verb_past)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto parts = bunsetsu::SplitMecab(L"おしました", *m, skk);
+    EXPECT_TRUE(!parts.empty());
+    if (parts.empty()) return;
+    std::wstring combined = bunsetsu::JoinSelected(parts);
+    // The bad form is a lone kanji + suffix: 「唖ました」. Anything with
+    // 押 in the head slot is acceptable; the misconvert we want to
+    // avoid is specifically 唖.
+    EXPECT_TRUE(combined.find(L'唖') == std::wstring::npos);
+    EXPECT_TRUE(combined.find(L'押') != std::wstring::npos);
+}
+
 // Same guard for a representative from every 五段 row so a future edit
 // that shuffles the companion order (or accidentally drops a row) fails
 // loudly rather than silently regressing coverage.

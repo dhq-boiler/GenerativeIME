@@ -620,3 +620,22 @@
 ついだ /継いだ/次いだ/嗣いだ/告いだ/接いだ/
 ぬいだ /脱いだ/
 
+;; ==== 動詞 連用形 head-priority overrides ====
+;; SKK-JISYO.L's ordering ranks archaic / rare kanji ahead of the modern
+;; verb 連用形 for these readings, so MeCab-driven compound reconstruction
+;; latches onto the wrong kanji: 「おしました」→「唖ました」instead of
+;; 「押しました」 (misconversion log 2026-07-06T00:23:31). Explicit
+;; head-priority entries pull the modern verb form to the top.
+おし /押し/推し/惜し/圧し/
+
+;; ==== 固有名詞 head-priority overrides ====
+;; Not truly godan verbs, but they're common misconversions the runtime
+;; can't rescue: JMdict-derived SKK-JISYO.loanwords.utf8 doesn't list
+;; these proper nouns, and SKK-JISYO.L's greedy split at ちん/ぎす/はん
+;; / ふ/びら/いはん yields nonsense (「珍ぎす半」/「不ビラ違反」 in the
+;; misconversion log 2026-07-06). One-line direct entries here bypass
+;; the split entirely. Extend as new missing proper nouns show up in
+;; misconversions.log.
+ちんぎすはん /チンギスハン/成吉思汗/
+ふびらいはん /フビライハン/忽必烈汗/
+
