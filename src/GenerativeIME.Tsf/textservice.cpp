@@ -3403,6 +3403,15 @@ bool CTextService::ShouldEat(WPARAM wParam) const
         if (wParam == VK_DELETE && (GetKeyState(VK_SHIFT) < 0)) return true;
     }
     if (m_pComposition && wParam >= VK_F6 && wParam <= VK_F10) return true;
+    // F5: Unicode-codepoint input. Composition buffer treated as a
+    // 4-hex-digit BMP scalar value → replaced with that character. Handy
+    // for combining marks (「３０９９」+ F5 → U+3099 combining dakuten,
+    // 「３０９Ａ」+ F5 → U+309A combining handakuten); the mark then binds
+    // to whatever character sits immediately before the composition on
+    // commit. Claim the key whenever a composition is live so hosts don't
+    // steal it mid-input; the handler itself validates the buffer before
+    // acting and no-ops for non-hex payloads.
+    if (m_pComposition && wParam == VK_F5) return true;
     // F4 repeat-paste: with no composition open, re-insert the previous
     // commit (symbol/emoji spam: ‼️‼️‼️…). Only claimed while there IS a
     // previous commit, so a fresh session leaves F4 to the host app.
@@ -4155,6 +4164,64 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         }
             *pfEaten = TRUE;
         }
+    }
+    else if (wParam == VK_F5 && m_pComposition)
+    {
+        // Unicode-codepoint input. When the current buffer is exactly
+        // 4 hex digits (half-width digits, half/full-width A-F, or full-
+        // width digits — any casing), replace the composition with the
+        // corresponding BMP scalar value's character. Anything else is
+        // left untouched (key is still eaten so it doesn't reach the
+        // host and open a menu / trigger a browser refresh).
+        //
+        // The main use case is inserting a combining voiced-sound mark
+        // right after a character:
+        //   ふ [commit] → ３０９Ａ F5 [commit] → ぷ
+        //   任 [commit] → ３０９９ F5 [commit] → 任゙
+        // because U+3099 / U+309A are combining marks that bind to the
+        // preceding base character on render. The IME just makes the
+        // codepoint typeable — the combining semantics are up to the
+        // font/shaper on the host side.
+        auto hexVal = [](wchar_t c) -> int {
+            if (c >= L'0' && c <= L'9') return (int)(c - L'0');
+            if (c >= L'a' && c <= L'f') return 10 + (int)(c - L'a');
+            if (c >= L'A' && c <= L'F') return 10 + (int)(c - L'A');
+            if (c >= 0xFF10 && c <= 0xFF19) return (int)(c - 0xFF10);   // '０'-'９'
+            if (c >= 0xFF41 && c <= 0xFF46) return 10 + (int)(c - 0xFF41); // 'ａ'-'ｆ'
+            if (c >= 0xFF21 && c <= 0xFF26) return 10 + (int)(c - 0xFF21); // 'Ａ'-'Ｆ'
+            return -1;
+        };
+        if (m_romajiBuffer.size() == 4)
+        {
+            int d[4];
+            bool ok = true;
+            for (int i = 0; i < 4; ++i) {
+                d[i] = hexVal(m_romajiBuffer[i]);
+                if (d[i] < 0) { ok = false; break; }
+            }
+            if (ok)
+            {
+                unsigned cp = (unsigned)((d[0] << 12) | (d[1] << 8)
+                                       | (d[2] << 4)  |  d[3]);
+                // Reject the UTF-16 surrogate range — those aren't valid
+                // scalar values on their own. Higher planes need 5+ hex
+                // digits (surrogate pair) and are out of scope for this
+                // 4-digit shorthand; the base target is the combining
+                // marks in U+3099/U+309A anyway.
+                if (cp < 0xD800 || cp > 0xDFFF)
+                {
+                    std::wstring text(1, (wchar_t)cp);
+                    if (m_pCandWnd) m_pCandWnd->Hide();
+                    if (pic) RequestEditSession(pic, EditAction::Update, text);
+                    m_compositionConverted = TRUE;
+                    m_fkeyConvertedText    = text;
+                    m_lastReading          = m_romajiBuffer;
+                    m_predictionActive     = false;
+                    m_predictionReadings.clear();
+                }
+            }
+        }
+        *pfEaten = TRUE;
     }
     else if (wParam >= VK_F6 && wParam <= VK_F10 && m_pComposition)
     {
