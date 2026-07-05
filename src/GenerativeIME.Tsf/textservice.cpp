@@ -2618,7 +2618,7 @@ void CTextService::ScanDocumentVocab(ITfContext* pContext)
 // composition. Without this, the new keystroke would extend m_romajiBuffer
 // and BuildCompositionDisplay would re-derive hiragana from it, throwing
 // away the chosen kanji.
-void CTextService::CommitConvertedIfAny(ITfContext* pContext)
+bool CTextService::CommitConvertedIfAny(ITfContext* pContext)
 {
     // Defensive: clear stale bunsetsu state that leaked from an earlier
     // commit path (e.g. number-key candidate pick before the Phase-B fix,
@@ -2633,7 +2633,7 @@ void CTextService::CommitConvertedIfAny(ITfContext* pContext)
     {
         LeaveBunsetsuMode();
     }
-    if (!m_compositionConverted || !m_pComposition) return;
+    if (!m_compositionConverted || !m_pComposition) return false;
     if (InBunsetsuMode())
     {
         // The user started typing the next chunk without hitting Enter on
@@ -2684,6 +2684,7 @@ void CTextService::CommitConvertedIfAny(ITfContext* pContext)
     m_predictionActive = false;
     m_predictionReadings.clear();
     if (m_pCandWnd) m_pCandWnd->Hide();
+    return true;
 }
 
 // Append `text` to the rolling context buffer and clamp to the recent window.
@@ -3506,7 +3507,17 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         // If a candidate was already chosen (m_compositionConverted), close it
         // out first so this alpha key starts a NEW composition rather than
         // mutating m_romajiBuffer underneath the kanji.
-        CommitConvertedIfAny(pic);
+        //
+        // `committed` tracks whether the auto-commit actually fired. When it did,
+        // the composition just ended (or is about to end via async EndCommit),
+        // and the FOLLOWING RequestEditSession MUST be StartAndUpdate —
+        // trusting `m_pComposition == nullptr` alone is unsafe because some
+        // hosts defer our sync EndCommit to the async fallback path, so
+        // m_pComposition can still be non-null when we reach the branch below.
+        // Without this, the 2nd bunsetsu's first romaji pair landed as raw
+        // ASCII ("k a") because we did Update on the stale 私 composition
+        // instead of starting a fresh one.
+        bool committed = CommitConvertedIfAny(pic);
         // Shift detection: GetKeyState alone is unreliable in the TSF
         // keystroke-sink context — the calling thread's cached key state
         // isn't always updated by the time OnKeyDown fires, so a physical
@@ -3541,10 +3552,11 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         std::wstring display = DisplayForMode(m_romajiBuffer, m_imeMode);
         if (pic)
         {
-            EditAction action = (m_pComposition == nullptr) ? EditAction::StartAndUpdate : EditAction::Update;
+            bool fresh = committed || (m_pComposition == nullptr);
+            EditAction action = fresh ? EditAction::StartAndUpdate : EditAction::Update;
             // Harvest the surrounding document text BEFORE the composition
             // opens, so the slice reflects committed content only.
-            if (m_pComposition == nullptr) ScanDocumentVocab(pic);
+            if (fresh) ScanDocumentVocab(pic);
             RequestEditSession(pic, action, display);
             UpdatePrediction(pic);
         }
@@ -3574,14 +3586,15 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         // chain used to swallow the digit into the buffer first, so
         // number-row candidate selection never fired for romaji input.
         // '0' has no pick row, so it stays buffer input either way.
-        CommitConvertedIfAny(pic);
+        bool committed = CommitConvertedIfAny(pic);
         m_romajiBuffer.push_back(static_cast<wchar_t>(wParam));
         m_compositionConverted = FALSE;
         if (m_pCandWnd) m_pCandWnd->Hide();
         std::wstring display = DisplayForMode(m_romajiBuffer, m_imeMode);
         if (pic)
         {
-            EditAction action = (m_pComposition == nullptr) ? EditAction::StartAndUpdate : EditAction::Update;
+            bool fresh = committed || (m_pComposition == nullptr);
+            EditAction action = fresh ? EditAction::StartAndUpdate : EditAction::Update;
             RequestEditSession(pic, action, display);
             UpdatePrediction(pic);
         }
@@ -3594,14 +3607,15 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         {
             // Same as alpha path: commit the previously chosen kanji first
             // so the symbol doesn't overwrite it via BuildCompositionDisplay.
-            CommitConvertedIfAny(pic);
+            bool committed = CommitConvertedIfAny(pic);
             m_romajiBuffer.push_back(ch);
             m_compositionConverted = FALSE;
             if (m_pCandWnd) m_pCandWnd->Hide();
             std::wstring display = DisplayForMode(m_romajiBuffer, m_imeMode);
             if (pic)
             {
-                EditAction action = (m_pComposition == nullptr) ? EditAction::StartAndUpdate : EditAction::Update;
+                bool fresh = committed || (m_pComposition == nullptr);
+                EditAction action = fresh ? EditAction::StartAndUpdate : EditAction::Update;
                 RequestEditSession(pic, action, display);
                 UpdatePrediction(pic);
             }

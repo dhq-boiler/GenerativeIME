@@ -157,6 +157,34 @@ STDMETHODIMP CEditSession::DoEditSession(TfEditCookie ec)
 
 HRESULT CEditSession::DoStartAndUpdate(TfEditCookie ec)
 {
+    // Defense in depth: if a previous composition is still live (e.g. a
+    // CommitConvertedIfAny EndCommit was queued async by the host and hasn't
+    // run yet, or the caller chose StartAndUpdate while m_pComposition was
+    // still non-null), end it BEFORE inserting the new text. Without this,
+    // the InsertTextAtSelection at the caret can land inside the still-open
+    // composition and the following StartComposition may fail or create a
+    // nested composition — the observed symptom was the 2nd bunsetsu's
+    // first romaji pair appearing as raw ASCII (e.g. "k a") because the
+    // fresh composition never actually started around them.
+    ITfComposition* pOld = m_pService->GetComposition();
+    if (pOld)
+    {
+        OutputDebugStringW(L"[GenerativeIME] DoStartAndUpdate: found leftover composition, ending it first\n");
+        ITfRange* pOldRange = nullptr;
+        if (SUCCEEDED(pOld->GetRange(&pOldRange)) && pOldRange)
+        {
+            pOldRange->Collapse(ec, TF_ANCHOR_END);
+            TF_SELECTION oldSel = {};
+            oldSel.range = pOldRange;
+            oldSel.style.ase = TF_AE_END;
+            oldSel.style.fInterimChar = FALSE;
+            m_pContext->SetSelection(ec, 1, &oldSel);
+            pOldRange->Release();
+        }
+        pOld->EndComposition(ec);
+        m_pService->SetComposition(nullptr);
+    }
+
     ITfInsertAtSelection* pInsertAtSelection = nullptr;
     HRESULT hr = m_pContext->QueryInterface(IID_ITfInsertAtSelection, (void**)&pInsertAtSelection);
     if (FAILED(hr)) return hr;

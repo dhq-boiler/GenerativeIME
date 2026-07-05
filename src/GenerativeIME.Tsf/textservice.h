@@ -108,7 +108,13 @@ private:
     static LRESULT CALLBACK StaticWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     void    ShowLangBarMenu(int x, int y);
     void    ApplyCandidateSelection(ITfContext* pContext);
-    void    CommitConvertedIfAny(ITfContext* pContext);
+    // Returns true iff the helper actually auto-committed a converted composition.
+    // Callers use the return value to decide whether the FOLLOWING keystroke's
+    // edit session must start a fresh composition (StartAndUpdate) rather than
+    // trust `m_pComposition == nullptr` alone — some hosts defer our sync
+    // EndCommit to the async fallback path, so the pointer can still be non-null
+    // when we return here.
+    bool    CommitConvertedIfAny(ITfContext* pContext);
     POINT   QueryCandidateAnchorPos(ITfContext* pContext);
     POINT   QueryBunsetsuAnchorPos(ITfContext* pContext, size_t offset, size_t length);
     HRESULT RequestEditSession(ITfContext* pContext, EditAction action, const std::wstring& text);
