@@ -1095,6 +1095,19 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
         if (!fav.empty())
         {
             std::vector<std::wstring> cands = { fav };
+            auto addUnique = [&cands](std::wstring c) {
+                if (c.empty()) return;
+                if (std::find(cands.begin(), cands.end(), c) == cands.end())
+                    cands.push_back(std::move(c));
+            };
+
+            // Symbol dictionary hits (arrows, ℃, ㎢, bracket-pair variants,
+            // etc.). Without this the fav path swallows non-SKK-covered
+            // candidates the normal path would have shown — a fav learned
+            // for a bracket-pair reading, for example, would hide the other
+            // 8 bracket-pair variants entirely.
+            for (auto& c : symbols::LookupAll(reading)) addUnique(std::move(c));
+
             if (auto* skk = SkkDictionary::GetGlobal(); skk && skk->IsLoaded())
             {
                 auto hits = skk->Lookup(reading);
@@ -1121,29 +1134,28 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
                 // appears BEFORE 快/介/回転… of raw SKK order.
                 std::vector<std::wstring> tail = modernranking::PromoteToTop(
                     reading, std::vector<std::wstring>(hits));
-                for (auto& c : tail) {
-                    if (std::find(cands.begin(), cands.end(), c) == cands.end())
-                        cands.push_back(std::move(c));
+                // Reconstruct conjugated verb/adjective forms from SKK
+                // okuri-stem entries via MeCab, matching the SKK-only path
+                // (line 1369). e.g. ちいさい has no direct SKK entry, only
+                // ちいさi /小さ/; MergeMecabVerbForms glues that back into
+                // 「小さい」. Without this the fav path stops at the raw SKK
+                // stem and the user never sees the conjugated kanji form.
+                if (auto* mecab = MecabAnalyzer::GetGlobal();
+                    mecab && mecab->IsReady() && !skk->IsUserDictReading(reading))
+                {
+                    tail = bunsetsu::MergeMecabVerbForms(reading, *mecab, tail);
                 }
+                for (auto& c : tail) addUnique(std::move(c));
             }
             // Sensitive-reading mask variants (opt-in per-reading via
             // masks::Variants) appended at the end so a user can pick
             // ち〇ぽ / 〇んぽ / ちん〇 without leaving the composition.
             // Non-sensitive readings return empty and are unaffected.
-            for (auto& m : masks::Variants(reading)) {
-                if (std::find(cands.begin(), cands.end(), m) == cands.end())
-                    cands.push_back(std::move(m));
-            }
-            for (auto& a : alphaspell::Spell(reading)) {
-                if (std::find(cands.begin(), cands.end(), a) == cands.end())
-                    cands.push_back(std::move(a));
-            }
+            for (auto& m : masks::Variants(reading)) addUnique(std::move(m));
+            for (auto& a : alphaspell::Spell(reading)) addUnique(std::move(a));
             // Letter-glyph variants (ｗ/W/Ｗ/🇼/Ⓦ/…) so a learned pick like
             // 「w→🇼」 doesn't lock the other forms out of reach.
-            for (auto& lv : symbols::LetterVariants(reading)) {
-                if (std::find(cands.begin(), cands.end(), lv) == cands.end())
-                    cands.push_back(std::move(lv));
-            }
+            for (auto& lv : symbols::LetterVariants(reading)) addUnique(std::move(lv));
             m_lastReading = reading;
             m_pCandWnd->SetCandidates(cands);
             POINT pt = QueryCandidateAnchorPos(pContext);
