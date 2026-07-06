@@ -2774,7 +2774,7 @@ bool CTextService::CommitConvertedIfAny(ITfContext* pContext)
         AppendCommittedText(text);
         if (!joinedReading.empty()) m_lastCommittedReading = joinedReading;
         m_lastCommittedClauseReadings = std::move(clauseReadings);
-        if (pContext) RequestEditSession(pContext, EditAction::EndCommit, L"");
+        if (pContext) RequestEditSession(pContext, EditAction::EndCommit, text);
         LeaveBunsetsuMode();
     }
     else if (m_pCandWnd)
@@ -2797,7 +2797,14 @@ bool CTextService::CommitConvertedIfAny(ITfContext* pContext)
         AppendCommittedText(picked);
         if (!m_lastReading.empty()) m_lastCommittedReading = m_lastReading;
         size_t caretShift = BracketPairCaretBackShift(picked);
-        if (pContext) RequestEditSession(pContext, EditAction::EndCommit, L"", caretShift);
+        // Explicitly SetText(picked) on commit rather than trusting the
+        // composition range to still hold what the previous Update wrote.
+        // notepad respects range content across Update+EndCommit, but
+        // Chromium contenteditable (x.com, etc.) may truncate or replace
+        // the range mid-sequence, leaving only the opening char of a
+        // 2-char pair like 『』. Passing the text explicitly makes the
+        // final write authoritative regardless of host quirks.
+        if (pContext) RequestEditSession(pContext, EditAction::EndCommit, picked, caretShift);
     }
     m_romajiBuffer.clear();
     m_compositionConverted = FALSE;
@@ -4289,7 +4296,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
             AppendCommittedText(text);
             if (!joinedReading.empty()) m_lastCommittedReading = joinedReading;
             m_lastCommittedClauseReadings = std::move(clauseReadings);
-            if (pic) RequestEditSession(pic, EditAction::EndCommit, L"");
+            if (pic) RequestEditSession(pic, EditAction::EndCommit, text);
             LeaveBunsetsuMode();
         }
         else if (m_compositionConverted)
@@ -4312,7 +4319,10 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
                 if (!m_lastReading.empty()) m_lastCommittedReading = m_lastReading;
             }
             size_t caretShift = BracketPairCaretBackShift(picked);
-            if (pic) RequestEditSession(pic, EditAction::EndCommit, L"", caretShift);
+            // Pass picked as the final range text — see the matching commit
+            // in CommitConvertedIfAny for why (Chromium contenteditable may
+            // not preserve the range's Update'd content across Enter).
+            if (pic) RequestEditSession(pic, EditAction::EndCommit, picked, caretShift);
         }
         else
         {
@@ -4962,7 +4972,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
                 AppendCommittedText(text);
                 if (!joinedReading.empty()) m_lastCommittedReading = joinedReading;
                 m_lastCommittedClauseReadings = std::move(clauseReadings);
-                if (pic) RequestEditSession(pic, EditAction::EndCommit, L"");
+                if (pic) RequestEditSession(pic, EditAction::EndCommit, text);
                 LeaveBunsetsuMode();
             }
             else
@@ -4975,7 +4985,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
                 AppendCommittedText(picked);
                 if (!m_lastReading.empty()) m_lastCommittedReading = m_lastReading;
                 size_t caretShift = BracketPairCaretBackShift(picked);
-                if (pic) RequestEditSession(pic, EditAction::EndCommit, L"", caretShift);
+                if (pic) RequestEditSession(pic, EditAction::EndCommit, picked, caretShift);
             }
             m_romajiBuffer.clear();
             m_compositionConverted = FALSE;
