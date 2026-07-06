@@ -27,6 +27,10 @@ namespace symbols
     // {"!", "！"} — the typed form stays at index 0 so a bare Enter keeps
     // what the user got, while ↓/Space picks the other form. Empty for
     // anything that isn't a known punctuation pair.
+    //
+    // 例外: 開き括弧「（｛＜［ 等は「ペア」(「」など) を先頭候補にする。
+    // 括弧は単独より対で使うのが常態で、Space+Enter で「」を得られる方が
+    // 期待に沿うため。単独が欲しいときは ↓ で index 1 を選ぶ。
     std::vector<std::wstring> PunctPairs(std::wstring_view typed);
 
     // Single ASCII letter -> glyph variants (typed form first, then the

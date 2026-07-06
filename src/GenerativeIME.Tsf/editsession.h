@@ -54,6 +54,17 @@ public:
         m_hasFocus     = (focusedLen > 0);
     }
 
+    // EndCommit 時、確定範囲末尾から N 文字ぶんカーソルを左にずらす。
+    // 括弧ペア (「」など) を確定したとき、閉じ括弧の直前 (=ペアの内側) に
+    // キャレットを落とすための機能。0 なら従来どおり末尾。
+    // StartAndUpdate/Update でも同様に適用され、コンポジション中でも
+    // 末尾の閉じ括弧の直前にキャレットを保つ。
+    void SetCaretOffsetFromEnd(size_t n) { m_caretOffsetFromEnd = n; }
+
+    // EndCancel 分岐で、範囲を空にする代わりに指定テキストへ置換する。
+    // 開始時に吸収した「」を、Esc キャンセル時に元通り残すために使う。
+    void SetCancelReplacement(const std::wstring& s) { m_cancelReplacement = s; }
+
     // IUnknown
     STDMETHODIMP            QueryInterface(REFIID riid, void** ppvObj) override;
     STDMETHODIMP_(ULONG)    AddRef() override;
@@ -78,6 +89,8 @@ private:
     size_t        m_focusedStart = 0;
     size_t        m_focusedLen   = 0;
     bool          m_hasFocus     = false;
+    size_t        m_caretOffsetFromEnd = 0;
+    std::wstring  m_cancelReplacement;
 };
 
 // Read-only session that returns the screen rect of a substring of the

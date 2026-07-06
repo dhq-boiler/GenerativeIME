@@ -135,7 +135,17 @@ private:
     void    LogMisconversionAttempt();
     POINT   QueryCandidateAnchorPos(ITfContext* pContext);
     POINT   QueryBunsetsuAnchorPos(ITfContext* pContext, size_t offset, size_t length);
-    HRESULT RequestEditSession(ITfContext* pContext, EditAction action, const std::wstring& text);
+    HRESULT RequestEditSession(ITfContext* pContext, EditAction action, const std::wstring& text,
+                               size_t caretOffsetFromEnd = 0);
+
+    // 文節範囲の閉じ括弧吸収機構。
+    // 新規コンポジション開始時、caret 直後の 1 文字が「」）｝＞］〕】 等の
+    // 閉じ括弧なら doc から削除して m_absorbedCloseBracket に記憶する。
+    // 以降のコンポジション表示に自動的に付加され、確定/キャンセル時に
+    // 適切な位置へ再配置される。
+    bool    TryAbsorbCloseBracket(ITfContext* pContext);
+    void    ClearAbsorbedCloseBracket() { m_absorbedCloseBracket = 0; }
+    wchar_t m_absorbedCloseBracket = 0;
 
     LONG                m_cRef;
     ITfThreadMgr*       m_pThreadMgr;

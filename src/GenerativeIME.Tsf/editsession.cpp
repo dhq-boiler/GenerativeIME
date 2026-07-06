@@ -204,11 +204,19 @@ HRESULT CEditSession::DoStartAndUpdate(TfEditCookie ec)
     pRangeInsert->Release();
     if (FAILED(hr) || !pComposition) return hr;
 
-    // Move the caret to the end of the composition.
+    // Move the caret to the end of the composition (or offset from end when
+    // a trailing char like an absorbed 」 needs the caret placed inside it).
     ITfRange* pRange = nullptr;
     if (SUCCEEDED(pComposition->GetRange(&pRange)) && pRange)
     {
         pRange->Collapse(ec, TF_ANCHOR_END);
+        if (m_caretOffsetFromEnd > 0)
+        {
+            LONG shifted = 0;
+            pRange->ShiftStart(ec, -static_cast<LONG>(m_caretOffsetFromEnd),
+                               &shifted, nullptr);
+            pRange->Collapse(ec, TF_ANCHOR_START);
+        }
         TF_SELECTION sel = {};
         sel.range = pRange;
         sel.style.ase = TF_AE_END;
@@ -271,7 +279,16 @@ HRESULT CEditSession::DoUpdate(TfEditCookie ec)
     // end; pushing it into the context's selection moves the actual caret
     // there. Without this, the visible caret stays at the composition start
     // even as the displayed text grows, which feels broken to the user.
+    // When a trailing char is present (absorbed 」 etc.), place the caret
+    // N chars back so typing appends BEFORE the closing bracket.
     pRange->Collapse(ec, TF_ANCHOR_END);
+    if (m_caretOffsetFromEnd > 0)
+    {
+        LONG shifted = 0;
+        pRange->ShiftStart(ec, -static_cast<LONG>(m_caretOffsetFromEnd),
+                           &shifted, nullptr);
+        pRange->Collapse(ec, TF_ANCHOR_START);
+    }
     TF_SELECTION sel = {};
     sel.range = pRange;
     sel.style.ase = TF_AE_END;
@@ -450,7 +467,11 @@ HRESULT CEditSession::DoEnd(TfEditCookie ec, bool cancel)
     {
         if (cancel)
         {
-            pRange->SetText(ec, 0, L"", 0);
+            if (!m_cancelReplacement.empty())
+                pRange->SetText(ec, 0, m_cancelReplacement.c_str(),
+                                (LONG)m_cancelReplacement.length());
+            else
+                pRange->SetText(ec, 0, L"", 0);
         }
         else if (!m_text.empty())
         {
@@ -466,7 +487,24 @@ HRESULT CEditSession::DoEnd(TfEditCookie ec, bool cancel)
         // Without this, EndComposition leaves the visible caret where the
         // composition started, so after committing "あああああ" the cursor
         // jumps back to before the first あ instead of staying at the end.
-        pRange->Collapse(ec, TF_ANCHOR_END);
+        // Cancel+置換 (吸収した」の復元) では、キャレットを置換文字の
+        // 直前 (=元の caret 位置) に置いて「」の内側に戻す。
+        if (cancel && !m_cancelReplacement.empty())
+        {
+            pRange->Collapse(ec, TF_ANCHOR_START);
+        }
+        else
+        {
+            pRange->Collapse(ec, TF_ANCHOR_END);
+            if (!cancel && m_caretOffsetFromEnd > 0)
+            {
+                // 括弧ペア確定: 閉じ括弧の直前 (=ペア内側) にキャレットを落とす。
+                LONG shifted = 0;
+                pRange->ShiftStart(ec, -static_cast<LONG>(m_caretOffsetFromEnd),
+                                   &shifted, nullptr);
+                pRange->Collapse(ec, TF_ANCHOR_START);
+            }
+        }
         TF_SELECTION sel = {};
         sel.range = pRange;
         sel.style.ase = TF_AE_END;

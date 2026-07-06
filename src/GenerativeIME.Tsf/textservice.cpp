@@ -28,6 +28,11 @@ constexpr UINT WM_OLLAMA_FALLBACK_DONE = WM_USER + 5;
 constexpr UINT WM_ACRONYM_DONE         = WM_USER + 6;
 constexpr wchar_t kMsgWndClass[] = L"GenerativeIME_MsgWnd_v1";
 
+// 前方宣言: 定義は IsAlphaKey 近く (~L3730)。使用は commit 系関数
+// (CommitConvertedIfAny 等) から先に呼ばれるため、ここで宣言だけしておく。
+static size_t BracketPairCaretBackShift(const std::wstring& text);
+static bool   IsCloseBracketChar(wchar_t c);
+
 // Forward declaration — full body sits near LogMisconversionAttempt at
 // the bottom of this file. Prototype up here so early callers
 // (InitPreservedKeys, OnPreservedKey) can reach it.
@@ -2637,6 +2642,78 @@ void CTextService::ScanDocumentVocab(ITfContext* pContext)
     OutputDebugStringW(logbuf);
 }
 
+// 新規コンポジション開始直前、caret 直後の 1 文字が閉じ括弧なら doc から
+// 削除して m_absorbedCloseBracket に stash する。以降のコンポジション表示は
+// 自動的に「buffer + 」」の形になり、caret は「」の直前に置かれる。
+// 変換確定時にはそのまま反映され、Escape キャンセル時には「」が元位置に戻る。
+// 戻り値: true なら吸収した (m_absorbedCloseBracket に文字が入っている)。
+bool CTextService::TryAbsorbCloseBracket(ITfContext* pContext)
+{
+    m_absorbedCloseBracket = 0;
+    if (!pContext) return false;
+
+    class AbsorbSession : public ITfEditSession
+    {
+    public:
+        AbsorbSession(ITfContext* c, wchar_t* out)
+            : m_ctx(c), m_out(out) { if (m_ctx) m_ctx->AddRef(); }
+        STDMETHODIMP QueryInterface(REFIID riid, void** pp) override {
+            if (!pp) return E_INVALIDARG;
+            *pp = nullptr;
+            if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfEditSession)) {
+                *pp = static_cast<ITfEditSession*>(this); AddRef(); return S_OK;
+            }
+            return E_NOINTERFACE;
+        }
+        STDMETHODIMP_(ULONG) AddRef() override { return InterlockedIncrement(&m_cRef); }
+        STDMETHODIMP_(ULONG) Release() override {
+            LONG c = InterlockedDecrement(&m_cRef);
+            if (c == 0) delete this;
+            return c;
+        }
+        STDMETHODIMP DoEditSession(TfEditCookie ec) override {
+            TF_SELECTION sel = {};
+            ULONG fetched = 0;
+            HRESULT hr = m_ctx->GetSelection(ec, TF_DEFAULT_SELECTION, 1, &sel, &fetched);
+            if (FAILED(hr) || fetched == 0 || !sel.range) return hr;
+            ITfRange* peek = nullptr;
+            sel.range->Clone(&peek);
+            sel.range->Release();
+            if (!peek) return S_OK;
+            // Caret 位置から 1 char 分右に伸ばして GetText。
+            LONG shifted = 0;
+            peek->Collapse(ec, TF_ANCHOR_START);
+            peek->ShiftEnd(ec, 1, &shifted, nullptr);
+            if (shifted == 1)
+            {
+                wchar_t ch = 0;
+                ULONG got = 0;
+                peek->GetText(ec, 0, &ch, 1, &got);
+                if (got == 1 && IsCloseBracketChar(ch))
+                {
+                    // 対象 char を doc から削除。以後、この位置に caret があるまま
+                    // コンポジションが開始される。
+                    peek->SetText(ec, 0, L"", 0);
+                    *m_out = ch;
+                }
+            }
+            peek->Release();
+            return S_OK;
+        }
+    private:
+        ~AbsorbSession() { if (m_ctx) m_ctx->Release(); }
+        LONG m_cRef = 1;
+        ITfContext* m_ctx;
+        wchar_t*    m_out;
+    };
+
+    AbsorbSession* s = new AbsorbSession(pContext, &m_absorbedCloseBracket);
+    HRESULT hrS = S_OK;
+    pContext->RequestEditSession(m_tfClientId, s, TF_ES_SYNC | TF_ES_READWRITE, &hrS);
+    s->Release();
+    return m_absorbedCloseBracket != 0;
+}
+
 // If the user picked a candidate (via Space/↓/Tab) and then starts typing
 // the next chunk (alpha / symbol / etc.) without explicitly hitting Enter,
 // auto-commit the converted text first so the new keystroke begins a fresh
@@ -2719,7 +2796,8 @@ bool CTextService::CommitConvertedIfAny(ITfContext* pContext)
         }
         AppendCommittedText(picked);
         if (!m_lastReading.empty()) m_lastCommittedReading = m_lastReading;
-        if (pContext) RequestEditSession(pContext, EditAction::EndCommit, L"");
+        size_t caretShift = BracketPairCaretBackShift(picked);
+        if (pContext) RequestEditSession(pContext, EditAction::EndCommit, L"", caretShift);
     }
     m_romajiBuffer.clear();
     m_compositionConverted = FALSE;
@@ -3725,6 +3803,55 @@ static bool IsAlphaKey(WPARAM wParam)
     return (wParam >= 'A' && wParam <= 'Z');
 }
 
+// 「これは閉じ括弧か」判定。caret 直後にこれが居たらコンポジション開始時に
+// 吸収してよい。BracketPairCaretBackShift の閉じ側と対応させる。
+static bool IsCloseBracketChar(wchar_t c)
+{
+    switch (c)
+    {
+    case L'」': case L'』': case L'）': case L'〕': case L'】': case L'］':
+    case L'｝': case L'〉': case L'》': case L'〙': case L'〛':
+    case L')':  case L']':  case L'}':  case L'>':
+    case L'”':  case L'’':
+        return true;
+    default:
+        return false;
+    }
+}
+
+// 括弧ペアを閉じ括弧の直前で確定するためのキャレット後退幅を返す。
+// text が「開き括弧 + 閉じ括弧」だけの 2 文字なら 1、そうでなければ 0。
+// 「」『』（）〔〕【】［］《》〈〉〘〙〚〛など CJK 系括弧に加え、
+// ASCII の () [] {} <> と各種引用符も面倒見る (全部 BMP 1 wchar_t)。
+static size_t BracketPairCaretBackShift(const std::wstring& text)
+{
+    if (text.size() != 2) return 0;
+    wchar_t o = text[0], c = text[1];
+    switch (o)
+    {
+    case L'「':  return (c == L'」')  ? 1 : 0;   // U+300C / U+300D
+    case L'『':  return (c == L'』')  ? 1 : 0;   // U+300E / U+300F
+    case L'（':  return (c == L'）')  ? 1 : 0;   // U+FF08 / U+FF09
+    case L'〔':  return (c == L'〕')  ? 1 : 0;   // U+3014 / U+3015
+    case L'【':  return (c == L'】')  ? 1 : 0;   // U+3010 / U+3011
+    case L'［':  return (c == L'］')  ? 1 : 0;   // U+FF3B / U+FF3D
+    case L'｛':  return (c == L'｝')  ? 1 : 0;   // U+FF5B / U+FF5D
+    case L'〈':  return (c == L'〉')  ? 1 : 0;   // U+3008 / U+3009
+    case L'《':  return (c == L'》')  ? 1 : 0;   // U+300A / U+300B
+    case L'〘':  return (c == L'〙')  ? 1 : 0;   // U+3018 / U+3019
+    case L'〚':  return (c == L'〛')  ? 1 : 0;   // U+301A / U+301B
+    case L'(':   return (c == L')')   ? 1 : 0;
+    case L'[':   return (c == L']')   ? 1 : 0;
+    case L'{':   return (c == L'}')   ? 1 : 0;
+    case L'<':   return (c == L'>')   ? 1 : 0;
+    case L'"':   return (c == L'"')   ? 1 : 0;
+    case L'\'':  return (c == L'\'')  ? 1 : 0;
+    case L'“':   return (c == L'”')   ? 1 : 0;   // U+201C / U+201D
+    case L'‘':   return (c == L'’')   ? 1 : 0;   // U+2018 / U+2019
+    default:     return 0;
+    }
+}
+
 // OEM-* virtual keys that produce printable ASCII punctuation on the
 // standard JIS / US layouts. We claim them while the IME is on so we can
 // route the resolved character through the kana table (",", "." → "、", "。").
@@ -4030,7 +4157,12 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
             EditAction action = fresh ? EditAction::StartAndUpdate : EditAction::Update;
             // Harvest the surrounding document text BEFORE the composition
             // opens, so the slice reflects committed content only.
-            if (fresh) ScanDocumentVocab(pic);
+            if (fresh)
+            {
+                ScanDocumentVocab(pic);
+                // caret 直後が「」等ならコンポジションに吸収する。
+                TryAbsorbCloseBracket(pic);
+            }
             RequestEditSession(pic, action, display);
             UpdatePrediction(pic);
         }
@@ -4069,6 +4201,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         {
             bool fresh = committed || (m_pComposition == nullptr);
             EditAction action = fresh ? EditAction::StartAndUpdate : EditAction::Update;
+            if (fresh) TryAbsorbCloseBracket(pic);
             RequestEditSession(pic, action, display);
             UpdatePrediction(pic);
         }
@@ -4090,6 +4223,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
             {
                 bool fresh = committed || (m_pComposition == nullptr);
                 EditAction action = fresh ? EditAction::StartAndUpdate : EditAction::Update;
+                if (fresh) TryAbsorbCloseBracket(pic);
                 RequestEditSession(pic, action, display);
                 UpdatePrediction(pic);
             }
@@ -4177,7 +4311,8 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
                 AppendCommittedText(picked);
                 if (!m_lastReading.empty()) m_lastCommittedReading = m_lastReading;
             }
-            if (pic) RequestEditSession(pic, EditAction::EndCommit, L"");
+            size_t caretShift = BracketPairCaretBackShift(picked);
+            if (pic) RequestEditSession(pic, EditAction::EndCommit, L"", caretShift);
         }
         else
         {
@@ -4194,7 +4329,8 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
             if (m_imeMode == ImeMode::Hiragana || m_imeMode == ImeMode::FullKatakana)
                 finalText = WidenAsciiDigits(finalText);
             AppendCommittedText(finalText);
-            if (pic) RequestEditSession(pic, EditAction::EndCommit, finalText);
+            size_t caretShift = BracketPairCaretBackShift(finalText);
+            if (pic) RequestEditSession(pic, EditAction::EndCommit, finalText, caretShift);
         }
         m_romajiBuffer.clear();
         m_compositionConverted = FALSE;
@@ -4838,7 +4974,8 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
                 }
                 AppendCommittedText(picked);
                 if (!m_lastReading.empty()) m_lastCommittedReading = m_lastReading;
-                if (pic) RequestEditSession(pic, EditAction::EndCommit, L"");
+                size_t caretShift = BracketPairCaretBackShift(picked);
+                if (pic) RequestEditSession(pic, EditAction::EndCommit, L"", caretShift);
             }
             m_romajiBuffer.clear();
             m_compositionConverted = FALSE;
@@ -4937,6 +5074,9 @@ STDMETHODIMP CTextService::OnCompositionTerminated(TfEditCookie /*ecWrite*/, ITf
     m_nonconvertCycle = 0;
     m_predictionActive = false;
     m_predictionReadings.clear();
+    // 吸収した「」はもうコンポジション範囲の一部として doc に定着済み
+    // (host が範囲テキストごと持って行った)。state だけリセット。
+    m_absorbedCloseBracket = 0;
     if (m_pCandWnd) m_pCandWnd->Hide();
     return S_OK;
 }
@@ -4951,9 +5091,34 @@ void CTextService::SetComposition(ITfComposition* pComposition)
     }
 }
 
-HRESULT CTextService::RequestEditSession(ITfContext* pContext, EditAction action, const std::wstring& text)
+HRESULT CTextService::RequestEditSession(ITfContext* pContext, EditAction action, const std::wstring& text,
+                                        size_t caretOffsetFromEnd)
 {
-    CEditSession* pSession = new CEditSession(this, pContext, action, text);
+    // 吸収した閉じ括弧はコンポジション表示に自動付加する。
+    // EndCommit は m_text 空で「範囲そのまま確定」する運用があり、その場合の
+    // 括弧は既にコンポジション末尾に含まれているので追加しない。
+    // EndCancel は下で m_cancelReplacement 経由で「」を復元させるため素通し。
+    std::wstring effectiveText = text;
+    size_t effectiveCaret = caretOffsetFromEnd;
+    if (m_absorbedCloseBracket != 0)
+    {
+        bool appendHere = (action == EditAction::StartAndUpdate)
+                       || (action == EditAction::Update)
+                       || (action == EditAction::EndCommit && !text.empty());
+        if (appendHere)
+        {
+            effectiveText.push_back(m_absorbedCloseBracket);
+            if (effectiveCaret == 0) effectiveCaret = 1;
+        }
+        // EndCommit(空 text) の場合はコンポジション既存末尾に「」が居るので
+        // caret offset だけ 1 引き上げてペア内側に留める。
+        if (action == EditAction::EndCommit && text.empty() && effectiveCaret == 0)
+        {
+            effectiveCaret = 1;
+        }
+    }
+
+    CEditSession* pSession = new CEditSession(this, pContext, action, effectiveText);
 
     // When we're in Phase B AND the action is an Update of the live
     // composition, attach the current focused-bunsetsu offset so the edit
@@ -4969,6 +5134,21 @@ HRESULT CTextService::RequestEditSession(ITfContext* pContext, EditAction action
                          : 0;
         if (len > 0) pSession->SetBunsetsuFocus(start, len);
     }
+
+    if (effectiveCaret > 0)
+        pSession->SetCaretOffsetFromEnd(effectiveCaret);
+
+    // EndCancel: 吸収した「」を元の位置 (コンポジション範囲) に置き戻す。
+    if (action == EditAction::EndCancel && m_absorbedCloseBracket != 0)
+    {
+        std::wstring rep(1, m_absorbedCloseBracket);
+        pSession->SetCancelReplacement(rep);
+    }
+
+    // 状態クリア: 確定/キャンセルが走ったら吸収を忘れる。Update 系ではまだ
+    // コンポジション継続中なので保持。
+    if (action == EditAction::EndCommit || action == EditAction::EndCancel)
+        m_absorbedCloseBracket = 0;
 
     // First try synchronous read-write.
     HRESULT hrSession = S_OK;
