@@ -223,6 +223,8 @@ std::vector<MecabMorpheme> MecabAnalyzer::Analyze(const std::wstring& text) cons
         // splitter still has something useful.
         auto fields = SplitFeatureCsv(n->feature);
         if (!fields.empty()) m.pos = fields[0];
+        if (fields.size() > 4 && !fields[4].empty() && fields[4] != L"*")
+            m.cType = fields[4];
         if (fields.size() > 7 && !fields[7].empty() && fields[7] != L"*")
         {
             // UniDic lemma disambiguation suffix: 助動詞 / 補助動詞 / 特殊

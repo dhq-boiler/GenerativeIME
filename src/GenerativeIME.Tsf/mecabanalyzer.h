@@ -27,6 +27,13 @@ struct MecabMorpheme
     // to verify an Ollama-suggested candidate actually reads as what the
     // user typed.
     std::wstring pronunciation;
+
+    // 活用型 (UniDic field 4): conjugation class such as 五段-ワア行 /
+    // 上一段-マ行 / 下一段-バ行 / 形容詞. Empty for non-inflecting
+    // morphemes ('*' in the feature CSV). The conjugation-gap miner uses
+    // this to tell godan る-verbs (取る → 取った) apart from ichidan
+    // る-verbs (見る → 見た), which the surface alone can't distinguish.
+    std::wstring cType;
 };
 
 // Thin wrapper around mecab::Model / mecab::Tagger configured to load the

@@ -191,10 +191,53 @@ namespace
             L"ない", L"ます", L"です", L"だっ", L"でし",
             L"まし", L"ませ", L"だろ",
             L"じゃ", L"なかっ", L"なく",
+            // 2026-07-07 (conjugation-gap sweep): five more auxiliaries whose
+            // SKK top passes ReadsAs and hijacked the promoteSkkTop path —
+            // confirmed live via SplitMecab probes:
+            //   たら→鱈 (沸い鱈), たい→炊い (食べ炊い), なら→奈良 (行く奈良),
+            //   まい→舞い (する舞い), たく→宅 (食べ宅), ましょう→魔性
+            //   (食べ魔性).
+            // Checked-and-clean at the same time (no entry / ReadsAs fails):
+            // だら, たり, だり, べき, らしい, でしょう, たかっ, たけれ, みたい.
+            L"たら", L"たい", L"なら", L"まい", L"たく", L"ましょう",
         };
         for (const auto& a : kList)
             if (surface == a) return true;
         return false;
+    }
+
+    // Archaic short-verb kanji lemmas UniDic-Lite hands us for する/いる/
+    // ある/なる — 為る/居る/有る/成る are dictionary-correct but modern
+    // writing uses the kana surface almost exclusively. Shared by
+    // SplitMecab's verb branch, MergeMecabVerbForms, and
+    // MakeBunsetsuFromReading so the three joined-form builders agree —
+    // MergeMecabVerbForms lacking this guard is how「さーびすざんぎょう」
+    // got a top candidate of「さーびっ為ざんぎょう」(misconversion log
+    // 2026-07-06: the す morpheme stitched to 為 ahead of the loanword
+    // dict's サービス残業).
+    bool IsArchaicShortVerbLemma(const std::wstring& lemma)
+    {
+        return lemma == L"為る" || lemma == L"居る" ||
+               lemma == L"有る" || lemma == L"成る";
+    }
+
+    // UniDic flags 感動詞 / フィラー like「ん」/「う」/「ま」 with lemmas
+    // 「んー」/「うう」/「まー」— a phonetic-stretched version of the
+    // surface that the user never typed and never wants promoted. True
+    // when the lemma is pure kana (plus 長音記号 ー), longer than the
+    // surface, and contains the surface — that pattern catches exactly
+    // those filler stretches without touching legitimate noun lemmas
+    // (which contain kanji). ー is U+30FC, outside the hiragana plane,
+    // so it has to be allowlisted explicitly or「ん→んー」slips through.
+    bool LemmaIsStretchedFiller(const std::wstring& lemma,
+                                const std::wstring& surface)
+    {
+        if (lemma.empty()) return false;
+        for (wchar_t c : lemma) {
+            if ((c < 0x3041 || c > 0x309F) && c != L'ー') return false;
+        }
+        return lemma.size() > surface.size() &&
+               lemma.find(surface) != std::wstring::npos;
     }
 
     // Greedy left-to-right pass: merge adjacent MeCab morphemes when their
@@ -388,17 +431,13 @@ std::vector<Bunsetsu> SplitMecab(const std::wstring& reading,
             // returns the surface unchanged, so we don't put garbage at
             // the front. The surface remains available as a fallback.
             std::wstring kanji = KanjifyByReading(m.surface, m.lemma, m.lemmaReading);
-            // Reject the archaic short-verb kanji lemmas UniDic-Lite hands us
-            // for する/いる/ある/なる — 為る/居る/有る/成る are dictionary-correct
-            // but modern writing uses the kana surface almost exclusively.
+            // Reject the archaic short-verb kanji lemmas (IsArchaicShortVerbLemma).
             // We check the lemma, not the stitched result, because conjugated
             // forms yield partial kanji ("い" surface + "居る" lemma stitches
             // to just "居", which isn't the archaic full form but still comes
             // from the same archaic reading). Without this, innsuto-ru's
             // MeCab-inferred い(居る未然形)+ん led to 居ん at the top.
-            auto isArchaicShortVerbLemma = [](const std::wstring& l) {
-                return l == L"為る" || l == L"居る" || l == L"有る" || l == L"成る";
-            };
+            //
             // 2026-07-03: same auxiliary deny-list as the isParticle branch —
             // 形容詞+く+「ない」 flows through this branch (UniDic-Lite tags
             // the trailing ない as 形容詞 with lemma 無い, KanjifyByReading
@@ -406,7 +445,7 @@ std::vector<Bunsetsu> SplitMecab(const std::wstring& reading,
             // 「美しく無い」/「大きく無い」. Keep the auxiliary as kana at head;
             // 無い is still reachable at the tail via the skkCands loop.
             if (kanji != m.surface &&
-                !isArchaicShortVerbLemma(m.lemma) &&
+                !IsArchaicShortVerbLemma(m.lemma) &&
                 !IsShadowedAuxiliary(m.surface))
             {
                 b.candidates.push_back(kanji);
@@ -504,24 +543,10 @@ std::vector<Bunsetsu> SplitMecab(const std::wstring& reading,
             // Exception: UniDic flags 感動詞 / フィラー like 「ん」 and
             // 「う」 with lemmas 「んー」 / 「うう」 — a phonetic-stretched
             // version of the surface that the user never typed and never
-            // wants. Skip promoting the lemma when it's pure hiragana
-            // (plus 長音記号 ー) longer than the surface AND contains the
-            // surface — that pattern catches exactly those filler
-            // stretches without touching legitimate noun lemmas (which
-            // contain kanji). ー is U+30FC, outside the hiragana plane,
-            // so it has to be allowlisted explicitly or 「ん→んー」 slips
-            // through.
-            auto isFillerKana = [](const std::wstring& s) {
-                if (s.empty()) return false;
-                for (wchar_t c : s) {
-                    if ((c < 0x3041 || c > 0x309F) && c != L'ー') return false;
-                }
-                return true;
-            };
+            // wants. Skip promoting the lemma in that case (see
+            // LemmaIsStretchedFiller).
             bool lemmaIsStretchedSurface =
-                isFillerKana(m.lemma) &&
-                m.lemma.size() > m.surface.size() &&
-                m.lemma.find(m.surface) != std::wstring::npos;
+                LemmaIsStretchedFiller(m.lemma, m.surface);
 
             // SKK candidates for the surface. We may prefer SKK's top over
             // MeCab's lemma — UniDic-Lite occasionally returns pronoun-class
@@ -780,6 +805,26 @@ bool LooksSuspect(const std::wstring& reading,
         if (tailIsAux && hasOnbinMarker && notVerbal) return true;
     }
 
+    // Trigger F: a 感動詞 morpheme whose lemma is a phonetic-stretched
+    // filler of its surface (ま→まー, ん→んー) inside a multi-morpheme
+    // parse. Typed prose essentially never contains a mid-composition
+    // filler — UniDic-Lite reaching for one means it failed to see the
+    // verb spanning the boundary. Real-world miss (misconversion log
+    // 2026-07-07):
+    //   まよった → ま(感動詞,lemma まー) + よっ(因る) + た
+    //   → joined as 間因った / まー因った  (want: 迷った)
+    // Trigger E can't catch this — it requires exactly 2 morphemes.
+    // Single-morpheme filler input (「ん」「まあ」 typed alone) stays
+    // un-flagged via the size check.
+    if (morphemes.size() >= 2)
+    {
+        for (const auto& m : morphemes)
+        {
+            if (m.pos == L"感動詞" &&
+                LemmaIsStretchedFiller(m.lemma, m.surface)) return true;
+        }
+    }
+
     return false;
 }
 
@@ -797,6 +842,15 @@ std::vector<std::wstring> MergeMecabVerbForms(
     std::wstring covered;
     for (const auto& m : morphemes) covered += m.surface;
     if (covered != reading) return skkCandidates;
+
+    // When the parse itself is dubious (shredded 外来語, suspect archaic
+    // lemma, filler misread — see LooksSuspect) the joined form is garbage
+    // and must NOT be prepended over the caller's SKK hits. Misconversion
+    // log 2026-07-06: 「さーびすざんぎょう」 has a hand-curated loanword
+    // entry サービス残業, but the 5-morpheme shred さー/び/す/ざん/ぎょう
+    // joined to 「さーびっ為ざんぎょう」 and landed at the head, and that's
+    // what got committed. Trust the dictionary when MeCab is guessing.
+    if (LooksSuspect(reading, analyzer)) return skkCandidates;
 
     // Only intervene when at least one morpheme is inflected. Pure-noun
     // multi-morpheme inputs ("おべんとう"→お/弁当) and single-noun inputs
@@ -824,9 +878,23 @@ std::vector<std::wstring> MergeMecabVerbForms(
         {
             mecabTop += m.surface;
         }
-        else if (m.pos == L"動詞")
+        else if (m.pos == L"動詞" || m.pos == L"形容詞")
         {
-            std::wstring k = KanjifyByReading(m.surface, m.lemma, m.lemmaReading);
+            // 形容詞 must go through KanjifyByReading too, matching
+            // SplitMecab's isInflected branch — the else-branch lemma
+            // shortcut turned 「かろう」 (かろ=辛い 形容詞 + う) into a
+            // prepended 「辛い」, a reading drift that shadowed the SKK
+            // direct entry 過労 (found by the 2026-07-07 conjugation
+            // sweep). KanjifyByReading bows out to the surface when the
+            // lemma doesn't align, so mecabTop degrades to the raw kana
+            // and the SKK hits keep the head.
+            //
+            // Same archaic short-verb guard as SplitMecab's verb branch:
+            // する/いる/ある/なる must stay as the kana surface, not stitch
+            // to 為/居/有/成.
+            std::wstring k = IsArchaicShortVerbLemma(m.lemma)
+                ? m.surface
+                : KanjifyByReading(m.surface, m.lemma, m.lemmaReading);
             // Modern-usage override for homophonic 音便 stems. UniDic-Lite
             // picks a dictionary-correct but low-frequency lemma for some
             // て/た forms — つかっ → lemma 浸かる, so the stitch yields 浸かっ
@@ -847,7 +915,11 @@ std::vector<std::wstring> MergeMecabVerbForms(
         }
         else
         {
-            mecabTop += (m.lemma.empty() ? m.surface : m.lemma);
+            // Filler-stretch guard, same as SplitMecab's noun branch: a
+            // 感動詞 lemma like まー for surface ま is never what the user
+            // typed — keep the surface.
+            mecabTop += (m.lemma.empty() || LemmaIsStretchedFiller(m.lemma, m.surface))
+                ? m.surface : m.lemma;
         }
     }
 
@@ -913,9 +985,12 @@ Bunsetsu MakeBunsetsuFromReading(const std::wstring& reading,
             if (isParticle)
                 combined += m.surface;
             else if (m.pos == L"動詞")
-                combined += KanjifyByReading(m.surface, m.lemma, m.lemmaReading);
+                combined += IsArchaicShortVerbLemma(m.lemma)
+                    ? m.surface
+                    : KanjifyByReading(m.surface, m.lemma, m.lemmaReading);
             else
-                combined += (m.lemma.empty() ? m.surface : m.lemma);
+                combined += (m.lemma.empty() || LemmaIsStretchedFiller(m.lemma, m.surface))
+                    ? m.surface : m.lemma;
         }
         if (!combined.empty() && combined != reading &&
             std::find(b.candidates.begin(), b.candidates.end(), combined)
