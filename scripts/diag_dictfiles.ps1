@@ -29,7 +29,7 @@ Write-Host "DLL folder: $dir"
 $dllOk = if (Test-Path $dll) { 'OK' } else { '*** MISSING ***' }
 Write-Host ("  {0,-24}: {1}" -f 'DLL itself', $dllOk)
 
-$files = 'SKK-JISYO.L.utf8','SKK-JISYO.godan.utf8','SKK-JISYO.emoji.utf8','SKK-JISYO.loanwords.utf8','mecab.dll'
+$files = 'SKK-JISYO.L.utf8','SKK-JISYO.godan.utf8','SKK-JISYO.conjugations.utf8','SKK-JISYO.emoji.utf8','SKK-JISYO.loanwords.utf8','mecab.dll'
 foreach ($f in $files) {
   $p = Join-Path $dir $f
   if (Test-Path $p) {

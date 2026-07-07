@@ -139,6 +139,15 @@ HRESULT SkkDictionary::Load(const std::wstring& path)
     if (!dir.empty())
         ParseFile(dir + L"SKK-JISYO.godan.utf8", deferredOkuri);
 
+    // Second pre-main companion: machine-generated conjugation-gap entries
+    // (scripts/mine/mine_conjugation_gaps.ps1 — see the header inside the
+    // file for the generation pipeline). Parsed AFTER godan so the hand-
+    // curated entries keep the head on shared readings, and BEFORE the
+    // main dict so the verb forms outrank SKK-JISYO.L's noun homophones.
+    // Optional: absence is not an error.
+    if (!dir.empty())
+        ParseFile(dir + L"SKK-JISYO.conjugations.utf8", deferredOkuri);
+
     HRESULT hr = ParseFile(path, deferredOkuri);
     if (FAILED(hr)) return hr;
 
