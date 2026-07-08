@@ -164,6 +164,7 @@ HRESULT SkkDictionary::Load(const std::wstring& path)
     {
         static const wchar_t* kCompanions[] = {
             L"SKK-JISYO.propernouns.utf8",
+            L"SKK-JISYO.geography.utf8",
             L"SKK-JISYO.emoji.utf8",
             L"SKK-JISYO.loanwords.utf8",
         };

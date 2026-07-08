@@ -35,6 +35,7 @@ $skkLoan    = Join-Path $root 'third_party\skk\SKK-JISYO.loanwords.utf8'
 $skkGodan   = Join-Path $root 'third_party\skk\SKK-JISYO.godan.utf8'
 $skkConj    = Join-Path $root 'third_party\skk\SKK-JISYO.conjugations.utf8'
 $skkPropn   = Join-Path $root 'third_party\skk\SKK-JISYO.propernouns.utf8'
+$skkGeo     = Join-Path $root 'third_party\skk\SKK-JISYO.geography.utf8'
 $unidicSrc  = Join-Path $root 'third_party\mecab\unidic-lite'
 $dmProj     = Join-Path $root 'src\GenerativeIME.DictManager\GenerativeIME.DictManager.csproj'
 $dmPublish  = Join-Path $buildDir 'dictmgr'
@@ -80,6 +81,7 @@ Copy-Item $skkLoan    $payloadDir -Force
 Copy-Item $skkGodan   $payloadDir -Force
 Copy-Item $skkConj    $payloadDir -Force
 Copy-Item $skkPropn   $payloadDir -Force
+Copy-Item $skkGeo     $payloadDir -Force
 Copy-Item (Join-Path $installer 'payload\SeedHkcu.ps1') $payloadDir -Force
 Copy-Item (Join-Path $vcpkgBin 'mecab.dll')          $payloadDir -Force
 Copy-Item (Join-Path $vcpkgBin 'msvcp140.dll')       $payloadDir -Force -ErrorAction SilentlyContinue

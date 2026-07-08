@@ -1505,6 +1505,39 @@ TEST(skk_propernouns_dict_loaded)
     if (!yoshinoya.empty()) EXPECT_EQ_W(yoshinoya[0], L"吉野家");
 }
 
+TEST(skk_geography_dict_loaded)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // SKK-JISYO.geography.utf8 fills weather-forecaster-exam place names
+    // that SKK-JISYO.L omits (basins/ranges/plateaus/air-mass/low-type).
+    // These readings must round-trip via direct entry with the geographic
+    // term at the head (post-main companion pattern, same as propernouns).
+    struct { const wchar_t* reading; const wchar_t* top; } cases[] = {
+        { L"いしかりへいや",     L"石狩平野" },
+        { L"のうびへいや",       L"濃尾平野" },
+        { L"ひだかさんみゃく",   L"日高山脈" },
+        { L"おううさんみゃく",   L"奥羽山脈" },
+        { L"まつもとぼんち",     L"松本盆地" },
+        { L"きょうとぼんち",     L"京都盆地" },
+        { L"むさしのだいち",     L"武蔵野台地" },
+        { L"しらすだいち",       L"シラス台地" },
+        { L"しべりあきだん",     L"シベリア気団" },
+        { L"おがさわらきだん",   L"小笠原気団" },
+        { L"おほーつくかいこうきあつ", L"オホーツク海高気圧" },
+        { L"なんがんていきあつ", L"南岸低気圧" },
+        { L"えとろふとう",       L"択捉島" },
+        { L"しれとこはんとう",   L"知床半島" },
+    };
+    for (const auto& c : cases)
+    {
+        EXPECT_TRUE(skk->HasDirectEntry(c.reading));
+        auto hits = skk->Lookup(c.reading);
+        EXPECT_TRUE(!hits.empty());
+        if (!hits.empty()) EXPECT_EQ_W(hits[0], c.top);
+    }
+}
+
 TEST(skk_godan_onbin_batch2_direct_entries)
 {
     auto* skk = SkkDictionary::GetGlobal();
