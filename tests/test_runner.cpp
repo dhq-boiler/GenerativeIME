@@ -1454,6 +1454,10 @@ TEST(skk_conjugations_dict_loaded_and_ranked)
         { L"うれば",       L"売れば" },
         { L"けりこんだ",   L"蹴り込んだ" },
         { L"なげわたした", L"投げ渡した" },
+        // 一段 「-られる」 パラダイム (受身/可能/尊敬/自発) — 2026-07-09
+        // conjgap_miner 拡張分。ねられれば は SplitMecab が「寝られ+れ+ば」
+        // を漢字化しきれずかな素通しになるギャップだった (AUTO 送り)。
+        { L"ねられれば",   L"寝られれば" },
     };
     for (const auto& c : cases)
     {

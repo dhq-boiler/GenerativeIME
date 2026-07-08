@@ -1,4 +1,4 @@
-# assemble_conjugations_dict.ps1 - SKK-JISYO.conjugations.utf8 の組み立て
+﻿# assemble_conjugations_dict.ps1 - SKK-JISYO.conjugations.utf8 の組み立て
 #
 # 2つの入力を統合して生成辞書を再構築する:
 #   1. out/conj_auto.utf8         - マイナーの AUTO バケット (無条件収録)

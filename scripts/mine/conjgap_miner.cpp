@@ -245,7 +245,23 @@ std::vector<GenForm> GenerateForms(const Verb& v)
         add(O + L"う",       O + L"う",       v.terminal, L"volitional");
         add(E,               E,               v.terminal, L"imperative");
         // 可能動詞は語彙素が独立 (買える) なので expectedLemma を差し替え
-        add(E + L"る", E + L"る", v.stem + E + L"る", L"potential");
+        std::wstring potStem = v.stem + E + L"る";
+        add(E + L"る", E + L"る", potStem, L"potential");
+        // 可能動詞の仮定形 (書ければ / 買えれば): 「-eれば」 は五段でも
+        // 「-eば」(=直接仮定形) とは別語で、可能の意味を担う。
+        add(E + L"れば", E + L"れば", potStem, L"potential-ba");
+        // 五段 受身/尊敬 「-あれる」 パラダイム (書かれる / 買われる)。
+        // 語彙素は元動詞 (v.terminal); MeCab は先頭形態素を元動詞として
+        // 返すので ValidatesAs が通る。
+        add(A + L"れる",       A + L"れる",       v.terminal, L"pass-ru");
+        add(A + L"れない",     A + L"れない",     v.terminal, L"pass-nai");
+        add(A + L"れなかった", A + L"れなかった", v.terminal, L"pass-nakatta");
+        add(A + L"れた",       A + L"れた",       v.terminal, L"pass-past");
+        add(A + L"れて",       A + L"れて",       v.terminal, L"pass-te");
+        add(A + L"れたら",     A + L"れたら",     v.terminal, L"pass-tara");
+        add(A + L"れれば",     A + L"れれば",     v.terminal, L"pass-ba");
+        add(A + L"れます",     A + L"れます",     v.terminal, L"pass-masu");
+        add(A + L"れました",   A + L"れました",   v.terminal, L"pass-mashita");
     }
     else if (ichidan)
     {
@@ -260,6 +276,22 @@ std::vector<GenForm> GenerateForms(const Verb& v)
         add(L"れば",     L"れば",     v.terminal, L"ba");
         add(L"よう",     L"よう",     v.terminal, L"volitional");
         add(L"ろ",       L"ろ",       v.terminal, L"imperative");
+        // 一段 受身/可能/尊敬/自発 「-られる」 パラダイム
+        // (見られる / 寝られる / 食べられる / 起きられる…)。
+        // MeCab は [<動詞> + られ + る/れば/…] と分解し先頭形態素の lemma
+        // は元動詞なので ValidatesAs は expectedLemma = v.terminal で通る。
+        // 用途 (受身/可能/尊敬/自発) は表記に現れないので一つの表記で全て
+        // をカバーする。
+        add(L"られる",       L"られる",       v.terminal, L"rare-ru");
+        add(L"られない",     L"られない",     v.terminal, L"rare-nai");
+        add(L"られなかった", L"られなかった", v.terminal, L"rare-nakatta");
+        add(L"られた",       L"られた",       v.terminal, L"rare-past");
+        add(L"られて",       L"られて",       v.terminal, L"rare-te");
+        add(L"られたら",     L"られたら",     v.terminal, L"rare-tara");
+        add(L"られれば",     L"られれば",     v.terminal, L"rare-ba");
+        add(L"られます",     L"られます",     v.terminal, L"rare-masu");
+        add(L"られました",   L"られました",   v.terminal, L"rare-mashita");
+        add(L"られよう",     L"られよう",     v.terminal, L"rare-volitional");
     }
     return out;
 }
