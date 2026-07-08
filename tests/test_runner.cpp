@@ -1469,6 +1469,42 @@ TEST(skk_conjugations_dict_loaded_and_ranked)
     if (!mayotta.empty()) EXPECT_EQ_W(mayotta[0], L"迷った");
 }
 
+TEST(skk_propernouns_dict_loaded)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // SKK-JISYO.propernouns.utf8 (hand-curated chain-store / company
+    // names) loads as a post-main companion: readings unknown to
+    // SKK-JISYO.L become direct entries with the brand at the head.
+    struct { const wchar_t* reading; const wchar_t* top; } cases[] = {
+        { L"ぜってりあ",   L"ゼッテリア" },
+        { L"もすばーがー", L"モスバーガー" },
+        { L"さいぜりや",   L"サイゼリヤ" },
+        { L"すしろー",     L"スシロー" },
+        { L"ここいちばんや", L"CoCo壱番屋" },
+        { L"ゆにくろ",     L"ユニクロ" },
+    };
+    for (const auto& c : cases)
+    {
+        EXPECT_TRUE(skk->HasDirectEntry(c.reading));
+        auto hits = skk->Lookup(c.reading);
+        EXPECT_TRUE(!hits.empty());
+        if (!hits.empty()) EXPECT_EQ_W(hits[0], c.top);
+    }
+    // Post-main merge: readings SKK-JISYO.L already owns keep their head
+    // (数奇屋), and the brand joins the tail of the same slot.
+    auto sukiya = skk->Lookup(L"すきや");
+    EXPECT_TRUE(!sukiya.empty());
+    if (!sukiya.empty()) EXPECT_EQ_W(sukiya[0], L"数奇屋");
+    bool hasSukiyaBrand = false;
+    for (const auto& h : sukiya) if (h == L"すき家") { hasSukiyaBrand = true; break; }
+    EXPECT_TRUE(hasSukiyaBrand);
+    // よしのや was already curated in L with the chain first — unchanged.
+    auto yoshinoya = skk->Lookup(L"よしのや");
+    EXPECT_TRUE(!yoshinoya.empty());
+    if (!yoshinoya.empty()) EXPECT_EQ_W(yoshinoya[0], L"吉野家");
+}
+
 TEST(skk_godan_onbin_batch2_direct_entries)
 {
     auto* skk = SkkDictionary::GetGlobal();

@@ -54,6 +54,7 @@ Copy-Item -Force (Join-Path $root 'third_party\skk\SKK-JISYO.L.utf8') $build
 Copy-Item -Force (Join-Path $root 'third_party\skk\SKK-JISYO.emoji.utf8') $build
 Copy-Item -Force (Join-Path $root 'third_party\skk\SKK-JISYO.loanwords.utf8') $build
 Copy-Item -Force (Join-Path $root 'third_party\skk\SKK-JISYO.godan.utf8') $build
+Copy-Item -Force (Join-Path $root 'third_party\skk\SKK-JISYO.propernouns.utf8') $build
 $unidicSrc = Join-Path $root 'third_party\mecab\unidic-lite'
 $unidicDst = Join-Path $build 'unidic-lite'
 if (-not (Test-Path $unidicDst)) { New-Item -ItemType Directory -Path $unidicDst | Out-Null }
