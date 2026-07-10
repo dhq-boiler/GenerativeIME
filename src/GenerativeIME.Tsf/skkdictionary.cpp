@@ -422,8 +422,8 @@ namespace
     //                  as kanji-substituted but at least don't shred 担当/段
     bool IsJoshiChar(wchar_t c)
     {
-        static constexpr std::wstring kJoshi = L"はがをへよねわぞぜ";
-        return kJoshi.find(c) != std::wstring::npos;
+        static constexpr std::wstring_view kJoshi = L"はがをへよねわぞぜ";
+        return kJoshi.find(c) != std::wstring_view::npos;
     }
 }
 

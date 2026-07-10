@@ -186,7 +186,7 @@ namespace bunsetsu
         // 2026-07-03 to keep them from drifting apart.
         bool IsShadowedAuxiliary(const std::wstring& surface)
         {
-            static constexpr std::wstring kList[] = {
+            static constexpr std::wstring_view kList[] = {
                 L"ない", L"ます", L"です", L"だっ", L"でし",
                 L"まし", L"ませ", L"だろ",
                 L"じゃ", L"なかっ", L"なく",
@@ -278,7 +278,7 @@ namespace bunsetsu
                     // joined reading is a direct SKK entry (not okuri-ari
                     // flatten-through), merge is safe — those entries were
                     // hand-curated for exactly this shape.
-                    static constexpr std::wstring kMergableAux[] = {
+                    static constexpr std::wstring_view kMergableAux[] = {
                         L"た", L"だ", L"て", L"で", L"たら", L"だら", L"たり", L"だり",
                     };
                     for (size_t k = 0; k < span; ++k)
@@ -768,7 +768,7 @@ namespace bunsetsu
         // Multi-char compounds are checked char-by-char: a hit on "為" catches
         // both 所為 and 為に; a hit on 何 catches 如何. Expand as we hit new
         // "MeCab is being too literal" patterns in real usage.
-        static constexpr std::wstring kSuspect =
+        static constexpr std::wstring_view kSuspect =
             L"顎為居出御様等処時故沢殆凡矢兎宛何嘗只迄謂勿論尤所如唯";
 
         for (const auto& m : morphemes)
