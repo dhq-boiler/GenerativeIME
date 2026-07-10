@@ -133,6 +133,12 @@ private:
     // file later to spot patterns that need dictionary or ranking
     // improvements.
     void LogMisconversionAttempt();
+    // Ctrl+Shift+F5 の候補窓可視状態版。候補窓に表示中の全候補と
+    // 現在ハイライト中の候補を %APPDATA%\GenerativeIME\bad_candidates.log
+    // に UTF-8 で追記する。確定前に「明らかにおかしい候補が出た」タイミ
+    // ングで叩く用途。学習トラッカーには触らない(未確定なので学習に
+    // まだ入っていない)。I/O 失敗時は無音で no-op。
+    void LogBadCandidateAttempt();
     POINT QueryCandidateAnchorPos(ITfContext* pContext);
     POINT QueryBunsetsuAnchorPos(ITfContext* pContext, size_t offset, size_t length);
     HRESULT RequestEditSession(ITfContext* pContext, EditAction action, const std::wstring& text,

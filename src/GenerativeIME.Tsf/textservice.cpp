@@ -3646,6 +3646,125 @@ void CTextService::LogMisconversionAttempt()
     OutputDebugStringW(debugbuf);
 }
 
+void CTextService::LogBadCandidateAttempt()
+{
+    // 候補窓可視中に Ctrl+Shift+F5 を叩いた時の記録先。
+    // %APPDATA%\GenerativeIME\bad_candidates.log に UTF-8 で追記する。
+    // misconversions.log と分離することで、確定済のミスコンバージョン
+    // と「候補として出てくるだけで既におかしいもの」を後の解析で区別
+    // できる (前者は Ranking/Learning の問題、後者は辞書/生成の問題)。
+    wchar_t appdata[MAX_PATH * 2];
+    DWORD n = GetEnvironmentVariableW(L"APPDATA", appdata, _countof(appdata));
+    if (n == 0 || n >= _countof(appdata)) return;
+    std::wstring dir = appdata;
+    dir += L"\\GenerativeIME";
+    CreateDirectoryW(dir.c_str(), nullptr);
+    std::wstring path = dir + L"\\bad_candidates.log";
+
+    std::wstring display = DisplayForMode(m_romajiBuffer, m_imeMode);
+
+    std::wstring cands;
+    std::wstring selected;
+    int selectedIndex = -1;
+    if (m_pCandWnd)
+    {
+        selected = m_pCandWnd->GetSelected();
+        selectedIndex = m_pCandWnd->GetSelectedIndex();
+        const auto& list = m_pCandWnd->GetCandidates();
+        for (size_t i = 0; i < list.size(); ++i)
+        {
+            if (i > 0) cands += L" | ";
+            cands += list[i];
+        }
+    }
+
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    wchar_t timestamp[64];
+    swprintf_s(timestamp, L"%04d-%02d-%02dT%02d:%02d:%02d",
+               st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+
+    auto boolStr = [](bool b) { return b ? L"true" : L"false"; };
+    std::wstring entry;
+    entry += L"--- ";
+    entry += timestamp;
+    entry += L" ---\r\n";
+    entry += L"kind: bad_candidate\r\n";
+    entry += L"buffer: ";
+    entry += m_romajiBuffer;
+    entry += L"\r\n";
+    entry += L"display: ";
+    entry += display;
+    entry += L"\r\n";
+    entry += L"reading: ";
+    entry += m_lastReading;
+    entry += L"\r\n";
+    entry += L"selectedIndex: ";
+    entry += std::to_wstring(selectedIndex);
+    entry += L"\r\n";
+    entry += L"selected: ";
+    entry += selected;
+    entry += L"\r\n";
+    entry += L"candidates: ";
+    entry += cands;
+    entry += L"\r\n";
+    entry += L"context: ";
+    entry += m_recentContext;
+    entry += L"\r\n";
+    entry += L"imeMode: ";
+    entry += std::to_wstring(static_cast<int>(m_imeMode));
+    entry += L"\r\n";
+    entry += L"converted: ";
+    entry += boolStr(m_compositionConverted != 0);
+    entry += L"\r\n";
+    entry += L"predictionActive: ";
+    entry += boolStr(m_predictionActive);
+    entry += L"\r\n";
+    entry += L"bunsetsuMode: ";
+    entry += boolStr(InBunsetsuMode());
+    entry += L"\r\n";
+    entry += L"\r\n";
+
+    int utf8Len = WideCharToMultiByte(CP_UTF8, 0, entry.c_str(), static_cast<int>(entry.size()),
+                                      nullptr, 0, nullptr, nullptr);
+    if (utf8Len <= 0) return;
+    std::string utf8(static_cast<size_t>(utf8Len), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, entry.c_str(), static_cast<int>(entry.size()),
+                        utf8.data(), utf8Len, nullptr, nullptr);
+
+    HANDLE h = CreateFileW(path.c_str(),
+                           FILE_APPEND_DATA,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE,
+                           nullptr,
+                           OPEN_ALWAYS,
+                           FILE_ATTRIBUTE_NORMAL,
+                           nullptr);
+    if (h == INVALID_HANDLE_VALUE) return;
+
+    LARGE_INTEGER size = {};
+    GetFileSizeEx(h, &size);
+    if (size.QuadPart == 0)
+    {
+        constexpr unsigned char bom[3] = {0xEF, 0xBB, 0xBF};
+        DWORD written = 0;
+        WriteFile(h, bom, 3, &written, nullptr);
+    }
+
+    DWORD written = 0;
+    WriteFile(h, utf8.data(), static_cast<DWORD>(utf8.size()), &written, nullptr);
+    CloseHandle(h);
+
+    // 学習トラッカーには触らない。確定前なので LearningStore にまだ
+    // 入っていない ⇒ ForgetReading を呼んでも副作用が無い(むしろ
+    // 「今回このキーで消したい」意図と合わない)。将来 blacklist を
+    // 走らせたい場合は Shift+Delete と別経路で拡張する。
+
+    wchar_t debugbuf[300];
+    swprintf_s(debugbuf, L"[GenerativeIME] Ctrl+Shift+F5: logged bad candidate to %s (%zu bytes)\n",
+               path.c_str(), utf8.size());
+    OutputDebugStringW(debugbuf);
+}
+
 bool CTextService::ToggleCodepointInPlace(ITfContext* pContext)
 {
     if (!pContext) return false;
@@ -4286,7 +4405,12 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         && (GetKeyState(VK_SHIFT) < 0))
     {
         AppendDebugLine(L"[GenerativeIME] Ctrl+Shift+F5 hit via OnKeyDown fallback");
-        LogMisconversionAttempt();
+        // OnPreservedKey と同じ分岐: 候補窓可視 → bad_candidates.log、
+        // 非可視 → misconversions.log (従来通り)。
+        if (m_pCandWnd && m_pCandWnd->IsVisible())
+            LogBadCandidateAttempt();
+        else
+            LogMisconversionAttempt();
         *pfEaten = TRUE;
         return S_OK;
     }
@@ -5298,11 +5422,18 @@ STDMETHODIMP CTextService::OnPreservedKey(ITfContext* /*pic*/, REFGUID rguid, BO
     }
     else if (IsEqualGUID(rguid, c_guidKeyDebugLog))
     {
-        // Ctrl+F5: append the current attempt state to the misconversion
-        // log. Runs regardless of composition/commit state — an empty
-        // buffer just produces an entry with blank fields, which is still
-        // useful ("I was in App X and nothing was queued").
-        LogMisconversionAttempt();
+        // Ctrl+Shift+F5: 候補窓が開いている間は「表示中の候補群がおか
+        // しい」用の bad_candidates.log に、それ以外(確定後 / 変換前)は
+        // 従来通り misconversions.log に追記する。
+        //   - 候補窓可視 = ユーザーが今まさに Space/PageDown で候補を
+        //     眺めていて「この読みでこの候補列はおかしい」と判定した
+        //     瞬間 → 辞書 / 生成側の問題として記録し、学習は触らない
+        //   - 候補窓非可視 = 既に確定した文字列が明らかに誤変換
+        //     → 従来の misconversion path (ログ + ForgetReading)
+        if (m_pCandWnd && m_pCandWnd->IsVisible())
+            LogBadCandidateAttempt();
+        else
+            LogMisconversionAttempt();
         *pfEaten = TRUE;
     }
     return S_OK;
