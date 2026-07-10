@@ -22,4 +22,13 @@ namespace romaji
     // as romaji. Only handles the simplest case (exactly "n"); intermediate
     // states like "kan" already convert via Convert's normal n→ん rule.
     std::wstring FinalizeTrailingN(std::wstring_view romaji);
+
+    // Backspace helper: returns the number of romaji chars that produced the
+    // LAST kana in Convert(romaji). Meant for callers that have already
+    // verified Convert(romaji).remaining is empty — i.e. the buffer is fully
+    // resolved — so the returned length maps to exactly one visible kana.
+    // For "aka" → 2 (the "ka" tail), for "n" → 0 (no chunk consumed; "n"
+    // alone is still unresolved). Callers should fall back to a plain
+    // pop_back() when this returns 0.
+    size_t LastKanaLen(std::wstring_view romaji);
 }

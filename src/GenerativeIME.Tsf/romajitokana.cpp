@@ -236,4 +236,83 @@ namespace romaji
         if (romaji == L"n") return L"ん";
         return std::wstring(romaji);
     }
+
+    size_t LastKanaLen(std::wstring_view romaji)
+    {
+        // Walks the same state machine as Convert but tracks the START of the
+        // last consumed chunk instead of producing kana. Backspace uses the
+        // returned length to drop one whole kana from a fully-resolved buffer
+        // ("aka" → drop 2 → "a", display "あ") rather than stripping one raw
+        // romaji char which would leave a half-baked "あk".
+        const auto& table = GetTable();
+        size_t i = 0;
+        size_t lastStart = 0;
+        while (i < romaji.size())
+        {
+            bool matched = false;
+            const size_t maxLen = (std::min)(static_cast<size_t>(kMaxKey), romaji.size() - i);
+            for (size_t len = maxLen; len >= 1; --len)
+            {
+                std::wstring key(romaji.substr(i, len));
+                for (auto& c : key) c = ToLower(c);
+                auto it = table.find(key);
+                if (it != table.end())
+                {
+                    lastStart = i;
+                    i += len;
+                    matched = true;
+                    break;
+                }
+            }
+            if (matched) continue;
+
+            if (i + 1 < romaji.size())
+            {
+                wchar_t c = ToLower(romaji[i]);
+                wchar_t next = ToLower(romaji[i + 1]);
+                if (c == next && IsSokuonConsonant(c))
+                {
+                    lastStart = i;
+                    i += 1;
+                    continue;
+                }
+            }
+            if (ToLower(romaji[i]) == L'n' && i + 1 < romaji.size())
+            {
+                wchar_t next = ToLower(romaji[i + 1]);
+                if (next != L'a' && next != L'i' && next != L'u' && next != L'e' && next != L'o'
+                    && next != L'y' && next != L'n')
+                {
+                    lastStart = i;
+                    i += 1;
+                    continue;
+                }
+            }
+            if (romaji[i] >= L'0' && romaji[i] <= L'9')
+            {
+                lastStart = i;
+                i += 1;
+                continue;
+            }
+            if (romaji[i] >= L'A' && romaji[i] <= L'Z')
+            {
+                lastStart = i;
+                i += 1;
+                continue;
+            }
+            if ((romaji[i] >= 0xFF21 && romaji[i] <= 0xFF3A) ||
+                (romaji[i] >= 0xFF41 && romaji[i] <= 0xFF5A))
+            {
+                lastStart = i;
+                i += 1;
+                continue;
+            }
+            // Unmatched — the trailing tail from `i` onward will show up in
+            // Convert's `remaining`. Stop scanning; callers should key off
+            // `remaining` and only trust our return value when it's empty.
+            break;
+        }
+        if (i == 0) return 0;
+        return i - lastStart;
+    }
 }

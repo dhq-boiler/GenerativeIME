@@ -4459,7 +4459,23 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
     }
     else if (wParam == VK_BACK && !m_romajiBuffer.empty())
     {
-        m_romajiBuffer.pop_back();
+        // Backspace-one-kana. When the buffer is fully resolved to kana
+        // ("aka" → "あか"), dropping just the last romaji char would leave
+        // "あk" on screen — the user sees the previous kana visibly split
+        // in half. Instead, when Convert has no unresolved tail, walk the
+        // buffer back by the length of the last kana-producing chunk so
+        // "あか" → "あ" (buffer "aka" → "a") in one press. When there IS
+        // an unresolved tail ("aky" → "あky"), pop_back is still correct:
+        // the user is fixing a typo mid-romaji and expects the single
+        // trailing letter to disappear.
+        auto rConv = romaji::Convert(m_romajiBuffer);
+        size_t drop = 1;
+        if (rConv.remaining.empty())
+        {
+            size_t step = romaji::LastKanaLen(m_romajiBuffer);
+            if (step > 0 && step <= m_romajiBuffer.size()) drop = step;
+        }
+        m_romajiBuffer.erase(m_romajiBuffer.size() - drop);
         m_compositionConverted = FALSE;
         if (m_pCandWnd) m_pCandWnd->Hide();
         std::wstring display = DisplayForMode(m_romajiBuffer, m_imeMode);

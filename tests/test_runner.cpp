@@ -398,6 +398,44 @@ TEST(romaji_punctuation)
     EXPECT_EQ_W(r2.hira, L"？");
 }
 
+// Backspace-one-kana step size. For a fully-resolved buffer, LastKanaLen
+// returns how many romaji chars produced the LAST kana so Backspace can
+// drop the whole kana instead of one raw letter. Guard against the
+// "あか → Backspace → あk" regression the user reported.
+TEST(romaji_last_kana_len_simple_pair)
+{
+    // "aka" resolves to "あか"; last kana "か" came from "ka" (2 chars).
+    EXPECT_TRUE(romaji::LastKanaLen(L"aka") == 2);
+    // Dropping that many chars leaves the buffer at "a" → display "あ".
+    EXPECT_EQ_W(romaji::Convert(L"a").hira, L"あ");
+}
+
+TEST(romaji_last_kana_len_covers_all_chunk_types)
+{
+    // Single vowel: 1-char chunk.
+    EXPECT_TRUE(romaji::LastKanaLen(L"a") == 1);
+    // Digraph: 2-char chunk.
+    EXPECT_TRUE(romaji::LastKanaLen(L"ka") == 2);
+    // 3-char yōon.
+    EXPECT_TRUE(romaji::LastKanaLen(L"kya") == 3);
+    // 4-char shorthand.
+    EXPECT_TRUE(romaji::LastKanaLen(L"ltsu") == 4);
+    // Sokuon + digraph: last chunk is the digraph, so 2.
+    EXPECT_TRUE(romaji::LastKanaLen(L"kka") == 2);
+    // n before consonant produces ん as a 1-char chunk; last chunk is
+    // still "ka" though.
+    EXPECT_TRUE(romaji::LastKanaLen(L"nka") == 2);
+    // Digit passthrough — 1-char chunk.
+    EXPECT_TRUE(romaji::LastKanaLen(L"a1") == 1);
+    // Symbol passthrough (! → ！) — 1-char chunk.
+    EXPECT_TRUE(romaji::LastKanaLen(L"aka!") == 1);
+    // Empty buffer.
+    EXPECT_TRUE(romaji::LastKanaLen(L"") == 0);
+    // Fully-unresolved single char ("n" alone) — no chunk was consumed;
+    // return 0 so Backspace falls back to plain pop_back.
+    EXPECT_TRUE(romaji::LastKanaLen(L"n") == 0);
+}
+
 // ---------------------------------------------------------------------
 // symbols::PunctPairs
 // ---------------------------------------------------------------------
