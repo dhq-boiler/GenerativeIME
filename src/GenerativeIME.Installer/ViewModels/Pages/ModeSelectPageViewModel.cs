@@ -7,11 +7,11 @@ namespace GenerativeIME.Installer.ViewModels.Pages;
 
 public sealed partial class ModeSelectPageViewModel : PageViewModelBase
 {
-    private readonly INavigationService _nav;
     private readonly InstallationContext _context;
+    private readonly INavigationService _nav;
+    [ObservableProperty] private bool _isAggressiveSelected;
 
     [ObservableProperty] private bool _isSafeSelected = true;
-    [ObservableProperty] private bool _isAggressiveSelected = false;
 
     public ModeSelectPageViewModel(INavigationService nav, InstallationContext context)
     {
@@ -29,7 +29,13 @@ public sealed partial class ModeSelectPageViewModel : PageViewModelBase
     [RelayCommand]
     private void Back()
     {
-        if (_nav.CanGoBack) _nav.GoBack();
-        else _nav.NavigateTo<MaintenanceModePageViewModel>();
+        if (_nav.CanGoBack)
+        {
+            _nav.GoBack();
+        }
+        else
+        {
+            _nav.NavigateTo<MaintenanceModePageViewModel>();
+        }
     }
 }

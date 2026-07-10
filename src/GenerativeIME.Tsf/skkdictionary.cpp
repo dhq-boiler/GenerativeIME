@@ -15,9 +15,9 @@ namespace
     std::wstring FromUtf8(const std::string& s)
     {
         if (s.empty()) return {};
-        int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0);
+        int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
         std::wstring w(n, L'\0');
-        MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), w.data(), n);
+        MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), w.data(), n);
         return w;
     }
 
@@ -46,9 +46,9 @@ std::wstring SkkDictionary::UserDictDir()
     std::wstring dir = appData;
     CoTaskMemFree(appData);
     dir += L"\\GenerativeIME";
-    CreateDirectoryW(dir.c_str(), nullptr);   // parent (shared with learning.txt)
+    CreateDirectoryW(dir.c_str(), nullptr); // parent (shared with learning.txt)
     dir += L"\\dict";
-    CreateDirectoryW(dir.c_str(), nullptr);   // the user-dictionary folder itself
+    CreateDirectoryW(dir.c_str(), nullptr); // the user-dictionary folder itself
     return dir;
 }
 
@@ -65,7 +65,8 @@ std::vector<std::wstring> SkkDictionary::EnumerateUserDictFiles(const std::wstri
     {
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
         files.push_back(dir + L"\\" + fd.cFileName);
-    } while (FindNextFileW(h, &fd));
+    }
+    while (FindNextFileW(h, &fd));
     FindClose(h);
 
     // Deterministic load order regardless of the filesystem's enumeration
@@ -85,7 +86,7 @@ SkkDictionary* SkkDictionary::GetGlobal()
         wchar_t buf[512];
         swprintf_s(buf,
                    L"[GenerativeIME] SkkDictionary.Load hr=0x%08X count=%zu path=%s\n",
-                   (unsigned)hr, g_pSkk->EntryCount(), path.c_str());
+                   static_cast<unsigned>(hr), g_pSkk->EntryCount(), path.c_str());
         OutputDebugStringW(buf);
     });
     return g_pSkk;
@@ -188,7 +189,7 @@ HRESULT SkkDictionary::ParseFile(
     while (std::getline(f, raw))
     {
         if (!raw.empty() && raw.back() == '\r') raw.pop_back();
-        if (raw.empty() || raw[0] == ';') continue;       // comments / headers
+        if (raw.empty() || raw[0] == ';') continue; // comments / headers
 
         std::wstring line = FromUtf8(raw);
 
@@ -210,7 +211,7 @@ HRESULT SkkDictionary::ParseFile(
         // as a separate (hiragana) bunsetsu. Without this, common forms like
         // 赤い / 青い / 明るい / 送る are completely missing from the dictionary.
         wchar_t back = reading.back();
-        bool okuriAri = (back < 128 && iswalpha((wint_t)back));
+        bool okuriAri = (back < 128 && iswalpha(static_cast<wint_t>(back)));
         wchar_t okuriCode = okuriAri ? back : L'\0';
         if (okuriAri) reading.pop_back();
         if (reading.empty()) continue;
@@ -220,7 +221,7 @@ HRESULT SkkDictionary::ParseFile(
 
         std::vector<std::wstring> cands;
         cands.reserve(4);
-        size_t pos = 1;                                   // skip leading '/'
+        size_t pos = 1; // skip leading '/'
         while (pos < rest.size())
         {
             size_t next = rest.find(L'/', pos);
@@ -237,7 +238,7 @@ HRESULT SkkDictionary::ParseFile(
             if (okuriAri && !cand.empty())
             {
                 wchar_t cb = cand.back();
-                if (cb < 128 && iswalpha((wint_t)cb)) cand.pop_back();
+                if (cb < 128 && iswalpha(static_cast<wint_t>(cb))) cand.pop_back();
             }
             if (!cand.empty()) cands.push_back(std::move(cand));
             pos = next + 1;
@@ -346,8 +347,8 @@ std::vector<SkkDictionary::Prediction> SkkDictionary::PredictCompletions(
     {
         const std::wstring& key = **it;
         if (key.compare(0, prefix.size(), prefix) != 0) break;
-        if (key.size() == prefix.size()) continue;  // exact hit → Space handles it
-        if (m_directReadings.find(key) == m_directReadings.end()) continue;
+        if (key.size() == prefix.size()) continue; // exact hit → Space handles it
+        if (!m_directReadings.contains(key)) continue;
         hits.push_back(*it);
     }
 
@@ -356,7 +357,9 @@ std::vector<SkkDictionary::Prediction> SkkDictionary::PredictCompletions(
     // keeps the lexicographic order as the tie-break within a length.
     std::stable_sort(hits.begin(), hits.end(),
                      [](const std::wstring* a, const std::wstring* b)
-                     { return a->size() < b->size(); });
+                     {
+                         return a->size() < b->size();
+                     });
 
     for (const auto* key : hits)
     {
@@ -366,10 +369,14 @@ std::vector<SkkDictionary::Prediction> SkkDictionary::PredictCompletions(
         bool dup = false;
         for (const auto& p : out)
         {
-            if (p.word == word) { dup = true; break; }
+            if (p.word == word)
+            {
+                dup = true;
+                break;
+            }
         }
         if (dup) continue;
-        out.push_back({ *key, word });
+        out.push_back({*key, word});
         if (out.size() >= maxResults) break;
     }
     return out;
@@ -391,12 +398,12 @@ std::vector<std::wstring> SkkDictionary::Lookup(const std::wstring& reading) con
 
 bool SkkDictionary::HasDirectEntry(const std::wstring& reading) const
 {
-    return m_directReadings.find(reading) != m_directReadings.end();
+    return m_directReadings.contains(reading);
 }
 
 bool SkkDictionary::IsUserDictReading(const std::wstring& reading) const
 {
-    return m_userDictReadings.find(reading) != m_userDictReadings.end();
+    return m_userDictReadings.contains(reading);
 }
 
 namespace
@@ -415,7 +422,7 @@ namespace
     //                  as kanji-substituted but at least don't shred 担当/段
     bool IsJoshiChar(wchar_t c)
     {
-        static const std::wstring kJoshi = L"はがをへよねわぞぜ";
+        static constexpr std::wstring kJoshi = L"はがをへよねわぞぜ";
         return kJoshi.find(c) != std::wstring::npos;
     }
 }
@@ -431,8 +438,8 @@ SkkDictionary::PrefixMatch SkkDictionary::FindLongestPrefix(
     if (IsJoshiChar(reading[start]))
     {
         PrefixMatch m;
-        m.length     = 1;
-        m.candidates = { reading.substr(start, 1) };
+        m.length = 1;
+        m.candidates = {reading.substr(start, 1)};
         return m;
     }
 
@@ -441,7 +448,11 @@ SkkDictionary::PrefixMatch SkkDictionary::FindLongestPrefix(
     size_t maxLen = reading.size() - start;
     for (size_t i = 1; i < maxLen; ++i)
     {
-        if (IsJoshiChar(reading[start + i])) { maxLen = i; break; }
+        if (IsJoshiChar(reading[start + i]))
+        {
+            maxLen = i;
+            break;
+        }
     }
 
     // Linear scan from longest candidate length down. Each lookup is O(1).
@@ -451,7 +462,7 @@ SkkDictionary::PrefixMatch SkkDictionary::FindLongestPrefix(
         if (it != m_entries.end())
         {
             PrefixMatch m;
-            m.length     = len;
+            m.length = len;
             m.candidates = it->second;
             return m;
         }

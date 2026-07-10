@@ -14,10 +14,10 @@ namespace
     std::string ToUtf8(const std::wstring& w)
     {
         if (w.empty()) return {};
-        int n = WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(),
+        int n = WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()),
                                     nullptr, 0, nullptr, nullptr);
         std::string s(n, '\0');
-        WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(),
+        WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()),
                             s.data(), n, nullptr, nullptr);
         return s;
     }
@@ -25,9 +25,9 @@ namespace
     std::wstring FromUtf8(const char* p, size_t n)
     {
         if (!p || n == 0) return {};
-        int w = MultiByteToWideChar(CP_UTF8, 0, p, (int)n, nullptr, 0);
+        int w = MultiByteToWideChar(CP_UTF8, 0, p, static_cast<int>(n), nullptr, 0);
         std::wstring out(w, L'\0');
-        MultiByteToWideChar(CP_UTF8, 0, p, (int)n, out.data(), w);
+        MultiByteToWideChar(CP_UTF8, 0, p, static_cast<int>(n), out.data(), w);
         return out;
     }
 
@@ -78,7 +78,7 @@ MecabAnalyzer* MecabAnalyzer::GetGlobal()
         g_instance = new MecabAnalyzer();
         bool ok = g_instance->Init();
         wchar_t buf[300];
-        swprintf_s(buf, L"[GenerativeIME] MecabAnalyzer.Init ready=%d\n", (int)ok);
+        swprintf_s(buf, L"[GenerativeIME] MecabAnalyzer.Init ready=%d\n", ok);
         OutputDebugStringW(buf);
     });
     return g_instance;
@@ -101,7 +101,7 @@ bool MecabAnalyzer::Init()
         DWORD attr = GetFileAttributesW(sysdic.c_str());
         swprintf_s(buf,
                    L"[GenerativeIME] MeCab dictDir=%s sys.dic exists=%d (attr=0x%08X)\n",
-                   dictDir.c_str(), (int)(attr != INVALID_FILE_ATTRIBUTES), attr);
+                   dictDir.c_str(), attr != INVALID_FILE_ATTRIBUTES, attr);
         OutputDebugStringW(buf);
     }
 
@@ -118,11 +118,11 @@ bool MecabAnalyzer::Init()
     // slashes so MeCab's path-handling never has to think about escapes.
     std::string dictUtf8 = ToUtf8(dictDir);
     std::replace(dictUtf8.begin(), dictUtf8.end(), '\\', '/');
-    std::string rcUtf8   = dictUtf8 + "/mecabrc";
+    std::string rcUtf8 = dictUtf8 + "/mecabrc";
 
     {
         std::string s = "[GenerativeIME] MeCab args: -d " + dictUtf8 +
-                        " -r " + rcUtf8 + "\n";
+            " -r " + rcUtf8 + "\n";
         OutputDebugStringA(s.c_str());
     }
 
@@ -138,7 +138,7 @@ bool MecabAnalyzer::Init()
         a3.data(),
         rcUtf8.data(),
     };
-    int argc = (int)(sizeof(argv) / sizeof(argv[0]));
+    int argc = sizeof(argv) / sizeof(argv[0]);
 
     auto* model = MeCab::createModel(argc, argv);
     if (!model)
@@ -160,9 +160,9 @@ bool MecabAnalyzer::Init()
         return false;
     }
 
-    m_model  = model;
+    m_model = model;
     m_tagger = tagger;
-    m_ready  = true;
+    m_ready = true;
 
     wchar_t buf[400];
     swprintf_s(buf, L"[GenerativeIME] MeCab loaded, dict=%s\n", dictDir.c_str());
@@ -172,8 +172,16 @@ bool MecabAnalyzer::Init()
 
 MecabAnalyzer::~MecabAnalyzer()
 {
-    if (m_tagger) { delete static_cast<MeCab::Tagger*>(m_tagger); m_tagger = nullptr; }
-    if (m_model)  { delete static_cast<MeCab::Model*>(m_model);   m_model  = nullptr; }
+    if (m_tagger)
+    {
+        delete static_cast<MeCab::Tagger*>(m_tagger);
+        m_tagger = nullptr;
+    }
+    if (m_model)
+    {
+        delete static_cast<MeCab::Model*>(m_model);
+        m_model = nullptr;
+    }
 }
 
 std::vector<MecabMorpheme> MecabAnalyzer::Analyze(const std::wstring& text) const
@@ -181,7 +189,7 @@ std::vector<MecabMorpheme> MecabAnalyzer::Analyze(const std::wstring& text) cons
     std::vector<MecabMorpheme> out;
     if (!m_ready || text.empty()) return out;
 
-    auto* model  = static_cast<MeCab::Model*>(m_model);
+    auto* model = static_cast<MeCab::Model*>(m_model);
     auto* tagger = static_cast<MeCab::Tagger*>(m_tagger);
 
     std::string input = ToUtf8(text);
@@ -266,7 +274,8 @@ std::vector<MecabMorpheme> MecabAnalyzer::Analyze(const std::wstring& text) cons
         // IME-input matching we want what the user typed, not how it's
         // pronounced — those candidates would otherwise fail the ReadsAs
         // filter and get dropped, leaving an Ollama-fallback empty.
-        auto isPureKana = [](const std::wstring& s) {
+        auto isPureKana = [](const std::wstring& s)
+        {
             if (s.empty()) return false;
             for (wchar_t c : s)
             {
@@ -307,34 +316,94 @@ std::vector<MecabMorpheme> MecabAnalyzer::Analyze(const std::wstring& text) cons
                 // IME input). a/i/u列 → same column.
                 switch (c)
                 {
-                    // a列 — return あ
-                    case L'あ': case L'か': case L'が': case L'さ': case L'ざ':
-                    case L'た': case L'だ': case L'な': case L'は': case L'ば':
-                    case L'ぱ': case L'ま': case L'や': case L'ら': case L'わ':
-                    case L'ゃ': case L'ぁ':
-                        return L'あ';
-                    // i列 — return い
-                    case L'い': case L'き': case L'ぎ': case L'し': case L'じ':
-                    case L'ち': case L'ぢ': case L'に': case L'ひ': case L'び':
-                    case L'ぴ': case L'み': case L'り': case L'ぃ':
-                        return L'い';
-                    // u列 — return う
-                    case L'う': case L'く': case L'ぐ': case L'す': case L'ず':
-                    case L'つ': case L'づ': case L'ぬ': case L'ふ': case L'ぶ':
-                    case L'ぷ': case L'む': case L'ゆ': case L'る': case L'ゅ':
-                    case L'ぅ':
-                        return L'う';
-                    // e列 — return い (long-vowel convention)
-                    case L'え': case L'け': case L'げ': case L'せ': case L'ぜ':
-                    case L'て': case L'で': case L'ね': case L'へ': case L'べ':
-                    case L'ぺ': case L'め': case L'れ': case L'ぇ':
-                        return L'い';
-                    // o列 — return う (long-vowel convention)
-                    case L'お': case L'こ': case L'ご': case L'そ': case L'ぞ':
-                    case L'と': case L'ど': case L'の': case L'ほ': case L'ぼ':
-                    case L'ぽ': case L'も': case L'よ': case L'ろ': case L'を':
-                    case L'ょ': case L'ぉ':
-                        return L'う';
+                // a列 — return あ
+                case L'あ':
+                case L'か':
+                case L'が':
+                case L'さ':
+                case L'ざ':
+                case L'た':
+                case L'だ':
+                case L'な':
+                case L'は':
+                case L'ば':
+                case L'ぱ':
+                case L'ま':
+                case L'や':
+                case L'ら':
+                case L'わ':
+                case L'ゃ':
+                case L'ぁ':
+                    return L'あ';
+                // i列 — return い
+                case L'い':
+                case L'き':
+                case L'ぎ':
+                case L'し':
+                case L'じ':
+                case L'ち':
+                case L'ぢ':
+                case L'に':
+                case L'ひ':
+                case L'び':
+                case L'ぴ':
+                case L'み':
+                case L'り':
+                case L'ぃ':
+                    return L'い';
+                // u列 — return う
+                case L'う':
+                case L'く':
+                case L'ぐ':
+                case L'す':
+                case L'ず':
+                case L'つ':
+                case L'づ':
+                case L'ぬ':
+                case L'ふ':
+                case L'ぶ':
+                case L'ぷ':
+                case L'む':
+                case L'ゆ':
+                case L'る':
+                case L'ゅ':
+                case L'ぅ':
+                    return L'う';
+                // e列 — return い (long-vowel convention)
+                case L'え':
+                case L'け':
+                case L'げ':
+                case L'せ':
+                case L'ぜ':
+                case L'て':
+                case L'で':
+                case L'ね':
+                case L'へ':
+                case L'べ':
+                case L'ぺ':
+                case L'め':
+                case L'れ':
+                case L'ぇ':
+                    return L'い';
+                // o列 — return う (long-vowel convention)
+                case L'お':
+                case L'こ':
+                case L'ご':
+                case L'そ':
+                case L'ぞ':
+                case L'と':
+                case L'ど':
+                case L'の':
+                case L'ほ':
+                case L'ぼ':
+                case L'ぽ':
+                case L'も':
+                case L'よ':
+                case L'ろ':
+                case L'を':
+                case L'ょ':
+                case L'ぉ':
+                    return L'う';
                 }
                 return 0;
             };
@@ -346,7 +415,11 @@ std::vector<MecabMorpheme> MecabAnalyzer::Analyze(const std::wstring& text) cons
                 if (c == L'ー' && prev != 0)
                 {
                     wchar_t v = vowelOf(prev);
-                    if (v) { out.push_back(v); continue; }
+                    if (v)
+                    {
+                        out.push_back(v);
+                        continue;
+                    }
                 }
                 out.push_back(c);
                 prev = c;

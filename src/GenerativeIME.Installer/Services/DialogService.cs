@@ -5,9 +5,9 @@ namespace GenerativeIME.Installer.Services;
 public interface IDialogService
 {
     /// <summary>
-    /// Ask the user "are you sure you want to cancel". Returns true if
-    /// they confirm (installer should shut down), false if they want to
-    /// stay in the wizard.
+    ///     Ask the user "are you sure you want to cancel". Returns true if
+    ///     they confirm (installer should shut down), false if they want to
+    ///     stay in the wizard.
     /// </summary>
     bool ConfirmCancel();
 }

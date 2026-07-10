@@ -5,12 +5,12 @@
 // Solid blue underline, default text color, no background fill, marked as input clause.
 const TF_DISPLAYATTRIBUTE CDisplayAttributeInfoInput::s_defaultAttribute =
 {
-    { TF_CT_NONE, 0 },                  // text color (app default)
-    { TF_CT_NONE, 0 },                  // background (app default)
-    TF_LS_SOLID,                        // underline style
-    FALSE,                              // underline boldness
-    { TF_CT_COLORREF, RGB(0, 0, 255) }, // underline color
-    TF_ATTR_INPUT                       // attribute info
+    {TF_CT_NONE, 0}, // text color (app default)
+    {TF_CT_NONE, 0}, // background (app default)
+    TF_LS_SOLID, // underline style
+    FALSE, // underline boldness
+    {TF_CT_COLORREF, RGB(0, 0, 255)}, // underline color
+    TF_ATTR_INPUT // attribute info
 };
 
 CDisplayAttributeInfoInput::CDisplayAttributeInfoInput()
@@ -88,11 +88,11 @@ STDMETHODIMP CDisplayAttributeInfoInput::Reset()
 // the rest of the composition.
 const TF_DISPLAYATTRIBUTE CDisplayAttributeInfoBunsetsuFocus::s_defaultAttribute =
 {
-    { TF_CT_NONE, 0 },
-    { TF_CT_NONE, 0 },
+    {TF_CT_NONE, 0},
+    {TF_CT_NONE, 0},
     TF_LS_SQUIGGLE,
     TRUE,
-    { TF_CT_COLORREF, RGB(220, 80, 0) },
+    {TF_CT_COLORREF, RGB(220, 80, 0)},
     TF_ATTR_TARGET_CONVERTED
 };
 
@@ -167,7 +167,7 @@ STDMETHODIMP CDisplayAttributeInfoBunsetsuFocus::Reset()
 
 CEnumDisplayAttributeInfo::CEnumDisplayAttributeInfo()
     : m_cRef(1)
-    , m_index(0)
+      , m_index(0)
 {
     InterlockedIncrement(&g_cRefDll);
 }
@@ -205,7 +205,7 @@ STDMETHODIMP_(ULONG) CEnumDisplayAttributeInfo::Release()
 STDMETHODIMP CEnumDisplayAttributeInfo::Clone(IEnumTfDisplayAttributeInfo** ppEnum)
 {
     if (!ppEnum) return E_INVALIDARG;
-    CEnumDisplayAttributeInfo* pClone = new CEnumDisplayAttributeInfo();
+    auto pClone = new CEnumDisplayAttributeInfo();
     if (!pClone) return E_OUTOFMEMORY;
     pClone->m_index = m_index;
     *ppEnum = pClone;
@@ -222,8 +222,10 @@ STDMETHODIMP CEnumDisplayAttributeInfo::Next(ULONG ulCount, ITfDisplayAttributeI
         ITfDisplayAttributeInfo* p = nullptr;
         switch (m_index)
         {
-        case 0: p = new CDisplayAttributeInfoInput(); break;
-        case 1: p = new CDisplayAttributeInfoBunsetsuFocus(); break;
+        case 0: p = new CDisplayAttributeInfoInput();
+            break;
+        case 1: p = new CDisplayAttributeInfoBunsetsuFocus();
+            break;
         }
         if (!p) return E_OUTOFMEMORY;
         rgInfo[fetched++] = p;

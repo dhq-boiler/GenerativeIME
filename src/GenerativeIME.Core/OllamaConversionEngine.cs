@@ -1,10 +1,16 @@
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 
 namespace GenerativeIME.Core;
 
 public sealed class OllamaConversionEngine : IConversionEngine
 {
+    private static readonly JsonSerializerOptions s_jsonOpts = new()
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
+
     private readonly OllamaClient _client;
     private readonly string _model;
     private readonly JapaneseReader? _reader;
@@ -46,7 +52,9 @@ public sealed class OllamaConversionEngine : IConversionEngine
                 var hit = _reader.MatchesReading(word, context.Reading);
                 trace.ContextWordReadings.Add((word, actualReading, hit));
                 if (hit)
+                {
                     contextHits.Add(new ConversionCandidate(word, "context-hit"));
+                }
             }
         }
 
@@ -55,12 +63,12 @@ public sealed class OllamaConversionEngine : IConversionEngine
         var raw = await _client.GenerateAsync(
             _model,
             prompt,
-            format: "json",
-            temperature: 0.2,
-            numPredict: 256,
-            keepAlive: "30m",
-            think: false,
-            cancellationToken: cancellationToken).ConfigureAwait(false);
+            "json",
+            0.2,
+            256,
+            "30m",
+            false,
+            cancellationToken).ConfigureAwait(false);
         trace.RawModelOutput = raw;
 
         var parsed = ParseCandidates(raw, context.Reading);
@@ -77,8 +85,12 @@ public sealed class OllamaConversionEngine : IConversionEngine
                 var actual = _reader.ToHiragana(c.Text);
                 var pass = _reader.MatchesReading(c.Text, context.Reading);
                 trace.ReadingCheckDetails.Add((c.Text, actual, pass));
-                if (pass) list.Add(c);
+                if (pass)
+                {
+                    list.Add(c);
+                }
             }
+
             // Reading-mismatched candidates are dropped hard. If contextHits is also empty
             // the caller will fall back to the raw reading via the sandbox UI.
             readingChecked = list;
@@ -101,7 +113,11 @@ public sealed class OllamaConversionEngine : IConversionEngine
         IReadOnlyList<ConversionCandidate> contextHits,
         IReadOnlyList<ConversionCandidate> rest)
     {
-        if (symbols.Count == 0 && contextHits.Count == 0) return rest;
+        if (symbols.Count == 0 && contextHits.Count == 0)
+        {
+            return rest;
+        }
+
         var merged = new List<ConversionCandidate>(symbols.Count + contextHits.Count + rest.Count);
         merged.AddRange(contextHits);
         merged.AddRange(symbols);
@@ -112,13 +128,20 @@ public sealed class OllamaConversionEngine : IConversionEngine
     private IReadOnlyList<ConversionCandidate> FilterByReading(
         IReadOnlyList<ConversionCandidate> candidates, string reading)
     {
-        if (_reader is null) return candidates;
+        if (_reader is null)
+        {
+            return candidates;
+        }
+
         var list = new List<ConversionCandidate>(candidates.Count);
         foreach (var c in candidates)
         {
             if (_reader.MatchesReading(c.Text, reading))
+            {
                 list.Add(c);
+            }
         }
+
         // If reader rejected everything, surface the candidate set as-is so the popup is not empty.
         return list.Count > 0 ? list : candidates;
     }
@@ -129,8 +152,12 @@ public sealed class OllamaConversionEngine : IConversionEngine
         var list = new List<ConversionCandidate>(input.Count);
         foreach (var c in input)
         {
-            if (seen.Add(c.Text)) list.Add(c);
+            if (seen.Add(c.Text))
+            {
+                list.Add(c);
+            }
         }
+
         return list;
     }
 
@@ -143,11 +170,24 @@ public sealed class OllamaConversionEngine : IConversionEngine
         var list = new List<ConversionCandidate>(candidates.Count);
         foreach (var c in candidates)
         {
-            if (string.IsNullOrEmpty(c.Text)) continue;
-            if (c.Text.Length > maxLen) continue;
-            if (IsAllHiraganaOrPunct(c.Text) && c.Text != reading) continue;
+            if (string.IsNullOrEmpty(c.Text))
+            {
+                continue;
+            }
+
+            if (c.Text.Length > maxLen)
+            {
+                continue;
+            }
+
+            if (IsAllHiraganaOrPunct(c.Text) && c.Text != reading)
+            {
+                continue;
+            }
+
             list.Add(c);
         }
+
         return list;
     }
 
@@ -155,17 +195,29 @@ public sealed class OllamaConversionEngine : IConversionEngine
     {
         foreach (var ch in s)
         {
-            if (ch >= 0x3041 && ch <= 0x309F) continue; // hiragana
-            if (ch == 'ー' || ch == '・' || ch == '、' || ch == '。') continue;
+            if (ch >= 0x3041 && ch <= 0x309F)
+            {
+                continue; // hiragana
+            }
+
+            if (ch == 'ー' || ch == '・' || ch == '、' || ch == '。')
+            {
+                continue;
+            }
+
             return false;
         }
+
         return true;
     }
 
     private static List<string> ExtractKanjiRuns(string text)
     {
         var runs = new List<string>();
-        if (string.IsNullOrEmpty(text)) return runs;
+        if (string.IsNullOrEmpty(text))
+        {
+            return runs;
+        }
 
         var sb = new StringBuilder();
         foreach (var ch in text)
@@ -178,10 +230,19 @@ public sealed class OllamaConversionEngine : IConversionEngine
             }
             else
             {
-                if (sb.Length > 0) { runs.Add(sb.ToString()); sb.Clear(); }
+                if (sb.Length > 0)
+                {
+                    runs.Add(sb.ToString());
+                    sb.Clear();
+                }
             }
         }
-        if (sb.Length > 0) runs.Add(sb.ToString());
+
+        if (sb.Length > 0)
+        {
+            runs.Add(sb.ToString());
+        }
+
         return runs;
     }
 
@@ -191,20 +252,35 @@ public sealed class OllamaConversionEngine : IConversionEngine
         IReadOnlyList<ConversionCandidate> candidates,
         ConversionContext ctx)
     {
-        if (candidates.Count <= 1) return candidates;
+        if (candidates.Count <= 1)
+        {
+            return candidates;
+        }
+
         var haystack = (ctx.LineBeforeCursor ?? "") + "\0" + (ctx.LineAfterCursor ?? "");
-        if (haystack.Length == 0) return candidates;
+        if (haystack.Length == 0)
+        {
+            return candidates;
+        }
 
         var inContext = new List<ConversionCandidate>();
         var others = new List<ConversionCandidate>();
         foreach (var c in candidates)
         {
             if (LooksContextual(c.Text) && haystack.Contains(c.Text, StringComparison.Ordinal))
+            {
                 inContext.Add(c);
+            }
             else
+            {
                 others.Add(c);
+            }
         }
-        if (inContext.Count == 0) return candidates;
+
+        if (inContext.Count == 0)
+        {
+            return candidates;
+        }
 
         var ordered = new List<ConversionCandidate>(candidates.Count);
         ordered.AddRange(inContext);
@@ -215,13 +291,29 @@ public sealed class OllamaConversionEngine : IConversionEngine
     // Skip very-short / pure-hiragana strings to avoid trivial matches like "い" in "いい".
     private static bool LooksContextual(string text)
     {
-        if (string.IsNullOrEmpty(text)) return false;
-        if (text.Length < 2) return false;
+        if (string.IsNullOrEmpty(text))
+        {
+            return false;
+        }
+
+        if (text.Length < 2)
+        {
+            return false;
+        }
+
         foreach (var ch in text)
         {
-            if (ch >= 0x4E00 && ch <= 0x9FFF) return true; // CJK ideograph
-            if (ch >= 0x30A0 && ch <= 0x30FF) return true; // katakana
+            if (ch >= 0x4E00 && ch <= 0x9FFF)
+            {
+                return true; // CJK ideograph
+            }
+
+            if (ch >= 0x30A0 && ch <= 0x30FF)
+            {
+                return true; // katakana
+            }
         }
+
         return false;
     }
 
@@ -240,12 +332,15 @@ public sealed class OllamaConversionEngine : IConversionEngine
         sb.AppendLine("4. JSON のみ。形式: {\"candidates\":[{\"text\":\"…\"}]}");
         sb.AppendLine();
         sb.AppendLine("# 例（候補は最大件数まで搾り出す）");
-        sb.AppendLine("読み: \"きしゃ\" → {\"candidates\":[{\"text\":\"記者\"},{\"text\":\"貴社\"},{\"text\":\"汽車\"},{\"text\":\"帰社\"},{\"text\":\"喜捨\"}]}");
-        sb.AppendLine("読み: \"はし\" → {\"candidates\":[{\"text\":\"橋\"},{\"text\":\"端\"},{\"text\":\"箸\"},{\"text\":\"梯\"}]}");
+        sb.AppendLine(
+            "読み: \"きしゃ\" → {\"candidates\":[{\"text\":\"記者\"},{\"text\":\"貴社\"},{\"text\":\"汽車\"},{\"text\":\"帰社\"},{\"text\":\"喜捨\"}]}");
+        sb.AppendLine(
+            "読み: \"はし\" → {\"candidates\":[{\"text\":\"橋\"},{\"text\":\"端\"},{\"text\":\"箸\"},{\"text\":\"梯\"}]}");
         sb.AppendLine("読み: \"さいきどう\" → {\"candidates\":[{\"text\":\"再起動\"},{\"text\":\"再気道\"},{\"text\":\"再軌道\"}]}");
         sb.AppendLine("読み: \"しゅくしゃく\" → {\"candidates\":[{\"text\":\"縮尺\"},{\"text\":\"縮図\"},{\"text\":\"縮酌\"}]}");
         sb.AppendLine("読み: \"しりょうかん\" → {\"candidates\":[{\"text\":\"資料館\"},{\"text\":\"飼料缶\"},{\"text\":\"史料館\"}]}");
-        sb.AppendLine("読み: \"こうしょう\" → {\"candidates\":[{\"text\":\"交渉\"},{\"text\":\"高尚\"},{\"text\":\"工匠\"},{\"text\":\"考証\"},{\"text\":\"校章\"},{\"text\":\"鉱床\"}]}");
+        sb.AppendLine(
+            "読み: \"こうしょう\" → {\"candidates\":[{\"text\":\"交渉\"},{\"text\":\"高尚\"},{\"text\":\"工匠\"},{\"text\":\"考証\"},{\"text\":\"校章\"},{\"text\":\"鉱床\"}]}");
         sb.AppendLine();
         sb.AppendLine("# 今回の入力");
         sb.AppendLine("  読み: " + JsonEncode(ctx.Reading));
@@ -254,16 +349,17 @@ public sealed class OllamaConversionEngine : IConversionEngine
         return sb.ToString();
     }
 
-    private static readonly JsonSerializerOptions s_jsonOpts = new()
+    private static string JsonEncode(string s)
     {
-        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-    };
-    private static string JsonEncode(string s) => JsonSerializer.Serialize(s, s_jsonOpts);
+        return JsonSerializer.Serialize(s, s_jsonOpts);
+    }
 
     private static IReadOnlyList<ConversionCandidate> ParseCandidates(string raw, string fallbackReading)
     {
         if (string.IsNullOrWhiteSpace(raw))
+        {
             return Array.Empty<ConversionCandidate>();
+        }
 
         try
         {
@@ -279,18 +375,32 @@ public sealed class OllamaConversionEngine : IConversionEngine
                     if (item.ValueKind == JsonValueKind.Object)
                     {
                         if (item.TryGetProperty("text", out var t) && t.ValueKind == JsonValueKind.String)
+                        {
                             text = t.GetString();
+                        }
+
                         if (item.TryGetProperty("reason", out var r) && r.ValueKind == JsonValueKind.String)
+                        {
                             reason = r.GetString();
+                        }
                     }
                     else if (item.ValueKind == JsonValueKind.String)
                     {
                         text = item.GetString();
                     }
-                    if (string.IsNullOrEmpty(text)) continue;
+
+                    if (string.IsNullOrEmpty(text))
+                    {
+                        continue;
+                    }
+
                     list.Add(new ConversionCandidate(text, reason));
                 }
-                if (list.Count > 0) return list;
+
+                if (list.Count > 0)
+                {
+                    return list;
+                }
             }
         }
         catch (JsonException)

@@ -5,10 +5,7 @@ namespace GenerativeIME.Installer.ViewModels;
 
 public partial class InstallerShellViewModel : ObservableObject
 {
-    [ObservableProperty]
-    private PageViewModelBase? _currentPage;
-
-    public string FooterText { get; }
+    [ObservableProperty] private PageViewModelBase? _currentPage;
 
     public InstallerShellViewModel()
     {
@@ -18,4 +15,6 @@ public partial class InstallerShellViewModel : ObservableObject
             ? "GenerativeIME"
             : $"GenerativeIME v{verString}";
     }
+
+    public string FooterText { get; }
 }

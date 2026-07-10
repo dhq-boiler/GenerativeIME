@@ -30,7 +30,7 @@ STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void** ppv)
     if (!IsEqualCLSID(rclsid, c_clsidGenerativeImeTextService))
         return CLASS_E_CLASSNOTAVAILABLE;
 
-    CClassFactory* pFactory = new (std::nothrow) CClassFactory();
+    auto pFactory = new(std::nothrow) CClassFactory();
     if (pFactory == nullptr) return E_OUTOFMEMORY;
 
     HRESULT hr = pFactory->QueryInterface(riid, ppv);
@@ -44,10 +44,19 @@ STDAPI DllRegisterServer(void)
     if (FAILED(hr)) return hr;
 
     hr = RegisterProfile();
-    if (FAILED(hr)) { UnregisterComServer(); return hr; }
+    if (FAILED(hr))
+    {
+        UnregisterComServer();
+        return hr;
+    }
 
     hr = RegisterCategories();
-    if (FAILED(hr)) { UnregisterProfile(); UnregisterComServer(); return hr; }
+    if (FAILED(hr))
+    {
+        UnregisterProfile();
+        UnregisterComServer();
+        return hr;
+    }
 
     return S_OK;
 }

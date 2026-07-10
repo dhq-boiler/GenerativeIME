@@ -9,30 +9,30 @@
 namespace
 {
     constexpr wchar_t kWndClass[] = L"GenerativeIME_CandWnd_v2"; // bump on class style change
-    constexpr int kPaddingX  = 12;
-    constexpr int kPaddingY  = 6;
-    constexpr int kMinWidth  = 160;
-    constexpr int kMaxRows   = 9;
+    constexpr int kPaddingX = 12;
+    constexpr int kPaddingY = 6;
+    constexpr int kMinWidth = 160;
+    constexpr int kMaxRows = 9;
     constexpr int kCornerRadius = 6;
 
-    constexpr float kFontSize = 18.0f;             // DIP == px (RT pinned to 96 DPI)
+    constexpr float kFontSize = 18.0f; // DIP == px (RT pinned to 96 DPI)
     constexpr wchar_t kFontName[] = L"Yu Gothic UI"; // readable Japanese, Win10+ stock
 
     // Right-edge type annotation for emoji rows. Small + gray so it reads
     // as metadata, not as part of the candidate.
     constexpr float kAnnotFontSize = 11.0f;
     constexpr wchar_t kEmojiAnnot[] = L"(emoji)";
-    constexpr int kAnnotGap = 10;   // min space between candidate and annotation
+    constexpr int kAnnotGap = 10; // min space between candidate and annotation
 
     // MS-IME-ish palette tuned for Win11 light theme.
-    constexpr COLORREF kBgColor       = RGB(255, 255, 255);
-    constexpr COLORREF kBorderColor   = RGB(200, 200, 200);
-    constexpr COLORREF kSelBgColor    = RGB(0, 120, 215);
-    constexpr COLORREF kSelTextColor  = RGB(255, 255, 255);
-    constexpr COLORREF kTextColor     = RGB(30, 30, 30);
-    constexpr COLORREF kIndexColor    = RGB(140, 140, 140);
+    constexpr COLORREF kBgColor = RGB(255, 255, 255);
+    constexpr COLORREF kBorderColor = RGB(200, 200, 200);
+    constexpr COLORREF kSelBgColor = RGB(0, 120, 215);
+    constexpr COLORREF kSelTextColor = RGB(255, 255, 255);
+    constexpr COLORREF kTextColor = RGB(30, 30, 30);
+    constexpr COLORREF kIndexColor = RGB(140, 140, 140);
     constexpr COLORREF kSelIndexColor = RGB(200, 220, 240);
-    constexpr COLORREF kSepColor      = RGB(238, 238, 238);
+    constexpr COLORREF kSepColor = RGB(238, 238, 238);
 
     D2D1_COLOR_F ToColorF(COLORREF c)
     {
@@ -44,11 +44,12 @@ namespace
 
 CCandidateWindow::CCandidateWindow()
     : m_hwnd(nullptr)
-    , m_rowHeight(20)
-    , m_width(kMinWidth)
-    , m_selected(0)
-    , m_pageStart(0)
-{}
+      , m_rowHeight(20)
+      , m_width(kMinWidth)
+      , m_selected(0)
+      , m_pageStart(0)
+{
+}
 
 CCandidateWindow::~CCandidateWindow()
 {
@@ -59,26 +60,26 @@ HRESULT CCandidateWindow::Create()
 {
     if (m_hwnd) return S_OK;
 
-    WNDCLASSEXW wc = { sizeof(wc) };
+    WNDCLASSEXW wc = {sizeof(wc)};
     // CS_DROPSHADOW: free OS-rendered soft shadow under the popup, matches
     // tooltip / context-menu styling so the candidate list doesn't feel like
     // a raw Win32 surface floating on top of the editor.
-    wc.style         = CS_DROPSHADOW;
-    wc.lpfnWndProc   = StaticWndProc;
-    wc.hInstance     = g_hInst;
+    wc.style = CS_DROPSHADOW;
+    wc.lpfnWndProc = StaticWndProc;
+    wc.hInstance = g_hInst;
     wc.lpszClassName = kWndClass;
     wc.hbrBackground = nullptr; // we paint everything
-    wc.hCursor       = LoadCursorW(nullptr, IDC_ARROW);
+    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     RegisterClassExW(&wc); // ignore re-register error
 
     // WS_EX_NOACTIVATE prevents stealing focus from the host text field; without
     // it the composition would terminate the moment we showed the candidate list.
     // WS_EX_TOOLWINDOW keeps it out of the taskbar.
     m_hwnd = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST,
-        kWndClass, nullptr,
-        WS_POPUP,
-        0, 0, m_width, m_rowHeight,
-        nullptr, nullptr, g_hInst, this);
+                             kWndClass, nullptr,
+                             WS_POPUP,
+                             0, 0, m_width, m_rowHeight,
+                             nullptr, nullptr, g_hInst, this);
     if (!m_hwnd) return HRESULT_FROM_WIN32(GetLastError());
 
     HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &m_pD2DFactory);
@@ -90,14 +91,14 @@ HRESULT CCandidateWindow::Create()
     if (SUCCEEDED(hr))
     {
         hr = m_pDWriteFactory->CreateTextFormat(kFontName, nullptr,
-            DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL, kFontSize, L"ja-jp", &m_pTextFormat);
+                                                DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+                                                DWRITE_FONT_STRETCH_NORMAL, kFontSize, L"ja-jp", &m_pTextFormat);
     }
     if (SUCCEEDED(hr))
     {
         hr = m_pDWriteFactory->CreateTextFormat(kFontName, nullptr,
-            DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL, kAnnotFontSize, L"ja-jp", &m_pAnnotFormat);
+                                                DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+                                                DWRITE_FONT_STRETCH_NORMAL, kAnnotFontSize, L"ja-jp", &m_pAnnotFormat);
     }
     if (SUCCEEDED(hr))
     {
@@ -114,11 +115,11 @@ HRESULT CCandidateWindow::Create()
         // TEXTMETRIC.tmHeight + 4; this is the DWrite equivalent.)
         IDWriteTextLayout* probe = nullptr;
         if (SUCCEEDED(m_pDWriteFactory->CreateTextLayout(L"あAg😀", 5, m_pTextFormat,
-                                                         10000.0f, 100.0f, &probe)))
+            10000.0f, 100.0f, &probe)))
         {
             DWRITE_TEXT_METRICS tm{};
             probe->GetMetrics(&tm);
-            m_rowHeight = (int)(tm.height + 0.5f) + 4;
+            m_rowHeight = static_cast<int>(tm.height + 0.5f) + 4;
             probe->Release();
         }
     }
@@ -128,7 +129,8 @@ HRESULT CCandidateWindow::Create()
 void CCandidateWindow::ApplyRoundedRegion()
 {
     if (!m_hwnd) return;
-    RECT rc; GetClientRect(m_hwnd, &rc);
+    RECT rc;
+    GetClientRect(m_hwnd, &rc);
     HRGN rgn = CreateRoundRectRgn(0, 0, rc.right + 1, rc.bottom + 1, kCornerRadius * 2, kCornerRadius * 2);
     SetWindowRgn(m_hwnd, rgn, TRUE); // window takes ownership; do not DeleteObject(rgn).
 }
@@ -136,11 +138,31 @@ void CCandidateWindow::ApplyRoundedRegion()
 void CCandidateWindow::Destroy()
 {
     DiscardRenderTarget();
-    if (m_pAnnotFormat)   { m_pAnnotFormat->Release();   m_pAnnotFormat = nullptr; }
-    if (m_pTextFormat)    { m_pTextFormat->Release();    m_pTextFormat = nullptr; }
-    if (m_pDWriteFactory) { m_pDWriteFactory->Release(); m_pDWriteFactory = nullptr; }
-    if (m_pD2DFactory)    { m_pD2DFactory->Release();    m_pD2DFactory = nullptr; }
-    if (m_hwnd) { DestroyWindow(m_hwnd); m_hwnd = nullptr; }
+    if (m_pAnnotFormat)
+    {
+        m_pAnnotFormat->Release();
+        m_pAnnotFormat = nullptr;
+    }
+    if (m_pTextFormat)
+    {
+        m_pTextFormat->Release();
+        m_pTextFormat = nullptr;
+    }
+    if (m_pDWriteFactory)
+    {
+        m_pDWriteFactory->Release();
+        m_pDWriteFactory = nullptr;
+    }
+    if (m_pD2DFactory)
+    {
+        m_pD2DFactory->Release();
+        m_pD2DFactory = nullptr;
+    }
+    if (m_hwnd)
+    {
+        DestroyWindow(m_hwnd);
+        m_hwnd = nullptr;
+    }
 }
 
 HRESULT CCandidateWindow::EnsureRenderTarget()
@@ -148,7 +170,8 @@ HRESULT CCandidateWindow::EnsureRenderTarget()
     if (m_pRT) return S_OK;
     if (!m_pD2DFactory || !m_hwnd) return E_FAIL;
 
-    RECT rc; GetClientRect(m_hwnd, &rc);
+    RECT rc;
+    GetClientRect(m_hwnd, &rc);
     // Pin the render target to 96 DPI so 1 DIP == 1 pixel and all the
     // pixel-based layout math (row height, paddings, SetWindowPos sizes)
     // keeps meaning what it says. Same fixed-pixel behavior as the old
@@ -164,21 +187,33 @@ HRESULT CCandidateWindow::EnsureRenderTarget()
     if (FAILED(hr)) return hr;
 
     hr = m_pRT->CreateSolidColorBrush(ToColorF(kTextColor), &m_pBrush);
-    if (FAILED(hr)) { DiscardRenderTarget(); return hr; }
+    if (FAILED(hr))
+    {
+        DiscardRenderTarget();
+        return hr;
+    }
     return S_OK;
 }
 
 void CCandidateWindow::DiscardRenderTarget()
 {
-    if (m_pBrush) { m_pBrush->Release(); m_pBrush = nullptr; }
-    if (m_pRT)    { m_pRT->Release();    m_pRT = nullptr; }
+    if (m_pBrush)
+    {
+        m_pBrush->Release();
+        m_pBrush = nullptr;
+    }
+    if (m_pRT)
+    {
+        m_pRT->Release();
+        m_pRT = nullptr;
+    }
 }
 
 float CCandidateWindow::MeasureLineWidth(const std::wstring& text)
 {
     if (!m_pDWriteFactory || !m_pTextFormat || text.empty()) return 0.0f;
     IDWriteTextLayout* layout = nullptr;
-    HRESULT hr = m_pDWriteFactory->CreateTextLayout(text.c_str(), (UINT32)text.size(),
+    HRESULT hr = m_pDWriteFactory->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()),
                                                     m_pTextFormat, 100000.0f, 100.0f, &layout);
     if (FAILED(hr)) return 0.0f;
     DWRITE_TEXT_METRICS tm{};
@@ -191,7 +226,7 @@ float CCandidateWindow::MeasureAnnotationWidth(const std::wstring& text)
 {
     if (!m_pDWriteFactory || !m_pAnnotFormat || text.empty()) return 0.0f;
     IDWriteTextLayout* layout = nullptr;
-    HRESULT hr = m_pDWriteFactory->CreateTextLayout(text.c_str(), (UINT32)text.size(),
+    HRESULT hr = m_pDWriteFactory->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()),
                                                     m_pAnnotFormat, 100000.0f, 100.0f, &layout);
     if (FAILED(hr)) return 0.0f;
     DWRITE_TEXT_METRICS tm{};
@@ -216,18 +251,18 @@ void CCandidateWindow::Resize()
     int widest = kMinWidth;
     // Emoji rows carry a right-edge "(emoji)" tag; reserve its width so
     // the annotation never overlaps a long candidate.
-    const int annotSpan = (int)(MeasureAnnotationWidth(kEmojiAnnot) + 0.5f) + kAnnotGap;
+    const int annotSpan = static_cast<int>(MeasureAnnotationWidth(kEmojiAnnot) + 0.5f) + kAnnotGap;
     for (size_t i = 0; i < m_candidates.size(); ++i)
     {
         // Prefix " N. " (or "    " when index > 9) so we can render index hints later.
         std::wstring line = std::to_wstring(i + 1) + L". " + m_candidates[i];
-        int w = (int)(MeasureLineWidth(line) + 0.5f);
+        int w = static_cast<int>(MeasureLineWidth(line) + 0.5f);
         if (emojitext::IsEmoji(m_candidates[i])) w += annotSpan;
         if (w > widest) widest = w;
     }
     m_width = widest + kPaddingX * 2;
 
-    int rows = (int)(std::min)((size_t)kMaxRows, m_candidates.size());
+    int rows = static_cast<int>((std::min)((size_t)kMaxRows, m_candidates.size()));
     if (rows < 1) rows = 1;
     int height = rows * m_rowHeight + kPaddingY * 2;
     // Reserve a slim strip below the candidate list for the Ollama
@@ -262,7 +297,7 @@ bool CCandidateWindow::IsVisible() const
 void CCandidateWindow::SelectNext()
 {
     if (m_candidates.empty()) return;
-    m_selected = (m_selected + 1) % (int)m_candidates.size();
+    m_selected = (m_selected + 1) % static_cast<int>(m_candidates.size());
     // Auto-scroll: if we walked off the bottom of the visible window, move
     // the page start so the new selection lands on the first row of a fresh
     // page (or wraps to page 0 when we cycled back to candidate 0).
@@ -277,7 +312,7 @@ void CCandidateWindow::SelectNext()
 void CCandidateWindow::SelectPrev()
 {
     if (m_candidates.empty()) return;
-    m_selected = (m_selected - 1 + (int)m_candidates.size()) % (int)m_candidates.size();
+    m_selected = (m_selected - 1 + static_cast<int>(m_candidates.size())) % static_cast<int>(m_candidates.size());
     if (m_selected < m_pageStart || m_selected >= m_pageStart + kMaxRows)
     {
         m_pageStart = (m_selected / kMaxRows) * kMaxRows;
@@ -288,7 +323,7 @@ void CCandidateWindow::SelectPrev()
 
 void CCandidateWindow::SelectIndex(int index)
 {
-    if (index < 0 || (size_t)index >= m_candidates.size()) return;
+    if (index < 0 || static_cast<size_t>(index) >= m_candidates.size()) return;
     m_selected = index;
     if (m_selected < m_pageStart || m_selected >= m_pageStart + kMaxRows)
     {
@@ -302,7 +337,7 @@ void CCandidateWindow::PageNext()
 {
     if (m_candidates.empty()) return;
     int nextStart = m_pageStart + kMaxRows;
-    if (nextStart >= (int)m_candidates.size()) nextStart = 0; // wrap
+    if (nextStart >= static_cast<int>(m_candidates.size())) nextStart = 0; // wrap
     m_pageStart = nextStart;
     m_selected = m_pageStart;
     if (m_hwnd) InvalidateRect(m_hwnd, nullptr, TRUE);
@@ -315,7 +350,7 @@ void CCandidateWindow::PagePrev()
     if (prevStart < 0)
     {
         // wrap to the last full or partial page
-        int total = (int)m_candidates.size();
+        int total = static_cast<int>(m_candidates.size());
         prevStart = ((total - 1) / kMaxRows) * kMaxRows;
     }
     m_pageStart = prevStart;
@@ -325,7 +360,7 @@ void CCandidateWindow::PagePrev()
 
 std::wstring CCandidateWindow::GetSelected() const
 {
-    if (m_selected < 0 || (size_t)m_selected >= m_candidates.size()) return L"";
+    if (m_selected < 0 || static_cast<size_t>(m_selected) >= m_candidates.size()) return L"";
     return m_candidates[m_selected];
 }
 
@@ -346,15 +381,15 @@ LRESULT CCandidateWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
     switch (msg)
     {
     case WM_PAINT:
-    {
-        // BeginPaint/EndPaint still bracket the D2D work — they validate
-        // the dirty region so Windows stops sending WM_PAINT.
-        PAINTSTRUCT ps;
-        BeginPaint(hwnd, &ps);
-        Paint();
-        EndPaint(hwnd, &ps);
-        return 0;
-    }
+        {
+            // BeginPaint/EndPaint still bracket the D2D work — they validate
+            // the dirty region so Windows stops sending WM_PAINT.
+            PAINTSTRUCT ps;
+            BeginPaint(hwnd, &ps);
+            Paint();
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
     case WM_SIZE:
         if (m_pRT) m_pRT->Resize(D2D1::SizeU(LOWORD(lParam), HIWORD(lParam)));
         return 0;
@@ -399,7 +434,7 @@ void CCandidateWindow::DrawLine(const std::wstring& text, const D2D1_RECT_F& rec
     // ENABLE_COLOR_FONT is the whole point of the D2D rewrite: emoji glyph
     // runs (Segoe UI Emoji fallback) come out in color instead of the
     // monochrome outlines GDI would draw.
-    m_pRT->DrawTextW(text.c_str(), (UINT32)text.size(), m_pTextFormat, rect, m_pBrush,
+    m_pRT->DrawTextW(text.c_str(), static_cast<UINT32>(text.size()), m_pTextFormat, rect, m_pBrush,
                      D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT | D2D1_DRAW_TEXT_OPTIONS_CLIP);
 }
 
@@ -407,7 +442,7 @@ void CCandidateWindow::DrawAnnotation(const std::wstring& text, const D2D1_RECT_
 {
     if (text.empty() || !m_pAnnotFormat) return;
     m_pBrush->SetColor(ToColorF(color));
-    m_pRT->DrawTextW(text.c_str(), (UINT32)text.size(), m_pAnnotFormat, rect, m_pBrush,
+    m_pRT->DrawTextW(text.c_str(), static_cast<UINT32>(text.size()), m_pAnnotFormat, rect, m_pBrush,
                      D2D1_DRAW_TEXT_OPTIONS_CLIP);
 }
 
@@ -417,7 +452,7 @@ void CCandidateWindow::Paint()
 
     RECT rcPx;
     GetClientRect(m_hwnd, &rcPx);
-    D2D1_RECT_F rc = D2D1::RectF(0.0f, 0.0f, (float)rcPx.right, (float)rcPx.bottom);
+    D2D1_RECT_F rc = D2D1::RectF(0.0f, 0.0f, static_cast<float>(rcPx.right), static_cast<float>(rcPx.bottom));
 
     m_pRT->BeginDraw();
 
@@ -426,12 +461,12 @@ void CCandidateWindow::Paint()
     m_pRT->Clear(ToColorF(kBgColor));
     D2D1_ROUNDED_RECT frame = D2D1::RoundedRect(
         D2D1::RectF(rc.left + 0.5f, rc.top + 0.5f, rc.right - 0.5f, rc.bottom - 0.5f),
-        (float)kCornerRadius, (float)kCornerRadius);
+        static_cast<float>(kCornerRadius), static_cast<float>(kCornerRadius));
     m_pBrush->SetColor(ToColorF(kBorderColor));
     m_pRT->DrawRoundedRectangle(frame, m_pBrush, 1.0f);
 
     int y = kPaddingY;
-    int total = (int)m_candidates.size();
+    int total = static_cast<int>(m_candidates.size());
     int rowsThisPage = (std::min)(kMaxRows, total - m_pageStart);
     for (int row = 0; row < rowsThisPage; ++row)
     {
@@ -442,7 +477,7 @@ void CCandidateWindow::Paint()
         {
             m_pBrush->SetColor(ToColorF(kSelBgColor));
             m_pRT->FillRectangle(
-                D2D1::RectF(1.0f, (float)y, rc.right - 1.0f, (float)(y + m_rowHeight)),
+                D2D1::RectF(1.0f, static_cast<float>(y), rc.right - 1.0f, static_cast<float>(y + m_rowHeight)),
                 m_pBrush);
         }
 
@@ -450,13 +485,13 @@ void CCandidateWindow::Paint()
         // so number keys map naturally to the visible rows regardless of page.
         std::wstring index = std::to_wstring(row + 1) + L".";
         DrawLine(index,
-                 D2D1::RectF((float)kPaddingX, (float)y,
-                             (float)(kPaddingX + 22), (float)(y + m_rowHeight)),
+                 D2D1::RectF(static_cast<float>(kPaddingX), static_cast<float>(y),
+                             static_cast<float>(kPaddingX + 22), static_cast<float>(y + m_rowHeight)),
                  selected ? kSelIndexColor : kIndexColor);
 
         DrawLine(m_candidates[globalIdx],
-                 D2D1::RectF((float)(kPaddingX + 26), (float)y,
-                             rc.right - kPaddingX, (float)(y + m_rowHeight)),
+                 D2D1::RectF(static_cast<float>(kPaddingX + 26), static_cast<float>(y),
+                             rc.right - kPaddingX, static_cast<float>(y + m_rowHeight)),
                  selected ? kSelTextColor : kTextColor);
 
         // Right-edge type tag so 16px glyphs are identifiable at a glance
@@ -465,16 +500,16 @@ void CCandidateWindow::Paint()
         {
             float annotW = MeasureAnnotationWidth(kEmojiAnnot);
             DrawAnnotation(kEmojiAnnot,
-                           D2D1::RectF(rc.right - kPaddingX - annotW, (float)y,
-                                       rc.right - kPaddingX, (float)(y + m_rowHeight)),
+                           D2D1::RectF(rc.right - kPaddingX - annotW, static_cast<float>(y),
+                                       rc.right - kPaddingX, static_cast<float>(y + m_rowHeight)),
                            selected ? kSelIndexColor : kIndexColor);
         }
 
         if (row + 1 < rowsThisPage && !selected && (globalIdx + 1) != m_selected)
         {
             m_pBrush->SetColor(ToColorF(kSepColor));
-            float sepY = (float)(y + m_rowHeight) - 0.5f;
-            m_pRT->DrawLine(D2D1::Point2F((float)kPaddingX, sepY),
+            float sepY = static_cast<float>(y + m_rowHeight) - 0.5f;
+            m_pRT->DrawLine(D2D1::Point2F(static_cast<float>(kPaddingX), sepY),
                             D2D1::Point2F(rc.right - kPaddingX, sepY),
                             m_pBrush, 1.0f);
         }
@@ -493,11 +528,11 @@ void CCandidateWindow::Paint()
             L"⠦ Ollama 思考中…", L"⠧ Ollama 思考中…", L"⠇ Ollama 思考中…",
             L"⠏ Ollama 思考中…",
         };
-        constexpr int kFrameCount = (int)(sizeof(kFrames) / sizeof(kFrames[0]));
-        const wchar_t* frame = kFrames[((unsigned)m_spinnerFrame) % kFrameCount];
+        constexpr int kFrameCount = sizeof(kFrames) / sizeof(kFrames[0]);
+        const wchar_t* frame = kFrames[static_cast<unsigned>(m_spinnerFrame) % kFrameCount];
 
         DrawLine(frame,
-                 D2D1::RectF((float)kPaddingX, (float)(y + 2),
+                 D2D1::RectF(static_cast<float>(kPaddingX), static_cast<float>(y + 2),
                              rc.right - kPaddingX, rc.bottom - 2.0f),
                  kIndexColor);
     }

@@ -1,6 +1,7 @@
 using System.Diagnostics;
+using System.IO;
+using System.Text;
 using System.Windows;
-using System.Windows.Controls;
 using System.Windows.Input;
 using GenerativeIME.Core;
 
@@ -8,11 +9,12 @@ namespace GenerativeIME.Sandbox;
 
 public partial class MainWindow : Window
 {
-    private string _romajiBuf = string.Empty;
+    private const int MaxContextChars = 160;
     private string _compHira = string.Empty;
     private CancellationTokenSource? _convertCts;
     private bool _popupOpen;
     private JapaneseReader? _reader;
+    private string _romajiBuf = string.Empty;
 
     public MainWindow()
     {
@@ -37,10 +39,17 @@ public partial class MainWindow : Window
 
     private void Editor_OnPreviewTextInput(object sender, TextCompositionEventArgs e)
     {
-        if (_popupOpen) { e.Handled = true; return; }
+        if (_popupOpen)
+        {
+            e.Handled = true;
+            return;
+        }
 
         var text = e.Text;
-        if (string.IsNullOrEmpty(text)) return;
+        if (string.IsNullOrEmpty(text))
+        {
+            return;
+        }
 
         var ch = text[0];
 
@@ -78,25 +87,42 @@ public partial class MainWindow : Window
                 case Key.Down:
                 case Key.Space:
                 case Key.Tab:
-                    MoveCandidate(+1); e.Handled = true; return;
+                    MoveCandidate(+1);
+                    e.Handled = true;
+                    return;
                 case Key.Up:
                 case Key.Back:
-                    MoveCandidate(-1); e.Handled = true; return;
+                    MoveCandidate(-1);
+                    e.Handled = true;
+                    return;
                 case Key.Enter:
-                    AcceptSelectedCandidate(); e.Handled = true; return;
+                    AcceptSelectedCandidate();
+                    e.Handled = true;
+                    return;
                 case Key.Escape:
-                    ClosePopupKeepingHira(); e.Handled = true; return;
-                case Key.D1: case Key.D2: case Key.D3:
-                case Key.D4: case Key.D5: case Key.D6:
-                case Key.D7: case Key.D8: case Key.D9:
+                    ClosePopupKeepingHira();
+                    e.Handled = true;
+                    return;
+                case Key.D1:
+                case Key.D2:
+                case Key.D3:
+                case Key.D4:
+                case Key.D5:
+                case Key.D6:
+                case Key.D7:
+                case Key.D8:
+                case Key.D9:
                     var idx = e.Key - Key.D1;
                     if (idx < CandidateList.Items.Count)
                     {
                         CandidateList.SelectedIndex = idx;
                         AcceptSelectedCandidate();
                     }
-                    e.Handled = true; return;
+
+                    e.Handled = true;
+                    return;
             }
+
             e.Handled = true;
             return;
         }
@@ -110,6 +136,7 @@ public partial class MainWindow : Window
                     _ = StartConvertAsync();
                     e.Handled = true;
                 }
+
                 return;
 
             case Key.Enter:
@@ -118,6 +145,7 @@ public partial class MainWindow : Window
                     CommitComposing();
                     e.Handled = true;
                 }
+
                 return;
 
             case Key.Back:
@@ -128,13 +156,14 @@ public partial class MainWindow : Window
                     e.Handled = true;
                     return;
                 }
+
                 if (_compHira.Length > 0)
                 {
                     _compHira = _compHira[..^1];
                     UpdateCompDisplay();
                     e.Handled = true;
-                    return;
                 }
+
                 return;
 
             case Key.Escape:
@@ -145,6 +174,7 @@ public partial class MainWindow : Window
                     UpdateCompDisplay();
                     e.Handled = true;
                 }
+
                 return;
         }
     }
@@ -164,6 +194,7 @@ public partial class MainWindow : Window
             _compHira += "ん";
             _romajiBuf = string.Empty;
         }
+
         UpdateCompDisplay();
     }
 
@@ -176,7 +207,11 @@ public partial class MainWindow : Window
     private void CommitComposing()
     {
         FlushTrailingN();
-        if (_compHira.Length == 0) return;
+        if (_compHira.Length == 0)
+        {
+            return;
+        }
+
         InsertAtCursor(_compHira);
         _compHira = string.Empty;
         _romajiBuf = string.Empty;
@@ -192,7 +227,10 @@ public partial class MainWindow : Window
 
     private async Task StartConvertAsync()
     {
-        if (_compHira.Length == 0) return;
+        if (_compHira.Length == 0)
+        {
+            return;
+        }
 
         _convertCts?.Cancel();
         _convertCts = new CancellationTokenSource();
@@ -215,21 +253,24 @@ public partial class MainWindow : Window
             var list = await engine.ConvertAsync(ctx, max, ct);
 
             sw.Stop();
-            if (ct.IsCancellationRequested) return;
+            if (ct.IsCancellationRequested)
+            {
+                return;
+            }
 
             ShowCandidates(list, reading);
             DumpTrace(engine.LastTrace, ctx, sw.ElapsedMilliseconds, model);
             UpdateStatus($"候補 {list.Count} 件  {sw.ElapsedMilliseconds} ms  model={model}  log={GetLogPath()}");
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException)
+        {
+        }
         catch (Exception ex)
         {
             sw.Stop();
             UpdateStatus($"エラー: {ex.Message}");
         }
     }
-
-    private const int MaxContextChars = 160;
 
     private (string before, string after) GetCurrentLineSplitAroundCursor()
     {
@@ -246,7 +287,7 @@ public partial class MainWindow : Window
 
     private static (string text, int caret) NormalizeNewlines(string raw, int rawCaret)
     {
-        var sb = new System.Text.StringBuilder(raw.Length);
+        var sb = new StringBuilder(raw.Length);
         var newCaret = rawCaret;
         for (var i = 0; i < raw.Length; i++)
         {
@@ -256,7 +297,11 @@ public partial class MainWindow : Window
                 sb.Append('\n');
                 if (i + 1 < raw.Length && raw[i + 1] == '\n')
                 {
-                    if (rawCaret > i + 1) newCaret--;
+                    if (rawCaret > i + 1)
+                    {
+                        newCaret--;
+                    }
+
                     i++;
                 }
             }
@@ -265,6 +310,7 @@ public partial class MainWindow : Window
                 sb.Append(c);
             }
         }
+
         return (sb.ToString(), newCaret);
     }
 
@@ -274,8 +320,15 @@ public partial class MainWindow : Window
     private static string ExpandBackwardToNearestParagraph(string text, int caret)
     {
         var scan = caret;
-        while (scan > 0 && IsContextWhitespace(text[scan - 1])) scan--;
-        if (scan == 0) return string.Empty;
+        while (scan > 0 && IsContextWhitespace(text[scan - 1]))
+        {
+            scan--;
+        }
+
+        if (scan == 0)
+        {
+            return string.Empty;
+        }
 
         var contentEnd = scan;
         var start = Math.Max(0, contentEnd - MaxContextChars);
@@ -285,16 +338,30 @@ public partial class MainWindow : Window
     private static string ExpandForwardToNearestParagraph(string text, int caret)
     {
         var scan = caret;
-        while (scan < text.Length && IsContextWhitespace(text[scan])) scan++;
-        if (scan == text.Length) return string.Empty;
+        while (scan < text.Length && IsContextWhitespace(text[scan]))
+        {
+            scan++;
+        }
+
+        if (scan == text.Length)
+        {
+            return string.Empty;
+        }
 
         var contentStart = scan;
         var end = Math.Min(text.Length, contentStart + MaxContextChars);
         return text.Substring(contentStart, end - contentStart);
     }
 
-    private static bool IsNewline(char c) => c == '\n' || c == '\r';
-    private static bool IsContextWhitespace(char c) => IsNewline(c) || c == ' ' || c == '\t' || c == '　';
+    private static bool IsNewline(char c)
+    {
+        return c == '\n' || c == '\r';
+    }
+
+    private static bool IsContextWhitespace(char c)
+    {
+        return IsNewline(c) || c == ' ' || c == '\t' || c == '　';
+    }
 
     private void ShowCandidates(IReadOnlyList<ConversionCandidate> list, string reading)
     {
@@ -305,10 +372,15 @@ public partial class MainWindow : Window
             CandidateList.Items.Add(new { Index = i, c.Text });
             i++;
         }
+
         // Always include raw hiragana as the last fallback
         CandidateList.Items.Add(new { Index = i, Text = reading });
 
-        if (CandidateList.Items.Count == 0) return;
+        if (CandidateList.Items.Count == 0)
+        {
+            return;
+        }
+
         CandidateList.SelectedIndex = 0;
 
         var rect = Editor.GetRectFromCharacterIndex(Editor.CaretIndex);
@@ -320,20 +392,41 @@ public partial class MainWindow : Window
 
     private void MoveCandidate(int delta)
     {
-        if (CandidateList.Items.Count == 0) return;
+        if (CandidateList.Items.Count == 0)
+        {
+            return;
+        }
+
         var n = CandidateList.Items.Count;
         var i = CandidateList.SelectedIndex + delta;
-        if (i < 0) i = n - 1;
-        if (i >= n) i = 0;
+        if (i < 0)
+        {
+            i = n - 1;
+        }
+
+        if (i >= n)
+        {
+            i = 0;
+        }
+
         CandidateList.SelectedIndex = i;
         CandidateList.ScrollIntoView(CandidateList.SelectedItem);
     }
 
     private void AcceptSelectedCandidate()
     {
-        if (CandidateList.SelectedItem is null) return;
-        var t = CandidateList.SelectedItem.GetType().GetProperty("Text")?.GetValue(CandidateList.SelectedItem) as string;
-        if (string.IsNullOrEmpty(t)) return;
+        if (CandidateList.SelectedItem is null)
+        {
+            return;
+        }
+
+        var t = CandidateList.SelectedItem.GetType().GetProperty("Text")
+            ?.GetValue(CandidateList.SelectedItem) as string;
+        if (string.IsNullOrEmpty(t))
+        {
+            return;
+        }
+
         InsertAtCursor(t);
         _compHira = string.Empty;
         _romajiBuf = string.Empty;
@@ -358,39 +451,58 @@ public partial class MainWindow : Window
         AcceptSelectedCandidate();
     }
 
-    private void UpdateStatus(string s) => StatusText.Text = s;
+    private void UpdateStatus(string s)
+    {
+        StatusText.Text = s;
+    }
 
     private static bool IsRomajiChar(char c)
-        => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '-';
+    {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '-';
+    }
 
-    private static string GetLogPath() =>
-        System.IO.Path.Combine(System.IO.Path.GetTempPath(), "GenerativeIME.trace.log");
+    private static string GetLogPath()
+    {
+        return Path.Combine(Path.GetTempPath(), "GenerativeIME.trace.log");
+    }
 
     private static void DumpTrace(ConversionTrace? t, ConversionContext ctx, long ms, string model)
     {
-        if (t is null) return;
+        if (t is null)
+        {
+            return;
+        }
+
         try
         {
-            var sb = new System.Text.StringBuilder();
+            var sb = new StringBuilder();
             sb.AppendLine($"=== {DateTime.Now:HH:mm:ss.fff}  reading=「{ctx.Reading}」  {ms}ms  model={model} ===");
             sb.AppendLine($"reader_available: {t.ReaderAvailable}");
-            sb.AppendLine($"LineBefore: {ctx.LineBeforeCursor.Replace("\n","\\n")}");
-            sb.AppendLine($"LineAfter : {ctx.LineAfterCursor.Replace("\n","\\n")}");
+            sb.AppendLine($"LineBefore: {ctx.LineBeforeCursor.Replace("\n", "\\n")}");
+            sb.AppendLine($"LineAfter : {ctx.LineAfterCursor.Replace("\n", "\\n")}");
             sb.AppendLine($"context_words ({t.ContextWords.Count}): [{string.Join(", ", t.ContextWords)}]");
             sb.AppendLine("context_word_readings:");
             foreach (var (w, r, h) in t.ContextWordReadings)
+            {
                 sb.AppendLine($"  {w} -> {r}  hit={h}");
+            }
+
             sb.AppendLine($"--- PROMPT ---\n{t.PromptSent}\n--- /PROMPT ---");
             sb.AppendLine($"raw_model_output: {t.RawModelOutput}");
             sb.AppendLine($"parsed: [{string.Join(", ", t.ParsedCandidates)}]");
             sb.AppendLine($"after_junk: [{string.Join(", ", t.AfterJunkFilter)}]");
             sb.AppendLine("reading_check:");
             foreach (var (text, r, p) in t.ReadingCheckDetails)
+            {
                 sb.AppendLine($"  {text} -> {r}  pass={p}");
+            }
+
             sb.AppendLine($"final: [{string.Join(", ", t.FinalOutput)}]");
             sb.AppendLine();
-            System.IO.File.AppendAllText(GetLogPath(), sb.ToString());
+            File.AppendAllText(GetLogPath(), sb.ToString());
         }
-        catch { }
+        catch
+        {
+        }
     }
 }

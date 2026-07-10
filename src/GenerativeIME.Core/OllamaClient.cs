@@ -1,14 +1,13 @@
 using System.Net.Http.Json;
-using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace GenerativeIME.Core;
 
 public sealed class OllamaClient : IDisposable
 {
+    private readonly Uri _baseUri;
     private readonly HttpClient _http;
     private readonly bool _ownsHttp;
-    private readonly Uri _baseUri;
 
     public OllamaClient(Uri? baseUri = null, HttpClient? http = null)
     {
@@ -22,6 +21,14 @@ public sealed class OllamaClient : IDisposable
         {
             _http = http;
             _ownsHttp = false;
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_ownsHttp)
+        {
+            _http.Dispose();
         }
     }
 
@@ -39,8 +46,15 @@ public sealed class OllamaClient : IDisposable
         if (temperature.HasValue || numPredict.HasValue)
         {
             options = new GenerateOptions();
-            if (temperature.HasValue) options.Temperature = temperature.Value;
-            if (numPredict.HasValue) options.NumPredict = numPredict.Value;
+            if (temperature.HasValue)
+            {
+                options.Temperature = temperature.Value;
+            }
+
+            if (numPredict.HasValue)
+            {
+                options.NumPredict = numPredict.Value;
+            }
         }
 
         var req = new GenerateRequest
@@ -61,13 +75,8 @@ public sealed class OllamaClient : IDisposable
         res.EnsureSuccessStatusCode();
 
         var body = await res.Content.ReadFromJsonAsync<GenerateResponse>(
-            cancellationToken: cancellationToken).ConfigureAwait(false);
+            cancellationToken).ConfigureAwait(false);
         return body?.Response ?? string.Empty;
-    }
-
-    public void Dispose()
-    {
-        if (_ownsHttp) _http.Dispose();
     }
 
     private sealed class GenerateRequest
@@ -75,15 +84,19 @@ public sealed class OllamaClient : IDisposable
         [JsonPropertyName("model")] public string Model { get; set; } = "";
         [JsonPropertyName("prompt")] public string Prompt { get; set; } = "";
         [JsonPropertyName("stream")] public bool Stream { get; set; }
+
         [JsonPropertyName("format")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? Format { get; set; }
+
         [JsonPropertyName("keep_alive")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string? KeepAlive { get; set; }
+
         [JsonPropertyName("think")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public bool? Think { get; set; }
+
         [JsonPropertyName("options")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public GenerateOptions? Options { get; set; }

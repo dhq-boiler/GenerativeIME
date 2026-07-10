@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace GenerativeIME.Core;
 
 /// 記号・単位の読み→候補マップ。MeCab では正しい読みが取れない Unicode 互換記号や、
@@ -113,7 +115,11 @@ public static class SymbolDictionary
         ["ぽんど"] = new[] { "£" },
 
         // 矢印
-        ["やじるし"] = new[] { "→", "←", "↑", "↓", "⇒", "⇐", "⇑", "⇓", "↔", "↕", "↗", "↘", "↙", "↖", "⇄", "⇅", "⇆", "⇋", "⇌", "⤴", "⤵", "➡", "⬅", "⬆", "⬇" },
+        ["やじるし"] = new[]
+        {
+            "→", "←", "↑", "↓", "⇒", "⇐", "⇑", "⇓", "↔", "↕", "↗", "↘", "↙", "↖", "⇄", "⇅", "⇆", "⇋", "⇌", "⤴", "⤵",
+            "➡", "⬅", "⬆", "⬇"
+        },
         ["みぎやじるし"] = new[] { "→", "⇒", "▶", "➡", "➜", "➤", "➔", "🠊" },
         ["ひだりやじるし"] = new[] { "←", "⇐", "◀", "⬅", "🠈" },
         ["うえやじるし"] = new[] { "↑", "⇑", "▲", "⬆", "🠉" },
@@ -501,8 +507,10 @@ public static class SymbolDictionary
         ["ふらっと"] = new[] { "♭" },
         ["ぱーせんと"] = new[] { "%", "％" },
         ["ぱーみる"] = new[] { "‰" },
-        ["あんぱさんど"] = new[] { "&", "＆" },
+        ["あんぱさんど"] = new[] { "&", "＆" }
     };
+
+    private static readonly Dictionary<char, char> Vowels = BuildVowelMap();
 
     static SymbolDictionary()
     {
@@ -511,21 +519,33 @@ public static class SymbolDictionary
         {
             var alt = ExpandChoonpu(entry.Key);
             if (alt != entry.Key && !Map.ContainsKey(alt))
+            {
                 Map[alt] = entry.Value;
+            }
         }
     }
 
     public static IReadOnlyList<string> Lookup(string reading)
     {
-        if (string.IsNullOrEmpty(reading)) return Array.Empty<string>();
-        if (Map.TryGetValue(reading, out var arr)) return arr;
+        if (string.IsNullOrEmpty(reading))
+        {
+            return Array.Empty<string>();
+        }
+
+        if (Map.TryGetValue(reading, out var arr))
+        {
+            return arr;
+        }
 
         // 日本語数詞として解釈可能なら数値→各表現に変換（例: ごじゅう → 50/Ⅼ/五十）
         var num = JapaneseNumber.Parse(reading);
         if (num.HasValue)
         {
             var variants = JapaneseNumber.ToVariants(num.Value);
-            if (variants.Count > 0) return variants;
+            if (variants.Count > 0)
+            {
+                return variants;
+            }
         }
 
         // 複数キー連続入力の最長一致セグメンテーション。
@@ -540,7 +560,10 @@ public static class SymbolDictionary
         for (var len = reading.Length; len >= 1; len--)
         {
             var prefix = reading.Substring(0, len);
-            if (!Map.TryGetValue(prefix, out var prefixCands)) continue;
+            if (!Map.TryGetValue(prefix, out var prefixCands))
+            {
+                continue;
+            }
 
             if (len == reading.Length)
             {
@@ -549,7 +572,10 @@ public static class SymbolDictionary
 
             var rest = reading.Substring(len);
             var restCands = SegmentedLookup(rest);
-            if (restCands.Count == 0) continue;
+            if (restCands.Count == 0)
+            {
+                continue;
+            }
 
             // 先頭セグメントの全バリエ × 後続の代表候補 を生成。
             // 例: 「せきぶんはーと」→ ∫♥, ∬♥, ∭♥, ∮♥, ∯♥, ∰♥, ⨌♥
@@ -557,25 +583,38 @@ public static class SymbolDictionary
             var list = new List<string>(prefixCands.Length + restCands.Count);
             var first = restCands[0];
             foreach (var p in prefixCands)
+            {
                 list.Add(p + first);
+            }
+
             for (var i = 1; i < restCands.Count && i < 6; i++)
+            {
                 list.Add(prefixCands[0] + restCands[i]);
+            }
+
             return list;
         }
+
         return Array.Empty<string>();
     }
 
     private static string ExpandChoonpu(string s)
     {
-        var sb = new System.Text.StringBuilder(s.Length);
-        char prev = '\0';
+        var sb = new StringBuilder(s.Length);
+        var prev = '\0';
         foreach (var c in s)
         {
             if (c == 'ー' && prev != '\0')
             {
                 var v = VowelOf(prev);
-                if (v != '\0') sb.Append(v);
-                else sb.Append(c);
+                if (v != '\0')
+                {
+                    sb.Append(v);
+                }
+                else
+                {
+                    sb.Append(c);
+                }
             }
             else
             {
@@ -583,37 +622,49 @@ public static class SymbolDictionary
                 prev = c;
             }
         }
+
         return sb.ToString();
     }
-
-    private static readonly Dictionary<char, char> Vowels = BuildVowelMap();
 
     private static Dictionary<char, char> BuildVowelMap()
     {
         var d = new Dictionary<char, char>();
         // 拗音は直前の母音を引き継ぐ
-        d['ゃ'] = 'あ'; d['ャ'] = 'あ';
-        d['ゅ'] = 'う'; d['ュ'] = 'う';
-        d['ょ'] = 'お'; d['ョ'] = 'お';
+        d['ゃ'] = 'あ';
+        d['ャ'] = 'あ';
+        d['ゅ'] = 'う';
+        d['ュ'] = 'う';
+        d['ょ'] = 'お';
+        d['ョ'] = 'お';
 
         // ローマ字 → ひらがな 各行
         AddRow(d, "あいうえお");
-        AddRow(d, "かきくけこ"); AddRow(d, "がぎぐげご");
-        AddRow(d, "さしすせそ"); AddRow(d, "ざじずぜぞ");
-        AddRow(d, "たちつてと"); AddRow(d, "だぢづでど");
+        AddRow(d, "かきくけこ");
+        AddRow(d, "がぎぐげご");
+        AddRow(d, "さしすせそ");
+        AddRow(d, "ざじずぜぞ");
+        AddRow(d, "たちつてと");
+        AddRow(d, "だぢづでど");
         AddRow(d, "なにぬねの");
-        AddRow(d, "はひふへほ"); AddRow(d, "ばびぶべぼ"); AddRow(d, "ぱぴぷぺぽ");
+        AddRow(d, "はひふへほ");
+        AddRow(d, "ばびぶべぼ");
+        AddRow(d, "ぱぴぷぺぽ");
         AddRow(d, "まみむめも");
         AddRow(d, "やゆよ", "あうお");
         AddRow(d, "らりるれろ");
         AddRow(d, "わゐゑを", "あいえお");
         // カタカナ
         AddRow(d, "アイウエオ");
-        AddRow(d, "カキクケコ"); AddRow(d, "ガギグゲゴ");
-        AddRow(d, "サシスセソ"); AddRow(d, "ザジズゼゾ");
-        AddRow(d, "タチツテト"); AddRow(d, "ダヂヅデド");
+        AddRow(d, "カキクケコ");
+        AddRow(d, "ガギグゲゴ");
+        AddRow(d, "サシスセソ");
+        AddRow(d, "ザジズゼゾ");
+        AddRow(d, "タチツテト");
+        AddRow(d, "ダヂヅデド");
         AddRow(d, "ナニヌネノ");
-        AddRow(d, "ハヒフヘホ"); AddRow(d, "バビブベボ"); AddRow(d, "パピプペポ");
+        AddRow(d, "ハヒフヘホ");
+        AddRow(d, "バビブベボ");
+        AddRow(d, "パピプペポ");
         AddRow(d, "マミムメモ");
         AddRow(d, "ヤユヨ", "アウオ");
         AddRow(d, "ラリルレロ");
@@ -628,7 +679,11 @@ public static class SymbolDictionary
         {
             // 母音は ひらがな に正規化（カタカナ行でも ひらがな の母音を返す）
             var vv = v[i];
-            if (vv >= 'ア' && vv <= 'オ') vv = (char)(vv - 0x60);
+            if (vv >= 'ア' && vv <= 'オ')
+            {
+                vv = (char)(vv - 0x60);
+            }
+
             d[row[i]] = vv;
         }
     }

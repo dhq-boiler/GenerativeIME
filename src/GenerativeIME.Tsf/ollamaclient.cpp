@@ -11,18 +11,18 @@ namespace
     std::string ToUtf8(const std::wstring& w)
     {
         if (w.empty()) return {};
-        int n = WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), nullptr, 0, nullptr, nullptr);
+        int n = WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()), nullptr, 0, nullptr, nullptr);
         std::string s(n, '\0');
-        WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), s.data(), n, nullptr, nullptr);
+        WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()), s.data(), n, nullptr, nullptr);
         return s;
     }
 
     std::wstring FromUtf8(const std::string& s)
     {
         if (s.empty()) return {};
-        int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0);
+        int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
         std::wstring w(n, L'\0');
-        MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), w.data(), n);
+        MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), w.data(), n);
         return w;
     }
 
@@ -35,13 +35,20 @@ namespace
         {
             switch (c)
             {
-            case '"':  out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\b': out += "\\b";  break;
-            case '\f': out += "\\f";  break;
-            case '\n': out += "\\n";  break;
-            case '\r': out += "\\r";  break;
-            case '\t': out += "\\t";  break;
+            case '"': out += "\\\"";
+                break;
+            case '\\': out += "\\\\";
+                break;
+            case '\b': out += "\\b";
+                break;
+            case '\f': out += "\\f";
+                break;
+            case '\n': out += "\\n";
+                break;
+            case '\r': out += "\\r";
+                break;
+            case '\t': out += "\\t";
+                break;
             default:
                 if (c < 0x20)
                 {
@@ -51,7 +58,7 @@ namespace
                 }
                 else
                 {
-                    out += (char)c;
+                    out += static_cast<char>(c);
                 }
             }
         }
@@ -60,9 +67,9 @@ namespace
 
     std::string BuildRequestBody(const ollama::GenerateOptions& opts)
     {
-        std::string model  = JsonEscape(ToUtf8(opts.model));
+        std::string model = JsonEscape(ToUtf8(opts.model));
         std::string prompt = JsonEscape(ToUtf8(opts.prompt));
-        std::string keep   = JsonEscape(ToUtf8(opts.keepAlive));
+        std::string keep = JsonEscape(ToUtf8(opts.keepAlive));
 
         std::string body;
         body.reserve(prompt.size() + 256);
@@ -71,7 +78,7 @@ namespace
         body += "\"prompt\":\"" + prompt + "\",";
         body += "\"stream\":false,";
         if (opts.jsonFormat) body += "\"format\":\"json\",";
-        if (!keep.empty())   body += "\"keep_alive\":\"" + keep + "\",";
+        if (!keep.empty()) body += "\"keep_alive\":\"" + keep + "\",";
         body += "\"think\":";
         body += (opts.think ? "true" : "false");
         body += ",\"options\":{";
@@ -122,14 +129,22 @@ namespace
                 char esc = body[pos++];
                 switch (esc)
                 {
-                case '"':  out += '"';  break;
-                case '\\': out += '\\'; break;
-                case '/':  out += '/';  break;
-                case 'b':  out += '\b'; break;
-                case 'f':  out += '\f'; break;
-                case 'n':  out += '\n'; break;
-                case 'r':  out += '\r'; break;
-                case 't':  out += '\t'; break;
+                case '"': out += '"';
+                    break;
+                case '\\': out += '\\';
+                    break;
+                case '/': out += '/';
+                    break;
+                case 'b': out += '\b';
+                    break;
+                case 'f': out += '\f';
+                    break;
+                case 'n': out += '\n';
+                    break;
+                case 'r': out += '\r';
+                    break;
+                case 't': out += '\t';
+                    break;
                 case 'u':
                     if (pos + 4 <= body.size())
                     {
@@ -138,13 +153,13 @@ namespace
                         {
                             cp <<= 4;
                             char h = body[pos + i];
-                            if      (h >= '0' && h <= '9') cp |= (h - '0');
+                            if (h >= '0' && h <= '9') cp |= (h - '0');
                             else if (h >= 'a' && h <= 'f') cp |= (h - 'a' + 10);
                             else if (h >= 'A' && h <= 'F') cp |= (h - 'A' + 10);
                             else return false;
                         }
                         pos += 4;
-                        wchar_t w = (wchar_t)cp;
+                        wchar_t w = static_cast<wchar_t>(cp);
                         out += ToUtf8(std::wstring(1, w));
                     }
                     else return false;
@@ -169,16 +184,20 @@ namespace ollama
         GenerateResult result;
 
         HINTERNET hSession = WinHttpOpen(L"GenerativeIME/1.0",
-            WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-        if (!hSession) { result.hr = HRESULT_FROM_WIN32(GetLastError()); return result; }
+                                         WINHTTP_ACCESS_TYPE_NO_PROXY, nullptr, nullptr, 0);
+        if (!hSession)
+        {
+            result.hr = HRESULT_FROM_WIN32(GetLastError());
+            return result;
+        }
 
         // Apply a unified timeout across DNS resolve / connect / send / receive
         // so a stuck Ollama daemon can't lock the IME thread indefinitely.
-        WinHttpSetTimeouts(hSession, (int)opts.timeoutMs, (int)opts.timeoutMs,
-                                     (int)opts.timeoutMs, (int)opts.timeoutMs);
+        WinHttpSetTimeouts(hSession, static_cast<int>(opts.timeoutMs), static_cast<int>(opts.timeoutMs),
+                           static_cast<int>(opts.timeoutMs), static_cast<int>(opts.timeoutMs));
 
         HINTERNET hConnect = WinHttpConnect(hSession, opts.host.c_str(),
-            (INTERNET_PORT)opts.port, 0);
+                                            static_cast<INTERNET_PORT>(opts.port), 0);
         if (!hConnect)
         {
             result.hr = HRESULT_FROM_WIN32(GetLastError());
@@ -187,7 +206,7 @@ namespace ollama
         }
 
         HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"POST", L"/api/generate",
-            nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, 0);
+                                                nullptr, nullptr, nullptr, 0);
         if (!hRequest)
         {
             result.hr = HRESULT_FROM_WIN32(GetLastError());
@@ -197,10 +216,10 @@ namespace ollama
         }
 
         std::string body = BuildRequestBody(opts);
-        const wchar_t* headers = L"Content-Type: application/json\r\n";
+        auto headers = L"Content-Type: application/json\r\n";
 
-        BOOL ok = WinHttpSendRequest(hRequest, headers, (DWORD)-1L,
-            (LPVOID)body.data(), (DWORD)body.size(), (DWORD)body.size(), 0);
+        BOOL ok = WinHttpSendRequest(hRequest, headers, static_cast<DWORD>(-1L),
+                                     body.data(), static_cast<DWORD>(body.size()), static_cast<DWORD>(body.size()), 0);
         if (!ok)
         {
             result.hr = HRESULT_FROM_WIN32(GetLastError());
@@ -223,8 +242,8 @@ namespace ollama
         DWORD statusCode = 0;
         DWORD statusSize = sizeof(statusCode);
         WinHttpQueryHeaders(hRequest,
-            WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-            WINHTTP_HEADER_NAME_BY_INDEX, &statusCode, &statusSize, WINHTTP_NO_HEADER_INDEX);
+                            WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                            nullptr, &statusCode, &statusSize, nullptr);
         result.httpStatus = statusCode;
 
         std::string raw;
@@ -236,7 +255,11 @@ namespace ollama
                 result.hr = HRESULT_FROM_WIN32(GetLastError());
                 break;
             }
-            if (avail == 0) { result.hr = S_OK; break; }
+            if (avail == 0)
+            {
+                result.hr = S_OK;
+                break;
+            }
             std::vector<char> buf(avail);
             DWORD got = 0;
             if (!WinHttpReadData(hRequest, buf.data(), avail, &got))

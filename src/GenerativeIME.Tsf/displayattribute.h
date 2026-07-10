@@ -11,9 +11,9 @@ public:
     CDisplayAttributeInfoInput();
 
     // IUnknown
-    STDMETHODIMP            QueryInterface(REFIID riid, void** ppvObj) override;
-    STDMETHODIMP_(ULONG)    AddRef() override;
-    STDMETHODIMP_(ULONG)    Release() override;
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override;
+    STDMETHODIMP_(ULONG) AddRef() override;
+    STDMETHODIMP_(ULONG) Release() override;
 
     // ITfDisplayAttributeInfo
     STDMETHODIMP GetGUID(GUID* pguid) override;
@@ -38,9 +38,9 @@ class CDisplayAttributeInfoBunsetsuFocus : public ITfDisplayAttributeInfo
 public:
     CDisplayAttributeInfoBunsetsuFocus();
 
-    STDMETHODIMP            QueryInterface(REFIID riid, void** ppvObj) override;
-    STDMETHODIMP_(ULONG)    AddRef() override;
-    STDMETHODIMP_(ULONG)    Release() override;
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override;
+    STDMETHODIMP_(ULONG) AddRef() override;
+    STDMETHODIMP_(ULONG) Release() override;
 
     STDMETHODIMP GetGUID(GUID* pguid) override;
     STDMETHODIMP GetDescription(BSTR* pbstrDesc) override;
@@ -64,9 +64,9 @@ public:
     CEnumDisplayAttributeInfo();
 
     // IUnknown
-    STDMETHODIMP            QueryInterface(REFIID riid, void** ppvObj) override;
-    STDMETHODIMP_(ULONG)    AddRef() override;
-    STDMETHODIMP_(ULONG)    Release() override;
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override;
+    STDMETHODIMP_(ULONG) AddRef() override;
+    STDMETHODIMP_(ULONG) Release() override;
 
     // IEnumTfDisplayAttributeInfo
     STDMETHODIMP Clone(IEnumTfDisplayAttributeInfo** ppEnum) override;

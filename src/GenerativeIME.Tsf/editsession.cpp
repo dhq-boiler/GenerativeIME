@@ -63,9 +63,9 @@ namespace
         // Build [pre, focused, post] by cloning the full range and shifting
         // anchors. ShiftStart / ShiftEnd take character counts and return
         // how many they actually moved (clamped at range boundaries).
-        ITfRange* pPre     = nullptr;
+        ITfRange* pPre = nullptr;
         ITfRange* pFocused = nullptr;
-        ITfRange* pPost    = nullptr;
+        ITfRange* pPost = nullptr;
         pFull->Clone(&pPre);
         pFull->Clone(&pFocused);
         pFull->Clone(&pPost);
@@ -73,23 +73,23 @@ namespace
         if (pPre)
         {
             LONG shifted = 0;
-            pPre->ShiftEnd(ec, (LONG)focusedStart, &shifted, nullptr);
+            pPre->ShiftEnd(ec, static_cast<LONG>(focusedStart), &shifted, nullptr);
             SetAttributeOnRange(ec, pProp, pPre, g_gaDisplayAttributeInput);
             pPre->Release();
         }
         if (pFocused)
         {
             LONG shifted = 0;
-            pFocused->ShiftStart(ec, (LONG)focusedStart, &shifted, nullptr);
+            pFocused->ShiftStart(ec, static_cast<LONG>(focusedStart), &shifted, nullptr);
             pFocused->Collapse(ec, TF_ANCHOR_START);
-            pFocused->ShiftEnd(ec, (LONG)focusedLen, &shifted, nullptr);
+            pFocused->ShiftEnd(ec, static_cast<LONG>(focusedLen), &shifted, nullptr);
             SetAttributeOnRange(ec, pProp, pFocused, g_gaDisplayAttributeBunsetsuFocus);
             pFocused->Release();
         }
         if (pPost)
         {
             LONG shifted = 0;
-            pPost->ShiftStart(ec, (LONG)(focusedStart + focusedLen), &shifted, nullptr);
+            pPost->ShiftStart(ec, static_cast<LONG>(focusedStart + focusedLen), &shifted, nullptr);
             SetAttributeOnRange(ec, pProp, pPost, g_gaDisplayAttributeInput);
             pPost->Release();
         }
@@ -102,10 +102,10 @@ namespace
 
 CEditSession::CEditSession(CTextService* pService, ITfContext* pContext, EditAction action, const std::wstring& text)
     : m_cRef(1)
-    , m_pService(pService)
-    , m_pContext(pContext)
-    , m_action(action)
-    , m_text(text)
+      , m_pService(pService)
+      , m_pContext(pContext)
+      , m_action(action)
+      , m_text(text)
 {
     if (m_pContext) m_pContext->AddRef();
     InterlockedIncrement(&g_cRefDll);
@@ -147,10 +147,10 @@ STDMETHODIMP CEditSession::DoEditSession(TfEditCookie ec)
     switch (m_action)
     {
     case EditAction::StartAndUpdate: return DoStartAndUpdate(ec);
-    case EditAction::Update:         return DoUpdate(ec);
-    case EditAction::EndCommit:      return DoEnd(ec, false);
-    case EditAction::EndCancel:      return DoEnd(ec, true);
-    case EditAction::InsertDirect:   return DoInsertDirect(ec);
+    case EditAction::Update: return DoUpdate(ec);
+    case EditAction::EndCommit: return DoEnd(ec, false);
+    case EditAction::EndCancel: return DoEnd(ec, true);
+    case EditAction::InsertDirect: return DoInsertDirect(ec);
     }
     return E_UNEXPECTED;
 }
@@ -190,16 +190,21 @@ HRESULT CEditSession::DoStartAndUpdate(TfEditCookie ec)
     if (FAILED(hr)) return hr;
 
     ITfRange* pRangeInsert = nullptr;
-    hr = pInsertAtSelection->InsertTextAtSelection(ec, 0, m_text.c_str(), (LONG)m_text.length(), &pRangeInsert);
+    hr = pInsertAtSelection->InsertTextAtSelection(ec, 0, m_text.c_str(), static_cast<LONG>(m_text.length()),
+                                                   &pRangeInsert);
     pInsertAtSelection->Release();
     if (FAILED(hr) || !pRangeInsert) return hr;
 
     ITfContextComposition* pContextComposition = nullptr;
     hr = m_pContext->QueryInterface(IID_ITfContextComposition, (void**)&pContextComposition);
-    if (FAILED(hr)) { pRangeInsert->Release(); return hr; }
+    if (FAILED(hr))
+    {
+        pRangeInsert->Release();
+        return hr;
+    }
 
     ITfComposition* pComposition = nullptr;
-    hr = pContextComposition->StartComposition(ec, pRangeInsert, static_cast<ITfCompositionSink*>(m_pService), &pComposition);
+    hr = pContextComposition->StartComposition(ec, pRangeInsert, m_pService, &pComposition);
     pContextComposition->Release();
     pRangeInsert->Release();
     if (FAILED(hr) || !pComposition) return hr;
@@ -228,7 +233,7 @@ HRESULT CEditSession::DoStartAndUpdate(TfEditCookie ec)
     m_pService->SetComposition(pComposition);
     if (m_hasFocus)
         ApplyBunsetsuAttributesToComposition(ec, m_pContext, pComposition,
-                                             (ULONG)m_focusedStart, (ULONG)m_focusedLen);
+                                             static_cast<ULONG>(m_focusedStart), static_cast<ULONG>(m_focusedLen));
     else
         ApplyInputAttributeToComposition(ec, m_pContext, pComposition);
     pComposition->Release();
@@ -248,7 +253,7 @@ HRESULT CEditSession::DoInsertDirect(TfEditCookie ec)
     if (FAILED(hr)) return hr;
 
     ITfRange* pRange = nullptr;
-    hr = pInsertAtSelection->InsertTextAtSelection(ec, 0, m_text.c_str(), (LONG)m_text.length(), &pRange);
+    hr = pInsertAtSelection->InsertTextAtSelection(ec, 0, m_text.c_str(), static_cast<LONG>(m_text.length()), &pRange);
     pInsertAtSelection->Release();
     if (FAILED(hr) || !pRange) return hr;
 
@@ -273,7 +278,7 @@ HRESULT CEditSession::DoUpdate(TfEditCookie ec)
     HRESULT hr = pComposition->GetRange(&pRange);
     if (FAILED(hr) || !pRange) return hr;
 
-    pRange->SetText(ec, 0, m_text.c_str(), (LONG)m_text.length());
+    pRange->SetText(ec, 0, m_text.c_str(), static_cast<LONG>(m_text.length()));
 
     // Collapsing the range gives us a zero-width range at the composition's
     // end; pushing it into the context's selection moves the actual caret
@@ -301,7 +306,7 @@ HRESULT CEditSession::DoUpdate(TfEditCookie ec)
     // does not carry the property forward to the freshly-inserted characters.
     if (m_hasFocus)
         ApplyBunsetsuAttributesToComposition(ec, m_pContext, pComposition,
-                                             (ULONG)m_focusedStart, (ULONG)m_focusedLen);
+                                             static_cast<ULONG>(m_focusedStart), static_cast<ULONG>(m_focusedLen));
     else
         ApplyInputAttributeToComposition(ec, m_pContext, pComposition);
     return S_OK;
@@ -360,7 +365,11 @@ STDMETHODIMP CGetRectSession::DoEditSession(TfEditCookie ec)
 
     ITfRange* pRange = nullptr;
     hr = m_comp->GetRange(&pRange);
-    if (FAILED(hr) || !pRange) { pView->Release(); return hr; }
+    if (FAILED(hr) || !pRange)
+    {
+        pView->Release();
+        return hr;
+    }
 
     RECT rc = {};
     BOOL clipped = FALSE;
@@ -385,7 +394,7 @@ CGetBunsetsuRectSession::CGetBunsetsuRectSession(ITfContext* ctx, ITfComposition
                                                  ULONG start, ULONG length, POINT* outPos)
     : m_cRef(1), m_ctx(ctx), m_comp(comp), m_start(start), m_length(length), m_outPos(outPos)
 {
-    if (m_ctx)  m_ctx->AddRef();
+    if (m_ctx) m_ctx->AddRef();
     if (m_comp) m_comp->AddRef();
     InterlockedIncrement(&g_cRefDll);
 }
@@ -393,7 +402,7 @@ CGetBunsetsuRectSession::CGetBunsetsuRectSession(ITfContext* ctx, ITfComposition
 CGetBunsetsuRectSession::~CGetBunsetsuRectSession()
 {
     if (m_comp) m_comp->Release();
-    if (m_ctx)  m_ctx->Release();
+    if (m_ctx) m_ctx->Release();
     InterlockedDecrement(&g_cRefDll);
 }
 
@@ -432,16 +441,20 @@ STDMETHODIMP CGetBunsetsuRectSession::DoEditSession(TfEditCookie ec)
 
     ITfRange* pSub = nullptr;
     hr = m_comp->GetRange(&pSub);
-    if (FAILED(hr) || !pSub) { pView->Release(); return hr; }
+    if (FAILED(hr) || !pSub)
+    {
+        pView->Release();
+        return hr;
+    }
 
     // Trim the cloned range to [m_start, m_start + m_length) before asking
     // for its on-screen rect. ShiftStart / ShiftEnd return how many chars
     // they actually moved (clamped at the range's natural boundaries) so a
     // request past the end just gives us the tail rect, which is fine.
     LONG shifted = 0;
-    pSub->ShiftStart(ec, (LONG)m_start, &shifted, nullptr);
+    pSub->ShiftStart(ec, static_cast<LONG>(m_start), &shifted, nullptr);
     pSub->Collapse(ec, TF_ANCHOR_START);
-    pSub->ShiftEnd(ec, (LONG)m_length, &shifted, nullptr);
+    pSub->ShiftEnd(ec, static_cast<LONG>(m_length), &shifted, nullptr);
 
     RECT rc = {};
     BOOL clipped = FALSE;
@@ -469,7 +482,7 @@ HRESULT CEditSession::DoEnd(TfEditCookie ec, bool cancel)
         {
             if (!m_cancelReplacement.empty())
                 pRange->SetText(ec, 0, m_cancelReplacement.c_str(),
-                                (LONG)m_cancelReplacement.length());
+                                static_cast<LONG>(m_cancelReplacement.length()));
             else
                 pRange->SetText(ec, 0, L"", 0);
         }
@@ -480,7 +493,7 @@ HRESULT CEditSession::DoEnd(TfEditCookie ec, bool cancel)
             // FinalizeTrailingN ("kan" -> "かん"). When m_text is empty the
             // caller wants to keep whatever's already in the range (e.g. the
             // kanji that Space->Ollama already wrote).
-            pRange->SetText(ec, 0, m_text.c_str(), (LONG)m_text.length());
+            pRange->SetText(ec, 0, m_text.c_str(), static_cast<LONG>(m_text.length()));
         }
 
         // Anchor the caret at the END of the range BEFORE EndComposition.

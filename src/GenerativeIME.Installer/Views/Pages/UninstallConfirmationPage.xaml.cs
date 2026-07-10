@@ -4,5 +4,8 @@ namespace GenerativeIME.Installer.Views.Pages;
 
 public partial class UninstallConfirmationPage : UserControl
 {
-    public UninstallConfirmationPage() => InitializeComponent();
+    public UninstallConfirmationPage()
+    {
+        InitializeComponent();
+    }
 }

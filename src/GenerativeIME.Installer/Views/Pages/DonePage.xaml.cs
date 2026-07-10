@@ -4,5 +4,8 @@ namespace GenerativeIME.Installer.Views.Pages;
 
 public partial class DonePage : UserControl
 {
-    public DonePage() => InitializeComponent();
+    public DonePage()
+    {
+        InitializeComponent();
+    }
 }

@@ -15,15 +15,16 @@ AppContext AppContext::Capture(HWND hwnd)
     if (!hwnd) hwnd = GetForegroundWindow();
     if (!hwnd) return c;
 
-    wchar_t cls[256] = { 0 };
+    wchar_t cls[256] = {0};
     if (GetClassNameW(hwnd, cls, ARRAYSIZE(cls)) > 0) c.windowClass = cls;
 
-    wchar_t title[512] = { 0 };
+    wchar_t title[512] = {0};
     if (GetWindowTextW(hwnd, title, ARRAYSIZE(title)) > 0)
     {
         std::wstring t = title;
         // De-tab / de-newline / de-RS so storage stays parseable.
-        for (auto& ch : t) {
+        for (auto& ch : t)
+        {
             if (ch == L'\t' || ch == L'\r' || ch == L'\n' || ch == L'\x1E')
                 ch = L' ';
         }
@@ -47,7 +48,7 @@ AppContext AppContext::Capture(HWND hwnd)
         HANDLE hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
         if (hProc)
         {
-            wchar_t path[MAX_PATH] = { 0 };
+            wchar_t path[MAX_PATH] = {0};
             DWORD sz = MAX_PATH;
             if (QueryFullProcessImageNameW(hProc, 0, path, &sz))
             {
@@ -73,9 +74,12 @@ namespace
     {
         std::wstring k;
         k.reserve(proc.size() + cls.size() + title.size() + reading.size() + 4);
-        k += proc;    k.push_back(L'\x1E');
-        k += cls;     k.push_back(L'\x1E');
-        k += title;   k.push_back(L'\x1E');
+        k += proc;
+        k.push_back(L'\x1E');
+        k += cls;
+        k.push_back(L'\x1E');
+        k += title;
+        k.push_back(L'\x1E');
         k += reading;
         return k;
     }
@@ -86,18 +90,18 @@ namespace
     std::string ToUtf8(const std::wstring& w)
     {
         if (w.empty()) return {};
-        int n = WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), nullptr, 0, nullptr, nullptr);
+        int n = WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()), nullptr, 0, nullptr, nullptr);
         std::string s(n, '\0');
-        WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), s.data(), n, nullptr, nullptr);
+        WideCharToMultiByte(CP_UTF8, 0, w.data(), static_cast<int>(w.size()), s.data(), n, nullptr, nullptr);
         return s;
     }
 
     std::wstring FromUtf8(const std::string& s)
     {
         if (s.empty()) return {};
-        int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0);
+        int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
         std::wstring w(n, L'\0');
-        MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), w.data(), n);
+        MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), w.data(), n);
         return w;
     }
 }
@@ -177,9 +181,11 @@ HRESULT LearningStore::Load()
                 std::vector<std::string> parts;
                 {
                     size_t start = 0;
-                    while (true) {
+                    while (true)
+                    {
                         auto pos = line.find('\t', start);
-                        if (pos == std::string::npos) {
+                        if (pos == std::string::npos)
+                        {
                             parts.push_back(line.substr(start));
                             break;
                         }
@@ -190,7 +196,7 @@ HRESULT LearningStore::Load()
                 if (parts.size() != 2 && parts.size() != 5) continue;
 
                 std::wstring reading = FromUtf8(parts[0]);
-                std::wstring picked  = FromUtf8(parts[1]);
+                std::wstring picked = FromUtf8(parts[1]);
                 if (reading.empty() || picked.empty()) continue;
 
                 if (parts.size() == 2)
@@ -200,8 +206,8 @@ HRESULT LearningStore::Load()
                 }
                 else // parts.size() == 5
                 {
-                    std::wstring proc  = FromUtf8(parts[2]);
-                    std::wstring cls   = FromUtf8(parts[3]);
+                    std::wstring proc = FromUtf8(parts[2]);
+                    std::wstring cls = FromUtf8(parts[3]);
                     std::wstring title = FromUtf8(parts[4]);
                     if (proc.empty() && cls.empty() && title.empty())
                     {
@@ -236,7 +242,7 @@ HRESULT LearningStore::Load()
                 auto tab = line.find('\t');
                 if (tab == std::string::npos) continue;
                 std::wstring reading = FromUtf8(line.substr(0, tab));
-                std::wstring word    = FromUtf8(line.substr(tab + 1));
+                std::wstring word = FromUtf8(line.substr(tab + 1));
                 if (!reading.empty() && !word.empty())
                 {
                     m_blacklist[reading].insert(word);
@@ -261,7 +267,7 @@ HRESULT LearningStore::Load()
                 auto tab = line.find('\t');
                 if (tab == std::string::npos) continue;
                 std::wstring reading = FromUtf8(line.substr(0, tab));
-                std::wstring joined  = FromUtf8(line.substr(tab + 1));
+                std::wstring joined = FromUtf8(line.substr(tab + 1));
                 if (!reading.empty() && !joined.empty())
                 {
                     m_boundaryBlacklist[reading].insert(joined);
@@ -273,7 +279,7 @@ HRESULT LearningStore::Load()
 }
 
 HRESULT LearningStore::Record(const std::wstring& reading, const std::wstring& picked,
-                               const AppContext& ctx)
+                              const AppContext& ctx)
 {
     if (reading.empty() || picked.empty()) return E_INVALIDARG;
     // Populate every scope-level entry so GetFav's narrower→broader cascade
@@ -291,8 +297,8 @@ HRESULT LearningStore::Record(const std::wstring& reading, const std::wstring& p
     else
     {
         m_ctxPicked[MakeCtxKey(ctx.procName, ctx.windowClass, ctx.titleNorm, reading)] = picked;
-        m_ctxPicked[MakeCtxKey(ctx.procName, ctx.windowClass, L"",              reading)] = picked;
-        m_ctxPicked[MakeCtxKey(ctx.procName, L"",              L"",              reading)] = picked;
+        m_ctxPicked[MakeCtxKey(ctx.procName, ctx.windowClass, L"", reading)] = picked;
+        m_ctxPicked[MakeCtxKey(ctx.procName, L"", L"", reading)] = picked;
         m_lastPicked[reading] = picked;
     }
 
@@ -305,11 +311,11 @@ HRESULT LearningStore::Record(const std::wstring& reading, const std::wstring& p
     if (!f.is_open()) return E_FAIL;
     // 5-field format even for empty ctx — always the same column count
     // simplifies grepping / awking, and a Load() picks up either.
-    f << ToUtf8(reading)  << '\t'
-      << ToUtf8(picked)   << '\t'
-      << ToUtf8(ctx.procName)    << '\t'
-      << ToUtf8(ctx.windowClass) << '\t'
-      << ToUtf8(ctx.titleNorm)   << '\n';
+    f << ToUtf8(reading) << '\t'
+        << ToUtf8(picked) << '\t'
+        << ToUtf8(ctx.procName) << '\t'
+        << ToUtf8(ctx.windowClass) << '\t'
+        << ToUtf8(ctx.titleNorm) << '\n';
     return S_OK;
 }
 
@@ -318,7 +324,7 @@ HRESULT LearningStore::Blacklist(const std::wstring& reading, const std::wstring
     if (reading.empty() || word.empty()) return E_INVALIDARG;
 
     auto& set = m_blacklist[reading];
-    if (!set.insert(word).second) return S_OK;  // already blacklisted
+    if (!set.insert(word).second) return S_OK; // already blacklisted
 
     std::wstring path = BlacklistPath();
     if (path.empty()) return E_FAIL;
@@ -337,7 +343,7 @@ HRESULT LearningStore::ForgetReading(const std::wstring& reading)
     // a suffix match is enough to catch every (proc, class, title, reading)
     // slot regardless of what the ctx prefix looked like.
     m_lastPicked.erase(reading);
-    for (auto it = m_ctxPicked.begin(); it != m_ctxPicked.end(); )
+    for (auto it = m_ctxPicked.begin(); it != m_ctxPicked.end();)
     {
         // Suffix check with RS boundary — the reading always sits after the
         // third RS. Comparing against "\x1E" + reading rules out false
@@ -408,7 +414,7 @@ HRESULT LearningStore::BlacklistBoundary(const std::wstring& reading,
 
     std::wstring joined = JoinBoundary(endOffsets);
     auto& set = m_boundaryBlacklist[reading];
-    if (!set.insert(joined).second) return S_OK;  // already
+    if (!set.insert(joined).second) return S_OK; // already
 
     std::wstring path = BoundaryBlacklistPath();
     if (path.empty()) return E_FAIL;
@@ -423,7 +429,7 @@ bool LearningStore::IsBoundaryBlacklisted(const std::wstring& reading,
 {
     auto it = m_boundaryBlacklist.find(reading);
     if (it == m_boundaryBlacklist.end()) return false;
-    return it->second.count(JoinBoundary(endOffsets)) > 0;
+    return it->second.contains(JoinBoundary(endOffsets));
 }
 
 std::wstring LearningStore::GetFav(const std::wstring& reading, const AppContext& ctx) const
@@ -433,13 +439,15 @@ std::wstring LearningStore::GetFav(const std::wstring& reading, const AppContext
     // wider scope otherwise. Blacklist is applied at every stage —
     // opting out a fav in one context shouldn't resurface it because
     // a broader-scope entry happened to survive.
-    auto blHit = [&](const std::wstring& picked) -> bool {
+    auto blHit = [&](const std::wstring& picked) -> bool
+    {
         auto blIt = m_blacklist.find(reading);
-        return blIt != m_blacklist.end() && blIt->second.count(picked) > 0;
+        return blIt != m_blacklist.end() && blIt->second.contains(picked);
     };
     auto tryLookup = [&](const std::wstring& proc,
                          const std::wstring& cls,
-                         const std::wstring& title) -> std::wstring {
+                         const std::wstring& title) -> std::wstring
+    {
         if (proc.empty() && cls.empty() && title.empty()) return {};
         auto it = m_ctxPicked.find(MakeCtxKey(proc, cls, title, reading));
         if (it == m_ctxPicked.end()) return {};
@@ -484,7 +492,7 @@ std::vector<std::wstring> LearningStore::Reorder(
         filtered.reserve(candidates.size());
         for (const auto& c : candidates)
         {
-            if (blIt->second.count(c) == 0) filtered.push_back(c);
+            if (!blIt->second.contains(c)) filtered.push_back(c);
         }
         if (filtered.empty()) filtered = candidates;
     }
@@ -499,7 +507,11 @@ std::vector<std::wstring> LearningStore::Reorder(
     bool found = false;
     for (const auto& c : filtered)
     {
-        if (!found && c == fav) { found = true; continue; }
+        if (!found && c == fav)
+        {
+            found = true;
+            continue;
+        }
         out.push_back(c);
     }
     if (!found)

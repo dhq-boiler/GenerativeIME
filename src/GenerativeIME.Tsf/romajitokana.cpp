@@ -63,10 +63,10 @@ namespace
             {L"fya", L"ふゃ"}, {L"fyu", L"ふゅ"}, {L"fyo", L"ふょ"},
             {L"va", L"ヴぁ"}, {L"vi", L"ヴぃ"}, {L"vu", L"ヴ"}, {L"ve", L"ヴぇ"}, {L"vo", L"ヴぉ"},
             {L"vya", L"ヴゃ"}, {L"vyu", L"ヴゅ"}, {L"vyo", L"ヴょ"},
-            {L"ye", L"いぇ"},                       // イェ
-            {L"she", L"しぇ"},                      // シェ
-            {L"je",  L"じぇ"},                      // ジェ
-            {L"che", L"ちぇ"},                      // チェ
+            {L"ye", L"いぇ"}, // イェ
+            {L"she", L"しぇ"}, // シェ
+            {L"je", L"じぇ"}, // ジェ
+            {L"che", L"ちぇ"}, // チェ
             {L"tsa", L"つぁ"}, {L"tsi", L"つぃ"}, {L"tse", L"つぇ"}, {L"tso", L"つぉ"},
             {L"tha", L"てゃ"}, {L"thi", L"てぃ"}, {L"thu", L"てゅ"}, {L"the", L"てぇ"}, {L"tho", L"てょ"},
             {L"dha", L"でゃ"}, {L"dhi", L"でぃ"}, {L"dhu", L"でゅ"}, {L"dhe", L"でぇ"}, {L"dho", L"でょ"},
@@ -92,19 +92,19 @@ namespace
             // Punctuation / common symbols: when the IME is on we map ASCII
             // input to full-width Japanese equivalents so the user gets
             // natural text without having to toggle IME off for every comma.
-            {L",",  L"、"}, {L".",  L"。"},
-            {L"!",  L"！"}, {L"?",  L"？"},
-            {L"/",  L"・"},
-            {L"[",  L"「"}, {L"]",  L"」"},
-            {L"(",  L"（"}, {L")",  L"）"},
-            {L"{",  L"｛"}, {L"}",  L"｝"},
-            {L"<",  L"＜"}, {L">",  L"＞"},
-            {L":",  L"："}, {L";",  L"；"},
-            {L"+",  L"＋"}, {L"=",  L"＝"}, {L"_",  L"＿"},
-            {L"'",  L"’"}, {L"\"", L"”"},
-            {L"@",  L"＠"}, {L"#",  L"＃"}, {L"$",  L"＄"}, {L"%",  L"％"},
-            {L"^",  L"＾"}, {L"&",  L"＆"}, {L"*",  L"＊"}, {L"~",  L"〜"},
-            {L"|",  L"｜"}, {L"\\", L"￥"}, {L"`",  L"｀"},
+            {L",", L"、"}, {L".", L"。"},
+            {L"!", L"！"}, {L"?", L"？"},
+            {L"/", L"・"},
+            {L"[", L"「"}, {L"]", L"」"},
+            {L"(", L"（"}, {L")", L"）"},
+            {L"{", L"｛"}, {L"}", L"｝"},
+            {L"<", L"＜"}, {L">", L"＞"},
+            {L":", L"："}, {L";", L"；"},
+            {L"+", L"＋"}, {L"=", L"＝"}, {L"_", L"＿"},
+            {L"'", L"’"}, {L"\"", L"”"},
+            {L"@", L"＠"}, {L"#", L"＃"}, {L"$", L"＄"}, {L"%", L"％"},
+            {L"^", L"＾"}, {L"&", L"＆"}, {L"*", L"＊"}, {L"~", L"〜"},
+            {L"|", L"｜"}, {L"\\", L"￥"}, {L"`", L"｀"},
         };
         return t;
     }
@@ -114,7 +114,7 @@ namespace
     // "ts" inside the buffer still resolves to つ when followed by a vowel.
     constexpr int kMaxKey = 4;
 
-    wchar_t ToLower(wchar_t c) { return (wchar_t)std::towlower(c); }
+    wchar_t ToLower(wchar_t c) { return static_cast<wchar_t>(std::towlower(c)); }
 
     bool IsSokuonConsonant(wchar_t c)
     {
@@ -142,7 +142,7 @@ namespace romaji
         while (i < romaji.size())
         {
             bool matched = false;
-            const size_t maxLen = (std::min)((size_t)kMaxKey, romaji.size() - i);
+            const size_t maxLen = (std::min)(static_cast<size_t>(kMaxKey), romaji.size() - i);
             for (size_t len = maxLen; len >= 1; --len)
             {
                 std::wstring key(romaji.substr(i, len));
@@ -226,9 +226,9 @@ namespace romaji
             }
 
             // Unmatched: leave the rest as romaji for the caller to keep typing.
-            return { hira, std::wstring(romaji.substr(i)) };
+            return {hira, std::wstring(romaji.substr(i))};
         }
-        return { hira, L"" };
+        return {hira, L""};
     }
 
     std::wstring FinalizeTrailingN(std::wstring_view romaji)

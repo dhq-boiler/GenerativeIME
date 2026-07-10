@@ -6,7 +6,10 @@ namespace GenerativeIME.Installer.Views.Pages;
 
 public partial class UninstallProgressPage : UserControl
 {
-    public UninstallProgressPage() => InitializeComponent();
+    public UninstallProgressPage()
+    {
+        InitializeComponent();
+    }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {

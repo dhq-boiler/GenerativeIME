@@ -8,9 +8,9 @@ public:
     CClassFactory();
 
     // IUnknown
-    STDMETHODIMP            QueryInterface(REFIID riid, void** ppvObj) override;
-    STDMETHODIMP_(ULONG)    AddRef() override;
-    STDMETHODIMP_(ULONG)    Release() override;
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override;
+    STDMETHODIMP_(ULONG) AddRef() override;
+    STDMETHODIMP_(ULONG) Release() override;
 
     // IClassFactory
     STDMETHODIMP CreateInstance(IUnknown* pUnkOuter, REFIID riid, void** ppvObj) override;

@@ -9,16 +9,16 @@
         ResizeMode="CanMinimize"
         Background="{StaticResource AppBg}"
         FontFamily="{StaticResource UiFont}">
-  <Grid>
-    <Grid.RowDefinitions>
-      <RowDefinition Height="*"/>
-      <RowDefinition Height="Auto"/>
-    </Grid.RowDefinitions>
-    <ContentControl Grid.Row="0" Content="{Binding CurrentPage}" Margin="0"/>
-    <Border Grid.Row="1" Background="{StaticResource Surface}" Padding="14,10"
-            BorderBrush="{StaticResource Border}" BorderThickness="0,1,0,0">
-      <TextBlock Text="{Binding FooterText}" HorizontalAlignment="Right"
-                 Foreground="{StaticResource Muted}" FontSize="11"/>
-    </Border>
-  </Grid>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <ContentControl Grid.Row="0" Content="{Binding CurrentPage}" Margin="0" />
+        <Border Grid.Row="1" Background="{StaticResource Surface}" Padding="14,10"
+                BorderBrush="{StaticResource Border}" BorderThickness="0,1,0,0">
+            <TextBlock Text="{Binding FooterText}" HorizontalAlignment="Right"
+                       Foreground="{StaticResource Muted}" FontSize="11" />
+        </Border>
+    </Grid>
 </Window>

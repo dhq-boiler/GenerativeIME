@@ -1,8 +1,6 @@
-using System;
+using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
 using GenerativeIME.Installer.Models;
 
 namespace GenerativeIME.Installer.Services;
@@ -18,8 +16,8 @@ public sealed record UninstallResult(bool Success, string? ErrorMessage);
 
 public sealed class UninstallationService : IUninstallationService
 {
-    private readonly IPathService _paths;
     private readonly IArpService _arp;
+    private readonly IPathService _paths;
     private readonly ITsfService _tsf;
 
     public UninstallationService(IPathService paths, IArpService arp, ITsfService tsf)
@@ -32,7 +30,11 @@ public sealed class UninstallationService : IUninstallationService
     public bool IsInstalled()
     {
         // Path 1: our own installer wrote install-manifest.json — canonical.
-        if (ReadManifest() is not null) return true;
+        if (ReadManifest() is not null)
+        {
+            return true;
+        }
+
         // Path 2: an old MSI install lives at the default root. Detect via
         // the TSF DLL presence so an existing v0.2.x MSI shows the
         // Maintenance page instead of Welcome (upgrade / uninstall flow).
@@ -48,7 +50,11 @@ public sealed class UninstallationService : IUninstallationService
         // caller falls back to the file-presence heuristic in IsInstalled).
         var installRoot = _arp.ReadInstallLocation() ?? _paths.DefaultInstallRoot;
         var manifestPath = _paths.ManifestPath(installRoot);
-        if (!File.Exists(manifestPath)) return null;
+        if (!File.Exists(manifestPath))
+        {
+            return null;
+        }
+
         try
         {
             var json = File.ReadAllText(manifestPath);
@@ -75,7 +81,10 @@ public sealed class UninstallationService : IUninstallationService
 
             progress?.Report(new InstallProgress("TSF テキストサービスを登録解除しています…", 0.20));
             var tsfDll = _paths.TsfDllPath(installRoot);
-            if (File.Exists(tsfDll)) _tsf.Unregister(tsfDll);
+            if (File.Exists(tsfDll))
+            {
+                _tsf.Unregister(tsfDll);
+            }
 
             progress?.Report(new InstallProgress("ファイルを削除しています…", 0.55));
             // Sweep prior install-time stashes first: with ctfmon just
@@ -103,31 +112,62 @@ public sealed class UninstallationService : IUninstallationService
 
     private static void InstallationService_KillIfRunning(string name)
     {
-        foreach (var p in System.Diagnostics.Process.GetProcessesByName(name))
+        foreach (var p in Process.GetProcessesByName(name))
         {
             try
             {
-                p.Kill(entireProcessTree: true);
+                p.Kill(true);
                 p.WaitForExit(3000);
             }
-            catch { }
-            finally { p.Dispose(); }
+            catch
+            {
+            }
+            finally
+            {
+                p.Dispose();
+            }
         }
     }
 
     private static void DeleteFolderTree(string folder)
     {
-        if (!Directory.Exists(folder)) return;
+        if (!Directory.Exists(folder))
+        {
+            return;
+        }
+
         // We may be running from InstallLocation — schedule self-delete on
         // reboot for the exe under us. Everything else can go now.
         foreach (var f in Directory.EnumerateFiles(folder))
         {
-            try { File.SetAttributes(f, FileAttributes.Normal); File.Delete(f); } catch { }
+            try
+            {
+                File.SetAttributes(f, FileAttributes.Normal);
+                File.Delete(f);
+            }
+            catch
+            {
+            }
         }
+
         foreach (var d in Directory.EnumerateDirectories(folder))
         {
-            try { Directory.Delete(d, recursive: true); } catch { }
+            try
+            {
+                Directory.Delete(d, true);
+            }
+            catch
+            {
+            }
         }
-        try { Directory.Delete(folder); } catch { /* self-exe may still be here */ }
+
+        try
+        {
+            Directory.Delete(folder);
+        }
+        catch
+        {
+            /* self-exe may still be here */
+        }
     }
 }

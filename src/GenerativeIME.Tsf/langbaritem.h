@@ -12,15 +12,15 @@ class CTextService;
 // Clicking the button toggles IME ON/OFF via CTextService::ToggleImeFromUI.
 class CLangBarItemButton
     : public ITfLangBarItemButton
-    , public ITfSource
+      , public ITfSource
 {
 public:
     explicit CLangBarItemButton(CTextService* pService);
 
     // IUnknown
-    STDMETHODIMP            QueryInterface(REFIID riid, void** ppvObj) override;
-    STDMETHODIMP_(ULONG)    AddRef() override;
-    STDMETHODIMP_(ULONG)    Release() override;
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override;
+    STDMETHODIMP_(ULONG) AddRef() override;
+    STDMETHODIMP_(ULONG) Release() override;
 
     // ITfLangBarItem
     STDMETHODIMP GetInfo(TF_LANGBARITEMINFO* pInfo) override;
@@ -48,9 +48,9 @@ public:
 private:
     ~CLangBarItemButton();
 
-    LONG                m_cRef;
-    TF_LANGBARITEMINFO  m_info;
+    LONG m_cRef;
+    TF_LANGBARITEMINFO m_info;
     ITfLangBarItemSink* m_pSink;
-    DWORD               m_dwSinkCookie;
-    CTextService*       m_pService; // weak ref; owner outlives this button
+    DWORD m_dwSinkCookie;
+    CTextService* m_pService; // weak ref; owner outlives this button
 };

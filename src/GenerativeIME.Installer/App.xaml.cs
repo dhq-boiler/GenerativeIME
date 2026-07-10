@@ -1,5 +1,3 @@
-using System;
-using System.IO;
 using System.Windows;
 using GenerativeIME.Installer.Composition;
 using GenerativeIME.Installer.Services;
@@ -34,7 +32,9 @@ public partial class App : Application
         foreach (var arg in e.Args)
         {
             if (string.Equals(arg, "--uninstall", StringComparison.OrdinalIgnoreCase))
+            {
                 explicitUninstall = true;
+            }
         }
 
         if (explicitUninstall)
@@ -52,7 +52,7 @@ public partial class App : Application
 
         var shell = new InstallerShell
         {
-            DataContext = _services.GetRequiredService<InstallerShellViewModel>(),
+            DataContext = _services.GetRequiredService<InstallerShellViewModel>()
         };
         shell.Show();
     }

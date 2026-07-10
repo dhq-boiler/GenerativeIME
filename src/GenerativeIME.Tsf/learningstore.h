@@ -14,11 +14,12 @@
 // foreground window (rare, e.g. login shell) fall back to.
 struct AppContext
 {
-    std::wstring procName;    // basename of executable, e.g. "Code.exe"
+    std::wstring procName; // basename of executable, e.g. "Code.exe"
     std::wstring windowClass; // GetClassName of the top window
-    std::wstring titleNorm;   // GetWindowText, trimmed / de-tabbed / truncated
+    std::wstring titleNorm; // GetWindowText, trimmed / de-tabbed / truncated
 
-    bool Empty() const {
+    bool Empty() const
+    {
         return procName.empty() && windowClass.empty() && titleNorm.empty();
     }
 
@@ -50,7 +51,8 @@ public:
     HRESULT Record(const std::wstring& reading, const std::wstring& picked,
                    const AppContext& ctx);
     // Legacy overload — same as Record(..., AppContext{}).
-    HRESULT Record(const std::wstring& reading, const std::wstring& picked) {
+    HRESULT Record(const std::wstring& reading, const std::wstring& picked)
+    {
         return Record(reading, picked, AppContext{});
     }
 
@@ -68,7 +70,8 @@ public:
     // us what they want for this exact reading in this exact context.
     std::wstring GetFav(const std::wstring& reading, const AppContext& ctx) const;
     // Legacy overload — global (empty ctx) lookup.
-    std::wstring GetFav(const std::wstring& reading) const {
+    std::wstring GetFav(const std::wstring& reading) const
+    {
         return GetFav(reading, AppContext{});
     }
 

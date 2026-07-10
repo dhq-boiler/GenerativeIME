@@ -20,18 +20,18 @@ extern "C" const GUID GUID_LBI_INPUTMODE;
 namespace
 {
     constexpr DWORD kSinkCookie = 0x0FAB0FAB;
-    constexpr wchar_t kButtonDesc[]  = L"GenerativeIME Mode";
+    constexpr wchar_t kButtonDesc[] = L"GenerativeIME Mode";
 
     const wchar_t* LabelForMode(ImeMode mode)
     {
         switch (mode)
         {
-        case ImeMode::Hiragana:     return L"あ";
+        case ImeMode::Hiragana: return L"あ";
         case ImeMode::FullKatakana: return L"ア";
         case ImeMode::HalfKatakana: return L"ｱ";
-        case ImeMode::FullAlnum:    return L"Ａ";
+        case ImeMode::FullAlnum: return L"Ａ";
         case ImeMode::Off:
-        default:                    return L"A";
+        default: return L"A";
         }
     }
 
@@ -52,9 +52,9 @@ namespace
 
 CLangBarItemButton::CLangBarItemButton(CTextService* pService)
     : m_cRef(1)
-    , m_pSink(nullptr)
-    , m_dwSinkCookie(TF_INVALID_COOKIE)
-    , m_pService(pService)
+      , m_pSink(nullptr)
+      , m_dwSinkCookie(TF_INVALID_COOKIE)
+      , m_pService(pService)
 {
     InterlockedIncrement(&g_cRefDll);
 
@@ -63,17 +63,21 @@ CLangBarItemButton::CLangBarItemButton(CTextService* pService)
     // looks for to render the "あ/A" mode pill on the left side of the IME
     // branding icon. Pair with TF_LBI_STYLE_SHOWNINTRAY so the shell knows
     // we belong in the tray cluster.
-    m_info.guidItem     = GUID_LBI_INPUTMODE;
+    m_info.guidItem = GUID_LBI_INPUTMODE;
     // BTN_BUTTON: we draw our own popup menu from OnClick via TrackPopupMenu;
     // Win11's Input Indicator ignores BTN_MENU's auto-menu route anyway.
-    m_info.dwStyle      = TF_LBI_STYLE_BTN_BUTTON | TF_LBI_STYLE_SHOWNINTRAY;
-    m_info.ulSort       = 0;
+    m_info.dwStyle = TF_LBI_STYLE_BTN_BUTTON | TF_LBI_STYLE_SHOWNINTRAY;
+    m_info.ulSort = 0;
     StringCchCopyW(m_info.szDescription, ARRAYSIZE(m_info.szDescription), kButtonDesc);
 }
 
 CLangBarItemButton::~CLangBarItemButton()
 {
-    if (m_pSink) { m_pSink->Release(); m_pSink = nullptr; }
+    if (m_pSink)
+    {
+        m_pSink->Release();
+        m_pSink = nullptr;
+    }
     InterlockedDecrement(&g_cRefDll);
 }
 
@@ -91,11 +95,15 @@ STDMETHODIMP CLangBarItemButton::QueryInterface(REFIID riid, void** ppvObj)
     {
         *ppvObj = static_cast<ITfSource*>(this);
     }
-    if (*ppvObj) { AddRef(); return S_OK; }
+    if (*ppvObj)
+    {
+        AddRef();
+        return S_OK;
+    }
     return E_NOINTERFACE;
 }
 
-STDMETHODIMP_(ULONG) CLangBarItemButton::AddRef()  { return InterlockedIncrement(&m_cRef); }
+STDMETHODIMP_(ULONG) CLangBarItemButton::AddRef() { return InterlockedIncrement(&m_cRef); }
 STDMETHODIMP_(ULONG) CLangBarItemButton::Release()
 {
     LONG c = InterlockedDecrement(&m_cRef);
@@ -138,7 +146,7 @@ enum : UINT
     kMenuHalfKatakana = 102,
     kMenuFullAlnum = 103,
     kMenuHalfAlnum = 104,
-    kMenuUserDict = 110,   // "ユーザー辞書…" — launches the WPF manager
+    kMenuUserDict = 110, // "ユーザー辞書…" — launches the WPF manager
 };
 
 STDMETHODIMP CLangBarItemButton::OnClick(TfLBIClick click, POINT pt, const RECT* prcArea)
@@ -152,7 +160,11 @@ STDMETHODIMP CLangBarItemButton::OnClick(TfLBIClick click, POINT pt, const RECT*
 
     int x = pt.x;
     int y = pt.y;
-    if (prcArea) { x = prcArea->left; y = prcArea->bottom; }
+    if (prcArea)
+    {
+        x = prcArea->left;
+        y = prcArea->bottom;
+    }
 
     // Snapshot what the worker thread needs so it can render without touching
     // shared mutable state. Read imeOn from the service (single source of
@@ -169,9 +181,9 @@ STDMETHODIMP CLangBarItemButton::OnClick(TfLBIClick click, POINT pt, const RECT*
     std::thread([service, imeOn, x, y]()
     {
         HWND owner = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-            L"STATIC", L"", WS_POPUP,
-            -100, -100, 1, 1,
-            nullptr, nullptr, g_hInst, nullptr);
+                                     L"STATIC", L"", WS_POPUP,
+                                     -100, -100, 1, 1,
+                                     nullptr, nullptr, g_hInst, nullptr);
         if (!owner) return;
         ShowWindow(owner, SW_SHOWNA);
         SetForegroundWindow(owner);
@@ -181,23 +193,24 @@ STDMETHODIMP CLangBarItemButton::OnClick(TfLBIClick click, POINT pt, const RECT*
         {
             UINT hi = imeOn ? MF_CHECKED : 0;
             UINT lo = imeOn ? 0 : MF_CHECKED;
-            AppendMenuW(menu, MF_STRING | hi, kMenuHiragana,     L"ひらがな");
-            AppendMenuW(menu, MF_STRING,      kMenuKatakana,     L"全角カタカナ");
-            AppendMenuW(menu, MF_STRING,      kMenuHalfKatakana, L"半角カタカナ");
-            AppendMenuW(menu, MF_STRING,      kMenuFullAlnum,    L"全角英数");
-            AppendMenuW(menu, MF_STRING | lo, kMenuHalfAlnum,    L"半角英数");
-            AppendMenuW(menu, MF_SEPARATOR,   0,                 nullptr);
-            AppendMenuW(menu, MF_STRING,      kMenuUserDict,     L"ユーザー辞書…");
+            AppendMenuW(menu, MF_STRING | hi, kMenuHiragana, L"ひらがな");
+            AppendMenuW(menu, MF_STRING, kMenuKatakana, L"全角カタカナ");
+            AppendMenuW(menu, MF_STRING, kMenuHalfKatakana, L"半角カタカナ");
+            AppendMenuW(menu, MF_STRING, kMenuFullAlnum, L"全角英数");
+            AppendMenuW(menu, MF_STRING | lo, kMenuHalfAlnum, L"半角英数");
+            AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+            AppendMenuW(menu, MF_STRING, kMenuUserDict, L"ユーザー辞書…");
 
-            UINT cmd = (UINT)TrackPopupMenu(menu,
-                TPM_RETURNCMD | TPM_NONOTIFY | TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RIGHTBUTTON,
-                x, y, 0, owner, nullptr);
+            UINT cmd = static_cast<UINT>(TrackPopupMenu(menu,
+                                                        TPM_RETURNCMD | TPM_NONOTIFY | TPM_LEFTALIGN | TPM_TOPALIGN |
+                                                        TPM_RIGHTBUTTON,
+                                                        x, y, 0, owner, nullptr));
             DestroyMenu(menu);
 
             {
                 wchar_t buf[160];
                 swprintf_s(buf, L"[GenerativeIME] menu cmd=%u imeOn=%d service=%p\n",
-                           cmd, (int)imeOn, service);
+                           cmd, static_cast<int>(imeOn), service);
                 OutputDebugStringW(buf);
             }
 
@@ -214,11 +227,16 @@ STDMETHODIMP CLangBarItemButton::OnClick(TfLBIClick click, POINT pt, const RECT*
                 int modeId = 1;
                 switch (cmd)
                 {
-                case kMenuHiragana:     modeId = 1; break;
-                case kMenuKatakana:     modeId = 2; break;
-                case kMenuHalfKatakana: modeId = 3; break;
-                case kMenuFullAlnum:    modeId = 4; break;
-                case kMenuHalfAlnum:    modeId = 0; break;
+                case kMenuHiragana: modeId = 1;
+                    break;
+                case kMenuKatakana: modeId = 2;
+                    break;
+                case kMenuHalfKatakana: modeId = 3;
+                    break;
+                case kMenuFullAlnum: modeId = 4;
+                    break;
+                case kMenuHalfAlnum: modeId = 0;
+                    break;
                 }
                 {
                     wchar_t buf[128];
@@ -227,7 +245,7 @@ STDMETHODIMP CLangBarItemButton::OnClick(TfLBIClick click, POINT pt, const RECT*
                     OutputDebugStringW(buf);
                 }
                 HWND msgWnd = service->GetMsgWindow();
-                if (msgWnd) PostMessageW(msgWnd, WM_USER + 3, (WPARAM)modeId, 0);
+                if (msgWnd) PostMessageW(msgWnd, WM_USER + 3, static_cast<WPARAM>(modeId), 0);
             }
         }
         DestroyWindow(owner);
@@ -244,21 +262,22 @@ STDMETHODIMP CLangBarItemButton::InitMenu(ITfMenu* pMenu)
     // user sees what's active. For Phase 1 only Hiragana <-> Half-alnum
     // actually wire into IME state; the katakana / full-alnum items are
     // stubs that will gain effect when a per-composition mode is added.
-    auto add = [&](UINT id, const wchar_t* label, bool checked) {
+    auto add = [&](UINT id, const wchar_t* label, bool checked)
+    {
         DWORD flags = 0;
         if (checked) flags |= TF_LBMENUF_CHECKED;
         pMenu->AddMenuItem(id, flags, nullptr, nullptr,
-                           const_cast<wchar_t*>(label),
-                           (ULONG)wcslen(label), nullptr);
+                           label,
+                           static_cast<ULONG>(wcslen(label)), nullptr);
     };
 
     const BOOL imeOn = m_pService ? m_pService->IsImeOn() : FALSE;
-    add(kMenuHiragana,     L"ひらがな",         imeOn);
-    add(kMenuKatakana,     L"全角カタカナ",     false);
-    add(kMenuHalfKatakana, L"半角カタカナ",     false);
-    add(kMenuFullAlnum,    L"全角英数",         false);
-    add(kMenuHalfAlnum,    L"半角英数",         !imeOn);
-    add(kMenuUserDict,     L"ユーザー辞書…",    false);
+    add(kMenuHiragana, L"ひらがな", imeOn);
+    add(kMenuKatakana, L"全角カタカナ", false);
+    add(kMenuHalfKatakana, L"半角カタカナ", false);
+    add(kMenuFullAlnum, L"全角英数", false);
+    add(kMenuHalfAlnum, L"半角英数", !imeOn);
+    add(kMenuUserDict, L"ユーザー辞書…", false);
     return S_OK;
 }
 
@@ -299,12 +318,17 @@ STDMETHODIMP CLangBarItemButton::GetIcon(HICON* phIcon)
     {
         switch (m_pService->GetImeMode())
         {
-        case ImeMode::Hiragana:     res = IDI_GENIME;          break;
-        case ImeMode::FullKatakana: res = IDI_GENIME_KATA;     break;
-        case ImeMode::HalfKatakana: res = IDI_GENIME_HALFKATA; break;
-        case ImeMode::FullAlnum:    res = IDI_GENIME_FALNUM;   break;
+        case ImeMode::Hiragana: res = IDI_GENIME;
+            break;
+        case ImeMode::FullKatakana: res = IDI_GENIME_KATA;
+            break;
+        case ImeMode::HalfKatakana: res = IDI_GENIME_HALFKATA;
+            break;
+        case ImeMode::FullAlnum: res = IDI_GENIME_FALNUM;
+            break;
         case ImeMode::Off:
-        default:                    res = IDI_GENIME_A;        break;
+        default: res = IDI_GENIME_A;
+            break;
         }
     }
     *phIcon = static_cast<HICON>(LoadImageW(g_hInst, MAKEINTRESOURCEW(res),
@@ -315,7 +339,7 @@ STDMETHODIMP CLangBarItemButton::GetIcon(HICON* phIcon)
 STDMETHODIMP CLangBarItemButton::GetText(BSTR* pbstrText)
 {
     if (!pbstrText) return E_INVALIDARG;
-    ImeMode mode = ImeMode::Off;
+    auto mode = ImeMode::Off;
     if (m_pService && m_pService->IsImeOn()) mode = m_pService->GetImeMode();
     *pbstrText = SysAllocString(LabelForMode(mode));
     return *pbstrText ? S_OK : E_OUTOFMEMORY;

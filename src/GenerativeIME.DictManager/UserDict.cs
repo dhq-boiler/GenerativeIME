@@ -10,24 +10,35 @@ namespace GenerativeIME.DictManager;
 // SKK surfaces joined by '/', e.g. "風呂った" or "雨/飴". Editable in the grid.
 public sealed class DictEntry : INotifyPropertyChanged
 {
-    private string _reading = "";
     private string _candidates = "";
+    private string _reading = "";
 
     public string Reading
     {
         get => _reading;
-        set { _reading = value ?? ""; OnPropertyChanged(); }
+        set
+        {
+            _reading = value ?? "";
+            OnPropertyChanged();
+        }
     }
 
     public string Candidates
     {
         get => _candidates;
-        set { _candidates = value ?? ""; OnPropertyChanged(); }
+        set
+        {
+            _candidates = value ?? "";
+            OnPropertyChanged();
+        }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+
     private void OnPropertyChanged([CallerMemberName] string? n = null)
-        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(n));
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(n));
+    }
 }
 
 // One dictionary file under the user-dict folder. Enabled maps to the file
@@ -37,21 +48,31 @@ public sealed class DictFile : INotifyPropertyChanged
 {
     public const string Ext = ".utf8";
     public const string DisabledSuffix = ".off";
+    private string _displayName = "";
 
     private bool _enabled;
+
+    private int _entryCount;
     private string _fullPath = "";
-    private string _displayName = "";
 
     public string DisplayName
     {
         get => _displayName;
-        private set { _displayName = value; OnPropertyChanged(); }
+        private set
+        {
+            _displayName = value;
+            OnPropertyChanged();
+        }
     }
 
     public string FullPath
     {
         get => _fullPath;
-        private set { _fullPath = value; OnPropertyChanged(); }
+        private set
+        {
+            _fullPath = value;
+            OnPropertyChanged();
+        }
     }
 
     public bool Enabled
@@ -59,36 +80,57 @@ public sealed class DictFile : INotifyPropertyChanged
         get => _enabled;
         set
         {
-            if (_enabled == value) return;
-            try { SetEnabledOnDisk(value); _enabled = value; }
-            catch { /* leave state unchanged; OnPropertyChanged snaps the UI back */ }
+            if (_enabled == value)
+            {
+                return;
+            }
+
+            try
+            {
+                SetEnabledOnDisk(value);
+                _enabled = value;
+            }
+            catch
+            {
+                /* leave state unchanged; OnPropertyChanged snaps the UI back */
+            }
+
             OnPropertyChanged();
         }
     }
 
-    private int _entryCount;
     public int EntryCount
     {
         get => _entryCount;
-        set { _entryCount = value; OnPropertyChanged(); }
+        set
+        {
+            _entryCount = value;
+            OnPropertyChanged();
+        }
     }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     public static DictFile FromPath(string path)
     {
         var name = Path.GetFileName(path);
-        bool enabled = name.EndsWith(Ext, StringComparison.OrdinalIgnoreCase);
-        string display = name;
+        var enabled = name.EndsWith(Ext, StringComparison.OrdinalIgnoreCase);
+        var display = name;
         if (name.EndsWith(Ext + DisabledSuffix, StringComparison.OrdinalIgnoreCase))
+        {
             display = name[..^(Ext.Length + DisabledSuffix.Length)];
+        }
         else if (name.EndsWith(Ext, StringComparison.OrdinalIgnoreCase))
+        {
             display = name[..^Ext.Length];
+        }
 
         return new DictFile
         {
             _fullPath = path,
             _enabled = enabled,
             DisplayName = display,
-            EntryCount = UserDictStore.CountEntries(path),
+            EntryCount = UserDictStore.CountEntries(path)
         };
     }
 
@@ -98,9 +140,21 @@ public sealed class DictFile : INotifyPropertyChanged
     {
         var dir = Path.GetDirectoryName(FullPath)!;
         var target = Path.Combine(dir, DisplayName + Ext + (enable ? "" : DisabledSuffix));
-        if (string.Equals(target, FullPath, StringComparison.OrdinalIgnoreCase)) return;
-        if (File.Exists(target)) File.Delete(target);
-        if (File.Exists(FullPath)) File.Move(FullPath, target);
+        if (string.Equals(target, FullPath, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (File.Exists(target))
+        {
+            File.Delete(target);
+        }
+
+        if (File.Exists(FullPath))
+        {
+            File.Move(FullPath, target);
+        }
+
         FullPath = target;
     }
 
@@ -111,13 +165,22 @@ public sealed class DictFile : INotifyPropertyChanged
     {
         var dir = Path.GetDirectoryName(FullPath)!;
         var safe = UserDictStore.SanitizeName(newName);
-        if (safe.Length == 0) throw new ArgumentException("名前を入力してください。");
-        if (string.Equals(safe, DisplayName, StringComparison.Ordinal)) return;
+        if (safe.Length == 0)
+        {
+            throw new ArgumentException("名前を入力してください。");
+        }
 
-        var enabledPath  = Path.Combine(dir, safe + Ext);
+        if (string.Equals(safe, DisplayName, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var enabledPath = Path.Combine(dir, safe + Ext);
         var disabledPath = Path.Combine(dir, safe + Ext + DisabledSuffix);
         if (File.Exists(enabledPath) || File.Exists(disabledPath))
+        {
             throw new IOException($"「{safe}」は既に存在します。");
+        }
 
         var target = _enabled ? enabledPath : disabledPath;
         File.Move(FullPath, target);
@@ -125,16 +188,17 @@ public sealed class DictFile : INotifyPropertyChanged
         DisplayName = safe;
     }
 
-    public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged([CallerMemberName] string? n = null)
-        => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(n));
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(n));
+    }
 }
 
 // File-system operations over %APPDATA%\GenerativeIME\dict\. All SKK I/O is
 // UTF-8 without BOM (what the IME's SkkDictionary::ParseFile expects).
 public static class UserDictStore
 {
-    private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
+    private static readonly UTF8Encoding Utf8NoBom = new(false);
 
     public static string DictDir()
     {
@@ -150,11 +214,15 @@ public static class UserDictStore
         var dir = DictDir();
         var files = Directory.EnumerateFiles(dir)
             .Where(p => p.EndsWith(DictFile.Ext, StringComparison.OrdinalIgnoreCase)
-                     || p.EndsWith(DictFile.Ext + DictFile.DisabledSuffix, StringComparison.OrdinalIgnoreCase))
+                        || p.EndsWith(DictFile.Ext + DictFile.DisabledSuffix, StringComparison.OrdinalIgnoreCase))
             .OrderBy(p => Path.GetFileName(p), StringComparer.OrdinalIgnoreCase);
 
         var list = new ObservableCollection<DictFile>();
-        foreach (var f in files) list.Add(DictFile.FromPath(f));
+        foreach (var f in files)
+        {
+            list.Add(DictFile.FromPath(f));
+        }
+
         return list;
     }
 
@@ -162,34 +230,54 @@ public static class UserDictStore
     {
         try
         {
-            int n = 0;
+            var n = 0;
             foreach (var raw in File.ReadLines(path))
             {
                 var line = raw.TrimEnd('\r');
-                if (line.Length == 0 || line[0] == ';') continue;
-                if (line.IndexOf(' ') > 0) n++;
+                if (line.Length == 0 || line[0] == ';')
+                {
+                    continue;
+                }
+
+                if (line.IndexOf(' ') > 0)
+                {
+                    n++;
+                }
             }
+
             return n;
         }
-        catch { return 0; }
+        catch
+        {
+            return 0;
+        }
     }
 
     public static (string header, ObservableCollection<DictEntry> entries) Load(string path)
     {
         var entries = new ObservableCollection<DictEntry>();
         var header = new StringBuilder();
-        bool seenEntry = false;
+        var seenEntry = false;
 
         foreach (var raw in File.ReadAllLines(path, Utf8NoBom))
         {
             var line = raw.TrimEnd('\r');
             if (line.Length == 0 || line[0] == ';')
             {
-                if (!seenEntry) header.AppendLine(line); // keep the leading comment block
+                if (!seenEntry)
+                {
+                    header.AppendLine(line); // keep the leading comment block
+                }
+
                 continue;
             }
-            int sp = line.IndexOf(' ');
-            if (sp <= 0) continue;
+
+            var sp = line.IndexOf(' ');
+            if (sp <= 0)
+            {
+                continue;
+            }
+
             seenEntry = true;
             var reading = line[..sp];
             var rest = line[(sp + 1)..].Trim();
@@ -197,6 +285,7 @@ public static class UserDictStore
             rest = rest.Trim('/');
             entries.Add(new DictEntry { Reading = reading, Candidates = rest });
         }
+
         return (header.ToString().TrimEnd('\r', '\n'), entries);
     }
 
@@ -204,17 +293,26 @@ public static class UserDictStore
     {
         var sb = new StringBuilder();
         if (!string.IsNullOrWhiteSpace(header))
+        {
             sb.Append(header.TrimEnd('\r', '\n')).Append('\n');
+        }
         else
+        {
             sb.Append(";; GenerativeIME user dictionary\n");
+        }
 
         foreach (var e in entries)
         {
             var r = e.Reading.Trim();
             var c = e.Candidates.Trim().Trim('/');
-            if (r.Length == 0 || c.Length == 0) continue; // skip incomplete rows
+            if (r.Length == 0 || c.Length == 0)
+            {
+                continue; // skip incomplete rows
+            }
+
             sb.Append(r).Append(" /").Append(c).Append("/\n");
         }
+
         File.WriteAllText(path, sb.ToString(), Utf8NoBom);
     }
 
@@ -224,11 +322,18 @@ public static class UserDictStore
     {
         var dir = DictDir();
         var safe = SanitizeName(name);
-        if (safe.Length == 0) safe = "dictionary";
+        if (safe.Length == 0)
+        {
+            safe = "dictionary";
+        }
+
         var path = Path.Combine(dir, safe + DictFile.Ext);
-        int i = 2;
+        var i = 2;
         while (File.Exists(path) || File.Exists(path + DictFile.DisabledSuffix))
+        {
             path = Path.Combine(dir, $"{safe}-{i++}{DictFile.Ext}");
+        }
+
         File.WriteAllText(path, ";; GenerativeIME user dictionary\n", Utf8NoBom);
         return DictFile.FromPath(path);
     }
@@ -239,21 +344,33 @@ public static class UserDictStore
     {
         var dir = DictDir();
         var baseName = SanitizeName(Path.GetFileNameWithoutExtension(srcPath));
-        if (baseName.Length == 0) baseName = "imported";
+        if (baseName.Length == 0)
+        {
+            baseName = "imported";
+        }
+
         var path = Path.Combine(dir, baseName + DictFile.Ext);
-        int i = 2;
+        var i = 2;
         while (File.Exists(path) || File.Exists(path + DictFile.DisabledSuffix))
+        {
             path = Path.Combine(dir, $"{baseName}-{i++}{DictFile.Ext}");
+        }
+
         File.Copy(srcPath, path);
         return DictFile.FromPath(path);
     }
 
     public static void Export(DictFile file, string destPath)
-        => File.Copy(file.FullPath, destPath, overwrite: true);
+    {
+        File.Copy(file.FullPath, destPath, true);
+    }
 
     public static void Delete(DictFile file)
     {
-        if (File.Exists(file.FullPath)) File.Delete(file.FullPath);
+        if (File.Exists(file.FullPath))
+        {
+            File.Delete(file.FullPath);
+        }
     }
 
     internal static string SanitizeName(string name)
@@ -262,7 +379,10 @@ public static class UserDictStore
         var cleaned = new string(name.Where(c => Array.IndexOf(invalid, c) < 0).ToArray()).Trim();
         // Drop a trailing ".utf8" if the user typed it.
         if (cleaned.EndsWith(DictFile.Ext, StringComparison.OrdinalIgnoreCase))
+        {
             cleaned = cleaned[..^DictFile.Ext.Length];
+        }
+
         return cleaned;
     }
 }

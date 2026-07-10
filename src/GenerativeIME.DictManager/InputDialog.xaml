@@ -5,17 +5,17 @@
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
         ShowInTaskbar="False" Background="{StaticResource AppBg}"
         FontFamily="{StaticResource UiFont}">
-  <Border Background="{StaticResource Surface}" CornerRadius="12" Margin="14"
-          BorderBrush="{StaticResource Border}" BorderThickness="1">
-    <StackPanel Margin="22">
-      <TextBlock x:Name="PromptText" Text="" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,10"/>
-      <TextBox x:Name="Input" FontSize="14" Padding="8,7"/>
-      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
-        <Button Content="キャンセル" Style="{StaticResource GhostButton}" Click="Cancel_Click"
-                MinWidth="88" IsCancel="True"/>
-        <Button Content="OK" Style="{StaticResource AccentButton}" Click="Ok_Click"
-                Margin="10,0,0,0" MinWidth="88" IsDefault="True"/>
-      </StackPanel>
-    </StackPanel>
-  </Border>
+    <Border Background="{StaticResource Surface}" CornerRadius="12" Margin="14"
+            BorderBrush="{StaticResource Border}" BorderThickness="1">
+        <StackPanel Margin="22">
+            <TextBlock x:Name="PromptText" Text="" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,10" />
+            <TextBox x:Name="Input" FontSize="14" Padding="8,7" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+                <Button Content="キャンセル" Style="{StaticResource GhostButton}" Click="Cancel_Click"
+                        MinWidth="88" IsCancel="True" />
+                <Button Content="OK" Style="{StaticResource AccentButton}" Click="Ok_Click"
+                        Margin="10,0,0,0" MinWidth="88" IsDefault="True" />
+            </StackPanel>
+        </StackPanel>
+    </Border>
 </Window>

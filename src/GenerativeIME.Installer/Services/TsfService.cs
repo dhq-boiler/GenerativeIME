@@ -1,4 +1,3 @@
-using System;
 using System.Diagnostics;
 using System.IO;
 using Microsoft.Win32;
@@ -9,25 +8,27 @@ public interface ITsfService
 {
     /// <summary>Register HKLM entries for GenerativeIME.Tsf.dll. Returns true on success.</summary>
     bool Register(string tsfDllPath);
+
     /// <summary>Unregister HKLM entries. Returns true even if the DLL wasn't registered.</summary>
     bool Unregister(string tsfDllPath);
+
     /// <summary>Seed HKCU (CTF Assemblies + Preload) for the current user via SeedHkcu.ps1.</summary>
     bool SeedCurrentUser(string seedHkcuPs1Path);
+
     /// <summary>Kill ctfmon.exe so Windows respawns it with a fresh CTF cache.</summary>
     void RestartCtfmon();
 }
 
 /// <summary>
-/// GenerativeIME TSF text service registration. Uses regsvr32.exe as a
-/// separate process so the TSF DLL is NEVER loaded into the installer
-/// process — LoadLibrary-in-process pinned the DLL and made the subsequent
-/// wipe / extract fail with SharingViolation on GenerativeIME.Tsf.dll.
-///
-/// regsvr32 with /s suppresses success/error dialogs but its exit code is
-/// only loosely correlated with DllRegisterServer's HRESULT — we've seen
-/// exit=0 without HKLM keys getting written on some elevated-child paths.
-/// We verify HKLM after the call and treat "exit 0 + missing key" as
-/// failure so the user sees a real error page instead of a silent no-op.
+///     GenerativeIME TSF text service registration. Uses regsvr32.exe as a
+///     separate process so the TSF DLL is NEVER loaded into the installer
+///     process — LoadLibrary-in-process pinned the DLL and made the subsequent
+///     wipe / extract fail with SharingViolation on GenerativeIME.Tsf.dll.
+///     regsvr32 with /s suppresses success/error dialogs but its exit code is
+///     only loosely correlated with DllRegisterServer's HRESULT — we've seen
+///     exit=0 without HKLM keys getting written on some elevated-child paths.
+///     We verify HKLM after the call and treat "exit 0 + missing key" as
+///     failure so the user sees a real error page instead of a silent no-op.
 /// </summary>
 public sealed class TsfService : ITsfService
 {
@@ -36,7 +37,11 @@ public sealed class TsfService : ITsfService
 
     public bool Register(string tsfDllPath)
     {
-        if (!File.Exists(tsfDllPath)) return false;
+        if (!File.Exists(tsfDllPath))
+        {
+            return false;
+        }
+
         RunRegsvr32("/s", tsfDllPath);
         // Verification: regsvr32 sometimes exits 0 without actually running
         // DllRegisterServer to completion when spawned from an elevated
@@ -47,24 +52,36 @@ public sealed class TsfService : ITsfService
 
     public bool Unregister(string tsfDllPath)
     {
-        if (!File.Exists(tsfDllPath)) return true;
+        if (!File.Exists(tsfDllPath))
+        {
+            return true;
+        }
+
         RunRegsvr32("/s /u", tsfDllPath);
         return true;
     }
 
     public bool SeedCurrentUser(string seedHkcuPs1Path)
     {
-        if (!File.Exists(seedHkcuPs1Path)) return false;
+        if (!File.Exists(seedHkcuPs1Path))
+        {
+            return false;
+        }
+
         var psi = new ProcessStartInfo("powershell.exe",
             $"-NoProfile -ExecutionPolicy Bypass -File \"{seedHkcuPs1Path}\"")
         {
             UseShellExecute = false,
-            CreateNoWindow  = true,
+            CreateNoWindow = true
         };
         try
         {
             using var p = Process.Start(psi);
-            if (p is null) return false;
+            if (p is null)
+            {
+                return false;
+            }
+
             p.WaitForExit(10_000);
             return p.HasExited && p.ExitCode == 0;
         }
@@ -85,11 +102,16 @@ public sealed class TsfService : ITsfService
         {
             try
             {
-                p.Kill(entireProcessTree: true);
+                p.Kill(true);
                 p.WaitForExit(3000);
             }
-            catch { }
-            finally { p.Dispose(); }
+            catch
+            {
+            }
+            finally
+            {
+                p.Dispose();
+            }
         }
     }
 
@@ -98,7 +120,7 @@ public sealed class TsfService : ITsfService
         var psi = new ProcessStartInfo("regsvr32.exe", $"{flags} \"{tsfDllPath}\"")
         {
             UseShellExecute = false,
-            CreateNoWindow  = true,
+            CreateNoWindow = true
         };
         try
         {

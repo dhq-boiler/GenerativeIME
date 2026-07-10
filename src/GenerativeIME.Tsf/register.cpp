@@ -4,10 +4,11 @@
 
 namespace
 {
-    constexpr wchar_t kClsidKeyFormat[]      = L"CLSID\\{%08lX-%04hX-%04hX-%02hhX%02hhX-%02hhX%02hhX%02hhX%02hhX%02hhX%02hhX}";
-    constexpr wchar_t kInprocServer32[]      = L"InprocServer32";
-    constexpr wchar_t kThreadingModel[]      = L"ThreadingModel";
-    constexpr wchar_t kThreadingApartment[]  = L"Apartment";
+    constexpr wchar_t kClsidKeyFormat[] =
+        L"CLSID\\{%08lX-%04hX-%04hX-%02hhX%02hhX-%02hhX%02hhX%02hhX%02hhX%02hhX%02hhX}";
+    constexpr wchar_t kInprocServer32[] = L"InprocServer32";
+    constexpr wchar_t kThreadingModel[] = L"ThreadingModel";
+    constexpr wchar_t kThreadingApartment[] = L"Apartment";
 
     HRESULT GuidToRegPath(REFGUID g, wchar_t* buf, size_t cch)
     {
@@ -20,9 +21,9 @@ namespace
 
     LSTATUS RegSetStringW(HKEY hKey, LPCWSTR name, LPCWSTR value)
     {
-        return ::RegSetValueExW(hKey, name, 0, REG_SZ,
-            reinterpret_cast<const BYTE*>(value),
-            static_cast<DWORD>((wcslen(value) + 1) * sizeof(wchar_t)));
+        return RegSetValueExW(hKey, name, 0, REG_SZ,
+                              reinterpret_cast<const BYTE*>(value),
+                              static_cast<DWORD>((wcslen(value) + 1) * sizeof(wchar_t)));
     }
 }
 
@@ -30,47 +31,47 @@ namespace
 
 HRESULT RegisterComServer()
 {
-    wchar_t modulePath[MAX_PATH] = { 0 };
-    if (::GetModuleFileNameW(g_hInst, modulePath, MAX_PATH) == 0)
-        return HRESULT_FROM_WIN32(::GetLastError());
+    wchar_t modulePath[MAX_PATH] = {0};
+    if (GetModuleFileNameW(g_hInst, modulePath, MAX_PATH) == 0)
+        return HRESULT_FROM_WIN32(GetLastError());
 
-    wchar_t keyPath[128] = { 0 };
+    wchar_t keyPath[128] = {0};
     if (FAILED(GuidToRegPath(c_clsidGenerativeImeTextService, keyPath, ARRAYSIZE(keyPath))))
         return E_FAIL;
 
     HKEY hKeyClsid = nullptr;
-    if (::RegCreateKeyExW(HKEY_CLASSES_ROOT, keyPath, 0, nullptr, 0,
-            KEY_WRITE | KEY_WOW64_64KEY, nullptr, &hKeyClsid, nullptr) != ERROR_SUCCESS)
+    if (RegCreateKeyExW(HKEY_CLASSES_ROOT, keyPath, 0, nullptr, 0,
+                        KEY_WRITE | KEY_WOW64_64KEY, nullptr, &hKeyClsid, nullptr) != ERROR_SUCCESS)
         return E_FAIL;
 
     RegSetStringW(hKeyClsid, nullptr, c_szTextServiceDesc);
 
     HKEY hKeyInproc = nullptr;
-    if (::RegCreateKeyExW(hKeyClsid, kInprocServer32, 0, nullptr, 0,
-            KEY_WRITE | KEY_WOW64_64KEY, nullptr, &hKeyInproc, nullptr) == ERROR_SUCCESS)
+    if (RegCreateKeyExW(hKeyClsid, kInprocServer32, 0, nullptr, 0,
+                        KEY_WRITE | KEY_WOW64_64KEY, nullptr, &hKeyInproc, nullptr) == ERROR_SUCCESS)
     {
         RegSetStringW(hKeyInproc, nullptr, modulePath);
         RegSetStringW(hKeyInproc, kThreadingModel, kThreadingApartment);
-        ::RegCloseKey(hKeyInproc);
+        RegCloseKey(hKeyInproc);
     }
 
-    ::RegCloseKey(hKeyClsid);
+    RegCloseKey(hKeyClsid);
     return S_OK;
 }
 
 HRESULT UnregisterComServer()
 {
-    wchar_t keyPath[128] = { 0 };
+    wchar_t keyPath[128] = {0};
     if (FAILED(GuidToRegPath(c_clsidGenerativeImeTextService, keyPath, ARRAYSIZE(keyPath))))
         return E_FAIL;
 
-    wchar_t inprocPath[200] = { 0 };
+    wchar_t inprocPath[200] = {0};
     StringCchCopyW(inprocPath, ARRAYSIZE(inprocPath), keyPath);
     StringCchCatW(inprocPath, ARRAYSIZE(inprocPath), L"\\");
     StringCchCatW(inprocPath, ARRAYSIZE(inprocPath), kInprocServer32);
 
-    ::RegDeleteKeyExW(HKEY_CLASSES_ROOT, inprocPath, KEY_WOW64_64KEY, 0);
-    ::RegDeleteKeyExW(HKEY_CLASSES_ROOT, keyPath,    KEY_WOW64_64KEY, 0);
+    RegDeleteKeyExW(HKEY_CLASSES_ROOT, inprocPath, KEY_WOW64_64KEY, 0);
+    RegDeleteKeyExW(HKEY_CLASSES_ROOT, keyPath, KEY_WOW64_64KEY, 0);
     return S_OK;
 }
 
@@ -79,16 +80,20 @@ HRESULT UnregisterComServer()
 HRESULT RegisterProfile()
 {
     ITfInputProcessorProfiles* pProfiles = nullptr;
-    HRESULT hr = ::CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr,
-        CLSCTX_INPROC_SERVER, IID_ITfInputProcessorProfiles,
-        reinterpret_cast<void**>(&pProfiles));
+    HRESULT hr = CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr,
+                                  CLSCTX_INPROC_SERVER, IID_ITfInputProcessorProfiles,
+                                  reinterpret_cast<void**>(&pProfiles));
     if (FAILED(hr)) return hr;
 
     hr = pProfiles->Register(c_clsidGenerativeImeTextService);
-    if (FAILED(hr)) { pProfiles->Release(); return hr; }
+    if (FAILED(hr))
+    {
+        pProfiles->Release();
+        return hr;
+    }
 
-    wchar_t modulePath[MAX_PATH] = { 0 };
-    ::GetModuleFileNameW(g_hInst, modulePath, MAX_PATH);
+    wchar_t modulePath[MAX_PATH] = {0};
+    GetModuleFileNameW(g_hInst, modulePath, MAX_PATH);
 
     hr = pProfiles->AddLanguageProfile(
         c_clsidGenerativeImeTextService,
@@ -121,9 +126,9 @@ HRESULT RegisterProfile()
 HRESULT UnregisterProfile()
 {
     ITfInputProcessorProfiles* pProfiles = nullptr;
-    HRESULT hr = ::CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr,
-        CLSCTX_INPROC_SERVER, IID_ITfInputProcessorProfiles,
-        reinterpret_cast<void**>(&pProfiles));
+    HRESULT hr = CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr,
+                                  CLSCTX_INPROC_SERVER, IID_ITfInputProcessorProfiles,
+                                  reinterpret_cast<void**>(&pProfiles));
     if (FAILED(hr)) return hr;
 
     hr = pProfiles->Unregister(c_clsidGenerativeImeTextService);
@@ -136,9 +141,9 @@ HRESULT UnregisterProfile()
 HRESULT RegisterCategories()
 {
     ITfCategoryMgr* pCategoryMgr = nullptr;
-    HRESULT hr = ::CoCreateInstance(CLSID_TF_CategoryMgr, nullptr,
-        CLSCTX_INPROC_SERVER, IID_ITfCategoryMgr,
-        reinterpret_cast<void**>(&pCategoryMgr));
+    HRESULT hr = CoCreateInstance(CLSID_TF_CategoryMgr, nullptr,
+                                  CLSCTX_INPROC_SERVER, IID_ITfCategoryMgr,
+                                  reinterpret_cast<void**>(&pCategoryMgr));
     if (FAILED(hr)) return hr;
 
     const GUID* kCategories[] = {
@@ -169,9 +174,9 @@ HRESULT RegisterCategories()
 HRESULT UnregisterCategories()
 {
     ITfCategoryMgr* pCategoryMgr = nullptr;
-    HRESULT hr = ::CoCreateInstance(CLSID_TF_CategoryMgr, nullptr,
-        CLSCTX_INPROC_SERVER, IID_ITfCategoryMgr,
-        reinterpret_cast<void**>(&pCategoryMgr));
+    HRESULT hr = CoCreateInstance(CLSID_TF_CategoryMgr, nullptr,
+                                  CLSCTX_INPROC_SERVER, IID_ITfCategoryMgr,
+                                  reinterpret_cast<void**>(&pCategoryMgr));
     if (FAILED(hr)) return hr;
 
     const GUID* kCategories[] = {

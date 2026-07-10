@@ -3,181 +3,183 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:GenerativeIME.Installer.ViewModels.Pages"
              xmlns:views="clr-namespace:GenerativeIME.Installer.Views.Pages">
-  <Application.Resources>
-    <ResourceDictionary>
+    <Application.Resources>
+        <ResourceDictionary>
 
-      <!-- ViewModel → View mapping. ContentControl in InstallerShell binds
+            <!-- ViewModel → View mapping. ContentControl in InstallerShell binds
            to CurrentPage (a PageViewModelBase); WPF picks the template
            whose DataType matches the concrete VM type. -->
-      <DataTemplate DataType="{x:Type vm:WelcomePageViewModel}">
-        <views:WelcomePage/>
-      </DataTemplate>
-      <DataTemplate DataType="{x:Type vm:ModeSelectPageViewModel}">
-        <views:ModeSelectPage/>
-      </DataTemplate>
-      <DataTemplate DataType="{x:Type vm:InstallProgressPageViewModel}">
-        <views:InstallProgressPage/>
-      </DataTemplate>
-      <DataTemplate DataType="{x:Type vm:DonePageViewModel}">
-        <views:DonePage/>
-      </DataTemplate>
-      <DataTemplate DataType="{x:Type vm:MaintenanceModePageViewModel}">
-        <views:MaintenanceModePage/>
-      </DataTemplate>
-      <DataTemplate DataType="{x:Type vm:UninstallConfirmationPageViewModel}">
-        <views:UninstallConfirmationPage/>
-      </DataTemplate>
-      <DataTemplate DataType="{x:Type vm:UninstallProgressPageViewModel}">
-        <views:UninstallProgressPage/>
-      </DataTemplate>
-      <DataTemplate DataType="{x:Type vm:UninstallDonePageViewModel}">
-        <views:UninstallDonePage/>
-      </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:WelcomePageViewModel}">
+                <views:WelcomePage />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:ModeSelectPageViewModel}">
+                <views:ModeSelectPage />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:InstallProgressPageViewModel}">
+                <views:InstallProgressPage />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:DonePageViewModel}">
+                <views:DonePage />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:MaintenanceModePageViewModel}">
+                <views:MaintenanceModePage />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:UninstallConfirmationPageViewModel}">
+                <views:UninstallConfirmationPage />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:UninstallProgressPageViewModel}">
+                <views:UninstallProgressPage />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:UninstallDonePageViewModel}">
+                <views:UninstallDonePage />
+            </DataTemplate>
 
 
-      <!-- Palette (matches DictManager). -->
-      <SolidColorBrush x:Key="AppBg"       Color="#F4F5F8"/>
-      <SolidColorBrush x:Key="Surface"     Color="#FFFFFF"/>
-      <SolidColorBrush x:Key="SurfaceAlt"  Color="#FAFBFC"/>
-      <SolidColorBrush x:Key="Border"      Color="#E4E7ED"/>
-      <SolidColorBrush x:Key="Text"        Color="#1E2430"/>
-      <SolidColorBrush x:Key="Muted"       Color="#8A93A5"/>
-      <SolidColorBrush x:Key="Accent"      Color="#4F46E5"/>
-      <SolidColorBrush x:Key="AccentHover" Color="#4338CA"/>
-      <SolidColorBrush x:Key="AccentSoft"  Color="#ECEBFB"/>
-      <SolidColorBrush x:Key="Danger"      Color="#E5484D"/>
-      <SolidColorBrush x:Key="Success"     Color="#0F9B6C"/>
-      <SolidColorBrush x:Key="RowHover"    Color="#F2F1FC"/>
-      <SolidColorBrush x:Key="RowSelected" Color="#ECEBFB"/>
+            <!-- Palette (matches DictManager). -->
+            <SolidColorBrush x:Key="AppBg" Color="#F4F5F8" />
+            <SolidColorBrush x:Key="Surface" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="SurfaceAlt" Color="#FAFBFC" />
+            <SolidColorBrush x:Key="Border" Color="#E4E7ED" />
+            <SolidColorBrush x:Key="Text" Color="#1E2430" />
+            <SolidColorBrush x:Key="Muted" Color="#8A93A5" />
+            <SolidColorBrush x:Key="Accent" Color="#4F46E5" />
+            <SolidColorBrush x:Key="AccentHover" Color="#4338CA" />
+            <SolidColorBrush x:Key="AccentSoft" Color="#ECEBFB" />
+            <SolidColorBrush x:Key="Danger" Color="#E5484D" />
+            <SolidColorBrush x:Key="Success" Color="#0F9B6C" />
+            <SolidColorBrush x:Key="RowHover" Color="#F2F1FC" />
+            <SolidColorBrush x:Key="RowSelected" Color="#ECEBFB" />
 
-      <FontFamily x:Key="UiFont">Segoe UI, Yu Gothic UI, Meiryo UI</FontFamily>
+            <FontFamily x:Key="UiFont">Segoe UI, Yu Gothic UI, Meiryo UI</FontFamily>
 
-      <Style TargetType="TextBlock">
-        <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>
-        <Setter Property="Foreground" Value="{StaticResource Text}"/>
-        <Setter Property="FontSize" Value="13"/>
-      </Style>
+            <Style TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+                <Setter Property="Foreground" Value="{StaticResource Text}" />
+                <Setter Property="FontSize" Value="13" />
+            </Style>
 
-      <Style x:Key="TitleText" TargetType="TextBlock">
-        <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>
-        <Setter Property="Foreground" Value="{StaticResource Text}"/>
-        <Setter Property="FontSize" Value="22"/>
-        <Setter Property="FontWeight" Value="Bold"/>
-      </Style>
+            <Style x:Key="TitleText" TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+                <Setter Property="Foreground" Value="{StaticResource Text}" />
+                <Setter Property="FontSize" Value="22" />
+                <Setter Property="FontWeight" Value="Bold" />
+            </Style>
 
-      <Style x:Key="SubtitleText" TargetType="TextBlock">
-        <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>
-        <Setter Property="Foreground" Value="{StaticResource Muted}"/>
-        <Setter Property="FontSize" Value="13"/>
-        <Setter Property="TextWrapping" Value="Wrap"/>
-      </Style>
+            <Style x:Key="SubtitleText" TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+                <Setter Property="Foreground" Value="{StaticResource Muted}" />
+                <Setter Property="FontSize" Value="13" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+            </Style>
 
-      <Style x:Key="AccentButton" TargetType="Button">
-        <Setter Property="Foreground" Value="White"/>
-        <Setter Property="Background" Value="{StaticResource Accent}"/>
-        <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>
-        <Setter Property="FontSize" Value="13"/>
-        <Setter Property="FontWeight" Value="SemiBold"/>
-        <Setter Property="Padding" Value="18,8"/>
-        <Setter Property="Cursor" Value="Hand"/>
-        <Setter Property="MinWidth" Value="110"/>
-        <Setter Property="Template">
-          <Setter.Value>
-            <ControlTemplate TargetType="Button">
-              <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="8"
-                      Padding="{TemplateBinding Padding}">
-                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center">
-                  <ContentPresenter.Resources>
-                    <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
-                      <Setter Property="Foreground" Value="White"/>
-                    </Style>
-                  </ContentPresenter.Resources>
-                </ContentPresenter>
-              </Border>
-              <ControlTemplate.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                  <Setter TargetName="bd" Property="Background" Value="{StaticResource AccentHover}"/>
-                </Trigger>
-                <Trigger Property="IsEnabled" Value="False">
-                  <Setter TargetName="bd" Property="Opacity" Value="0.45"/>
-                </Trigger>
-              </ControlTemplate.Triggers>
-            </ControlTemplate>
-          </Setter.Value>
-        </Setter>
-      </Style>
+            <Style x:Key="AccentButton" TargetType="Button">
+                <Setter Property="Foreground" Value="White" />
+                <Setter Property="Background" Value="{StaticResource Accent}" />
+                <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+                <Setter Property="FontSize" Value="13" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Padding" Value="18,8" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="MinWidth" Value="110" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="8"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <ContentPresenter.Resources>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                            <Setter Property="Foreground" Value="White" />
+                                        </Style>
+                                    </ContentPresenter.Resources>
+                                </ContentPresenter>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource AccentHover}" />
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="bd" Property="Opacity" Value="0.45" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
 
-      <Style x:Key="GhostButton" TargetType="Button">
-        <Setter Property="Foreground" Value="{StaticResource Text}"/>
-        <Setter Property="Background" Value="{StaticResource SurfaceAlt}"/>
-        <Setter Property="FontFamily" Value="{StaticResource UiFont}"/>
-        <Setter Property="FontSize" Value="13"/>
-        <Setter Property="Padding" Value="16,8"/>
-        <Setter Property="Cursor" Value="Hand"/>
-        <Setter Property="MinWidth" Value="110"/>
-        <Setter Property="Template">
-          <Setter.Value>
-            <ControlTemplate TargetType="Button">
-              <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="8"
-                      BorderBrush="{StaticResource Border}" BorderThickness="1"
-                      Padding="{TemplateBinding Padding}">
-                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-              </Border>
-              <ControlTemplate.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                  <Setter TargetName="bd" Property="Background" Value="{StaticResource SurfaceAlt}"/>
-                  <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Accent}"/>
-                </Trigger>
-                <Trigger Property="IsEnabled" Value="False">
-                  <Setter TargetName="bd" Property="Opacity" Value="0.45"/>
-                </Trigger>
-              </ControlTemplate.Triggers>
-            </ControlTemplate>
-          </Setter.Value>
-        </Setter>
-      </Style>
+            <Style x:Key="GhostButton" TargetType="Button">
+                <Setter Property="Foreground" Value="{StaticResource Text}" />
+                <Setter Property="Background" Value="{StaticResource SurfaceAlt}" />
+                <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+                <Setter Property="FontSize" Value="13" />
+                <Setter Property="Padding" Value="16,8" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="MinWidth" Value="110" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="8"
+                                    BorderBrush="{StaticResource Border}" BorderThickness="1"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource SurfaceAlt}" />
+                                    <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Accent}" />
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="bd" Property="Opacity" Value="0.45" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
 
-      <!-- Page radio-tile: a large clickable card with title, description,
+            <!-- Page radio-tile: a large clickable card with title, description,
            and a colored radio indicator on the left. Used by ModeSelectPage. -->
-      <Style x:Key="ChoiceTile" TargetType="RadioButton">
-        <Setter Property="Cursor" Value="Hand"/>
-        <Setter Property="Margin" Value="0,0,0,10"/>
-        <Setter Property="Padding" Value="16"/>
-        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-        <Setter Property="Template">
-          <Setter.Value>
-            <ControlTemplate TargetType="RadioButton">
-              <Border x:Name="bd" Background="{StaticResource Surface}" CornerRadius="10"
-                      BorderBrush="{StaticResource Border}" BorderThickness="1"
-                      Padding="{TemplateBinding Padding}">
-                <Grid>
-                  <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="14"/>
-                    <ColumnDefinition Width="*"/>
-                  </Grid.ColumnDefinitions>
-                  <Grid Grid.Column="0" VerticalAlignment="Top" Margin="0,4,0,0">
-                    <Ellipse Width="18" Height="18" Stroke="{StaticResource Border}" StrokeThickness="1.5"/>
-                    <Ellipse x:Name="dot" Width="10" Height="10" Fill="{StaticResource Accent}" Visibility="Collapsed"/>
-                  </Grid>
-                  <ContentPresenter Grid.Column="2"/>
-                </Grid>
-              </Border>
-              <ControlTemplate.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                  <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Accent}"/>
-                </Trigger>
-                <Trigger Property="IsChecked" Value="True">
-                  <Setter TargetName="bd" Property="Background" Value="{StaticResource AccentSoft}"/>
-                  <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Accent}"/>
-                  <Setter TargetName="dot" Property="Visibility" Value="Visible"/>
-                </Trigger>
-              </ControlTemplate.Triggers>
-            </ControlTemplate>
-          </Setter.Value>
-        </Setter>
-      </Style>
+            <Style x:Key="ChoiceTile" TargetType="RadioButton">
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="Margin" Value="0,0,0,10" />
+                <Setter Property="Padding" Value="16" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="RadioButton">
+                            <Border x:Name="bd" Background="{StaticResource Surface}" CornerRadius="10"
+                                    BorderBrush="{StaticResource Border}" BorderThickness="1"
+                                    Padding="{TemplateBinding Padding}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="14" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid Grid.Column="0" VerticalAlignment="Top" Margin="0,4,0,0">
+                                        <Ellipse Width="18" Height="18" Stroke="{StaticResource Border}"
+                                                 StrokeThickness="1.5" />
+                                        <Ellipse x:Name="dot" Width="10" Height="10" Fill="{StaticResource Accent}"
+                                                 Visibility="Collapsed" />
+                                    </Grid>
+                                    <ContentPresenter Grid.Column="2" />
+                                </Grid>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Accent}" />
+                                </Trigger>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource AccentSoft}" />
+                                    <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Accent}" />
+                                    <Setter TargetName="dot" Property="Visibility" Value="Visible" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
 
-    </ResourceDictionary>
-  </Application.Resources>
+        </ResourceDictionary>
+    </Application.Resources>
 </Application>

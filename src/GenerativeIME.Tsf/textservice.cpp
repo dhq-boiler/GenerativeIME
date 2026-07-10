@@ -20,18 +20,18 @@
 #include <unordered_map>
 #include <ShlObj.h>   // SHGetKnownFolderPath / FOLDERID_RoamingAppData for the misconversion log
 
-constexpr UINT WM_OLLAMA_DONE         = WM_USER + 1;
-constexpr UINT WM_LANGBAR_MENU        = WM_USER + 2;
-constexpr UINT WM_SET_IME_MODE        = WM_USER + 3; // wParam = 1 to turn ON, 0 to turn OFF
-constexpr UINT WM_OLLAMA_REORDER_DONE  = WM_USER + 4;
+constexpr UINT WM_OLLAMA_DONE = WM_USER + 1;
+constexpr UINT WM_LANGBAR_MENU = WM_USER + 2;
+constexpr UINT WM_SET_IME_MODE = WM_USER + 3; // wParam = 1 to turn ON, 0 to turn OFF
+constexpr UINT WM_OLLAMA_REORDER_DONE = WM_USER + 4;
 constexpr UINT WM_OLLAMA_FALLBACK_DONE = WM_USER + 5;
-constexpr UINT WM_ACRONYM_DONE         = WM_USER + 6;
+constexpr UINT WM_ACRONYM_DONE = WM_USER + 6;
 constexpr wchar_t kMsgWndClass[] = L"GenerativeIME_MsgWnd_v1";
 
 // 前方宣言: 定義は IsAlphaKey 近く (~L3730)。使用は commit 系関数
 // (CommitConvertedIfAny 等) から先に呼ばれるため、ここで宣言だけしておく。
 static size_t BracketPairCaretBackShift(const std::wstring& text);
-static bool   IsCloseBracketChar(wchar_t c);
+static bool IsCloseBracketChar(wchar_t c);
 
 // Forward declaration — full body sits near LogMisconversionAttempt at
 // the bottom of this file. Prototype up here so early callers
@@ -43,13 +43,13 @@ static void AppendDebugLine(const wchar_t* line);
 // deletes it after HandleOllamaDone returns.
 struct PendingOllamaRequest
 {
-    CTextService*              service;
-    ITfContext*                context;       // AddRef'd on construction, Release'd on destruction
-    std::wstring               reading;
-    std::wstring               recentContext; // recently committed text — snapshot for the prompt
-    std::vector<std::wstring>  candidates;    // all parsed "text" values
-    HRESULT                    hr;
-    DWORD                      httpStatus;
+    CTextService* service;
+    ITfContext* context; // AddRef'd on construction, Release'd on destruction
+    std::wstring reading;
+    std::wstring recentContext; // recently committed text — snapshot for the prompt
+    std::vector<std::wstring> candidates; // all parsed "text" values
+    HRESULT hr;
+    DWORD httpStatus;
 
     PendingOllamaRequest(CTextService* s, ITfContext* c, std::wstring r, std::wstring ctx)
         : service(s), context(c), reading(std::move(r)), recentContext(std::move(ctx)),
@@ -57,6 +57,7 @@ struct PendingOllamaRequest
     {
         if (context) context->AddRef();
     }
+
     ~PendingOllamaRequest()
     {
         if (context) context->Release();
@@ -71,14 +72,14 @@ struct PendingOllamaRequest
 // "asynchronous edits to the candidate list" so they share invalidation.
 struct PendingOllamaFallbackRequest
 {
-    CTextService*              service;
-    ITfContext*                tfContext;
-    std::wstring               reading;
-    std::wstring               recentContext;
-    std::wstring               mecabTop;       // MeCab's answer, passed to the prompt as "what NOT to repeat"
-    std::vector<std::wstring>  candidates;     // filled by worker
-    unsigned                   seq;
-    HRESULT                    hr;
+    CTextService* service;
+    ITfContext* tfContext;
+    std::wstring reading;
+    std::wstring recentContext;
+    std::wstring mecabTop; // MeCab's answer, passed to the prompt as "what NOT to repeat"
+    std::vector<std::wstring> candidates; // filled by worker
+    unsigned seq;
+    HRESULT hr;
 
     PendingOllamaFallbackRequest(CTextService* s, ITfContext* c, std::wstring r,
                                  std::wstring ctx, std::wstring top, unsigned sequence)
@@ -87,6 +88,7 @@ struct PendingOllamaFallbackRequest
     {
         if (tfContext) tfContext->AddRef();
     }
+
     ~PendingOllamaFallbackRequest()
     {
         if (tfContext) tfContext->Release();
@@ -98,13 +100,13 @@ struct PendingOllamaFallbackRequest
 // the IME thread, which deletes after HandleOllamaReorderDone.
 struct PendingOllamaReorderRequest
 {
-    CTextService*              service;
-    ITfContext*                tfContext;     // AddRef'd; needed for composition repaint after reorder
-    std::wstring               reading;
-    std::wstring               recentContext;
-    std::vector<std::wstring>  original;      // candidates we showed the user immediately
-    std::vector<std::wstring>  reordered;     // filled by worker; empty if reorder failed
-    unsigned                   seq;           // discarded on arrival if service's seq has moved on
+    CTextService* service;
+    ITfContext* tfContext; // AddRef'd; needed for composition repaint after reorder
+    std::wstring reading;
+    std::wstring recentContext;
+    std::vector<std::wstring> original; // candidates we showed the user immediately
+    std::vector<std::wstring> reordered; // filled by worker; empty if reorder failed
+    unsigned seq; // discarded on arrival if service's seq has moved on
 
     PendingOllamaReorderRequest(CTextService* s, ITfContext* c, std::wstring r,
                                 std::wstring ctx, std::vector<std::wstring> orig,
@@ -114,6 +116,7 @@ struct PendingOllamaReorderRequest
     {
         if (tfContext) tfContext->AddRef();
     }
+
     ~PendingOllamaReorderRequest()
     {
         if (tfContext) tfContext->Release();
@@ -127,14 +130,14 @@ struct PendingOllamaReorderRequest
 // at fire time; `display` is m_lastReading for staleness matching.
 struct PendingAcronymRequest
 {
-    CTextService*              service;
-    ITfContext*                tfContext;
-    std::wstring               acronym;        // half-width uppercase key ("IMF")
-    std::wstring               display;        // composition text when fired (== m_lastReading)
-    std::vector<std::wstring>  base;           // candidates already shown, to append behind
-    std::vector<std::wstring>  candidates;     // filled by worker
-    unsigned                   seq;
-    HRESULT                    hr;
+    CTextService* service;
+    ITfContext* tfContext;
+    std::wstring acronym; // half-width uppercase key ("IMF")
+    std::wstring display; // composition text when fired (== m_lastReading)
+    std::vector<std::wstring> base; // candidates already shown, to append behind
+    std::vector<std::wstring> candidates; // filled by worker
+    unsigned seq;
+    HRESULT hr;
 
     PendingAcronymRequest(CTextService* s, ITfContext* c, std::wstring a,
                           std::wstring disp, std::vector<std::wstring> b, unsigned sequence)
@@ -143,6 +146,7 @@ struct PendingAcronymRequest
     {
         if (tfContext) tfContext->AddRef();
     }
+
     ~PendingAcronymRequest()
     {
         if (tfContext) tfContext->Release();
@@ -166,8 +170,8 @@ namespace
         out.reserve(hira.size());
         for (wchar_t c : hira)
         {
-            if (c >= 0x3041 && c <= 0x3096) out.push_back((wchar_t)(c + 0x60));
-            else                            out.push_back(c);
+            if (c >= 0x3041 && c <= 0x3096) out.push_back(static_cast<wchar_t>(c + 0x60));
+            else out.push_back(c);
         }
         return out;
     }
@@ -177,25 +181,25 @@ namespace
     std::wstring ToHalfKatakana(const std::wstring& kata)
     {
         static const std::unordered_map<wchar_t, std::wstring> map = {
-            {L'ア',L"ｱ"},{L'イ',L"ｲ"},{L'ウ',L"ｳ"},{L'エ',L"ｴ"},{L'オ',L"ｵ"},
-            {L'カ',L"ｶ"},{L'キ',L"ｷ"},{L'ク',L"ｸ"},{L'ケ',L"ｹ"},{L'コ',L"ｺ"},
-            {L'サ',L"ｻ"},{L'シ',L"ｼ"},{L'ス',L"ｽ"},{L'セ',L"ｾ"},{L'ソ',L"ｿ"},
-            {L'タ',L"ﾀ"},{L'チ',L"ﾁ"},{L'ツ',L"ﾂ"},{L'テ',L"ﾃ"},{L'ト',L"ﾄ"},
-            {L'ナ',L"ﾅ"},{L'ニ',L"ﾆ"},{L'ヌ',L"ﾇ"},{L'ネ',L"ﾈ"},{L'ノ',L"ﾉ"},
-            {L'ハ',L"ﾊ"},{L'ヒ',L"ﾋ"},{L'フ',L"ﾌ"},{L'ヘ',L"ﾍ"},{L'ホ',L"ﾎ"},
-            {L'マ',L"ﾏ"},{L'ミ',L"ﾐ"},{L'ム',L"ﾑ"},{L'メ',L"ﾒ"},{L'モ',L"ﾓ"},
-            {L'ヤ',L"ﾔ"},{L'ユ',L"ﾕ"},{L'ヨ',L"ﾖ"},
-            {L'ラ',L"ﾗ"},{L'リ',L"ﾘ"},{L'ル',L"ﾙ"},{L'レ',L"ﾚ"},{L'ロ',L"ﾛ"},
-            {L'ワ',L"ﾜ"},{L'ヲ',L"ｦ"},{L'ン',L"ﾝ"},
-            {L'ガ',L"ｶﾞ"},{L'ギ',L"ｷﾞ"},{L'グ',L"ｸﾞ"},{L'ゲ',L"ｹﾞ"},{L'ゴ',L"ｺﾞ"},
-            {L'ザ',L"ｻﾞ"},{L'ジ',L"ｼﾞ"},{L'ズ',L"ｽﾞ"},{L'ゼ',L"ｾﾞ"},{L'ゾ',L"ｿﾞ"},
-            {L'ダ',L"ﾀﾞ"},{L'ヂ',L"ﾁﾞ"},{L'ヅ',L"ﾂﾞ"},{L'デ',L"ﾃﾞ"},{L'ド',L"ﾄﾞ"},
-            {L'バ',L"ﾊﾞ"},{L'ビ',L"ﾋﾞ"},{L'ブ',L"ﾌﾞ"},{L'ベ',L"ﾍﾞ"},{L'ボ',L"ﾎﾞ"},
-            {L'パ',L"ﾊﾟ"},{L'ピ',L"ﾋﾟ"},{L'プ',L"ﾌﾟ"},{L'ペ',L"ﾍﾟ"},{L'ポ',L"ﾎﾟ"},
-            {L'ァ',L"ｧ"},{L'ィ',L"ｨ"},{L'ゥ',L"ｩ"},{L'ェ',L"ｪ"},{L'ォ',L"ｫ"},
-            {L'ャ',L"ｬ"},{L'ュ',L"ｭ"},{L'ョ',L"ｮ"},{L'ッ',L"ｯ"},
-            {L'ヴ',L"ｳﾞ"},
-            {L'ー',L"ｰ"},{L'、',L"､"},{L'。',L"｡"},{L'「',L"｢"},{L'」',L"｣"},{L'・',L"･"},
+            {L'ア', L"ｱ"}, {L'イ', L"ｲ"}, {L'ウ', L"ｳ"}, {L'エ', L"ｴ"}, {L'オ', L"ｵ"},
+            {L'カ', L"ｶ"}, {L'キ', L"ｷ"}, {L'ク', L"ｸ"}, {L'ケ', L"ｹ"}, {L'コ', L"ｺ"},
+            {L'サ', L"ｻ"}, {L'シ', L"ｼ"}, {L'ス', L"ｽ"}, {L'セ', L"ｾ"}, {L'ソ', L"ｿ"},
+            {L'タ', L"ﾀ"}, {L'チ', L"ﾁ"}, {L'ツ', L"ﾂ"}, {L'テ', L"ﾃ"}, {L'ト', L"ﾄ"},
+            {L'ナ', L"ﾅ"}, {L'ニ', L"ﾆ"}, {L'ヌ', L"ﾇ"}, {L'ネ', L"ﾈ"}, {L'ノ', L"ﾉ"},
+            {L'ハ', L"ﾊ"}, {L'ヒ', L"ﾋ"}, {L'フ', L"ﾌ"}, {L'ヘ', L"ﾍ"}, {L'ホ', L"ﾎ"},
+            {L'マ', L"ﾏ"}, {L'ミ', L"ﾐ"}, {L'ム', L"ﾑ"}, {L'メ', L"ﾒ"}, {L'モ', L"ﾓ"},
+            {L'ヤ', L"ﾔ"}, {L'ユ', L"ﾕ"}, {L'ヨ', L"ﾖ"},
+            {L'ラ', L"ﾗ"}, {L'リ', L"ﾘ"}, {L'ル', L"ﾙ"}, {L'レ', L"ﾚ"}, {L'ロ', L"ﾛ"},
+            {L'ワ', L"ﾜ"}, {L'ヲ', L"ｦ"}, {L'ン', L"ﾝ"},
+            {L'ガ', L"ｶﾞ"}, {L'ギ', L"ｷﾞ"}, {L'グ', L"ｸﾞ"}, {L'ゲ', L"ｹﾞ"}, {L'ゴ', L"ｺﾞ"},
+            {L'ザ', L"ｻﾞ"}, {L'ジ', L"ｼﾞ"}, {L'ズ', L"ｽﾞ"}, {L'ゼ', L"ｾﾞ"}, {L'ゾ', L"ｿﾞ"},
+            {L'ダ', L"ﾀﾞ"}, {L'ヂ', L"ﾁﾞ"}, {L'ヅ', L"ﾂﾞ"}, {L'デ', L"ﾃﾞ"}, {L'ド', L"ﾄﾞ"},
+            {L'バ', L"ﾊﾞ"}, {L'ビ', L"ﾋﾞ"}, {L'ブ', L"ﾌﾞ"}, {L'ベ', L"ﾍﾞ"}, {L'ボ', L"ﾎﾞ"},
+            {L'パ', L"ﾊﾟ"}, {L'ピ', L"ﾋﾟ"}, {L'プ', L"ﾌﾟ"}, {L'ペ', L"ﾍﾟ"}, {L'ポ', L"ﾎﾟ"},
+            {L'ァ', L"ｧ"}, {L'ィ', L"ｨ"}, {L'ゥ', L"ｩ"}, {L'ェ', L"ｪ"}, {L'ォ', L"ｫ"},
+            {L'ャ', L"ｬ"}, {L'ュ', L"ｭ"}, {L'ョ', L"ｮ"}, {L'ッ', L"ｯ"},
+            {L'ヴ', L"ｳﾞ"},
+            {L'ー', L"ｰ"}, {L'、', L"､"}, {L'。', L"｡"}, {L'「', L"｢"}, {L'」', L"｣"}, {L'・', L"･"},
         };
         std::wstring out;
         out.reserve(kata.size());
@@ -203,7 +207,7 @@ namespace
         {
             auto it = map.find(c);
             if (it != map.end()) out += it->second;
-            else                 out.push_back(c);
+            else out.push_back(c);
         }
         return out;
     }
@@ -215,9 +219,9 @@ namespace
         out.reserve(s.size());
         for (wchar_t c : s)
         {
-            if (c >= 0x21 && c <= 0x7E) out.push_back((wchar_t)(c + 0xFEE0));
-            else if (c == L' ')         out.push_back(L'　');
-            else                        out.push_back(c);
+            if (c >= 0x21 && c <= 0x7E) out.push_back(static_cast<wchar_t>(c + 0xFEE0));
+            else if (c == L' ') out.push_back(L'　');
+            else out.push_back(c);
         }
         return out;
     }
@@ -232,8 +236,8 @@ namespace
         out.reserve(s.size());
         for (wchar_t c : s)
         {
-            if (c >= L'0' && c <= L'9') out.push_back((wchar_t)(c + 0xFEE0));
-            else                        out.push_back(c);
+            if (c >= L'0' && c <= L'9') out.push_back(static_cast<wchar_t>(c + 0xFEE0));
+            else out.push_back(c);
         }
         return out;
     }
@@ -246,26 +250,27 @@ namespace
     // it isn't a clean "head (tail)" with a trailing close paren.
     std::vector<std::wstring> SplitAcronymPiece(const std::wstring& s)
     {
-        if (s.size() < 3) return { s };
+        if (s.size() < 3) return {s};
         wchar_t open = 0;
-        if      (s.back() == L')')  open = L'(';
+        if (s.back() == L')') open = L'(';
         else if (s.back() == L'）') open = L'（';
-        else return { s };
+        else return {s};
 
         size_t pos = s.rfind(open);
-        if (pos == std::wstring::npos || pos == 0) return { s };
+        if (pos == std::wstring::npos || pos == 0) return {s};
 
-        auto trim = [](std::wstring x) {
+        auto trim = [](std::wstring x)
+        {
             auto isws = [](wchar_t c) { return c == L' ' || c == L'\t' || c == 0x3000; };
             size_t b = 0, e = x.size();
-            while (b < e && isws(x[b]))     ++b;
+            while (b < e && isws(x[b])) ++b;
             while (e > b && isws(x[e - 1])) --e;
             return x.substr(b, e - b);
         };
-        std::wstring head  = trim(s.substr(0, pos));
+        std::wstring head = trim(s.substr(0, pos));
         std::wstring inner = trim(s.substr(pos + 1, s.size() - pos - 2));
-        if (head.empty() || inner.empty()) return { s };
-        return { head, inner };
+        if (head.empty() || inner.empty()) return {s};
+        return {head, inner};
     }
 }
 
@@ -279,16 +284,16 @@ namespace
         switch (mode)
         {
         case ImeMode::FullKatakana:
-        {
-            auto r = romaji::Convert(romaji);
-            // Widen digits so a full-width-katakana-mode digit shows 全角.
-            return WidenAsciiDigits(ToFullKatakana(r.hira) + ToFullKatakana(r.remaining));
-        }
+            {
+                auto r = romaji::Convert(romaji);
+                // Widen digits so a full-width-katakana-mode digit shows 全角.
+                return WidenAsciiDigits(ToFullKatakana(r.hira) + ToFullKatakana(r.remaining));
+            }
         case ImeMode::HalfKatakana:
-        {
-            auto r = romaji::Convert(romaji);
-            return ToHalfKatakana(ToFullKatakana(r.hira)) + r.remaining;
-        }
+            {
+                auto r = romaji::Convert(romaji);
+                return ToHalfKatakana(ToFullKatakana(r.hira)) + r.remaining;
+            }
         case ImeMode::FullAlnum:
             return ToFullWidthAscii(romaji);
         case ImeMode::Hiragana:
@@ -320,13 +325,20 @@ namespace
                 wchar_t e = body[pos++];
                 switch (e)
                 {
-                case L'"':  out += L'"';  break;
-                case L'\\': out += L'\\'; break;
-                case L'/':  out += L'/';  break;
-                case L'n':  out += L'\n'; break;
-                case L't':  out += L'\t'; break;
-                case L'r':  out += L'\r'; break;
-                default:    out += e;     break;
+                case L'"': out += L'"';
+                    break;
+                case L'\\': out += L'\\';
+                    break;
+                case L'/': out += L'/';
+                    break;
+                case L'n': out += L'\n';
+                    break;
+                case L't': out += L'\t';
+                    break;
+                case L'r': out += L'\r';
+                    break;
+                default: out += e;
+                    break;
                 }
             }
             else
@@ -357,12 +369,19 @@ namespace
             while (pos < close && !iswdigit(jsonBody[pos]) && jsonBody[pos] != L'-') pos++;
             if (pos >= close) break;
             std::wstring num;
-            if (jsonBody[pos] == L'-') { num += L'-'; pos++; }
+            if (jsonBody[pos] == L'-')
+            {
+                num += L'-';
+                pos++;
+            }
             while (pos < close && iswdigit(jsonBody[pos])) { num += jsonBody[pos++]; }
             if (!num.empty())
             {
                 try { result.push_back(std::stoi(num)); }
-                catch (...) { /* skip malformed entries */ }
+                catch (...)
+                {
+                    /* skip malformed entries */
+                }
             }
         }
         return result;
@@ -394,27 +413,31 @@ namespace
 
 CTextService::CTextService()
     : m_cRef(1)
-    , m_pThreadMgr(nullptr)
-    , m_tfClientId(TF_CLIENTID_NULL)
-    , m_pComposition(nullptr)
-    , m_pLangBarItem(nullptr)
-    , m_isImeOn(TRUE)
-    , m_compositionConverted(FALSE)
-    , m_pCompOpenClose(nullptr)
-    , m_pCompConvMode(nullptr)
-    , m_dwCookieOpenClose(TF_INVALID_COOKIE)
-    , m_dwCookieConvMode(TF_INVALID_COOKIE)
-    , m_hwndMsg(nullptr)
-    , m_pCandWnd(nullptr)
-    , m_pLearning(nullptr)
-    , m_imeMode(ImeMode::Hiragana)
+      , m_pThreadMgr(nullptr)
+      , m_tfClientId(TF_CLIENTID_NULL)
+      , m_pComposition(nullptr)
+      , m_pLangBarItem(nullptr)
+      , m_isImeOn(TRUE)
+      , m_compositionConverted(FALSE)
+      , m_pCompOpenClose(nullptr)
+      , m_pCompConvMode(nullptr)
+      , m_dwCookieOpenClose(TF_INVALID_COOKIE)
+      , m_dwCookieConvMode(TF_INVALID_COOKIE)
+      , m_hwndMsg(nullptr)
+      , m_pCandWnd(nullptr)
+      , m_pLearning(nullptr)
+      , m_imeMode(ImeMode::Hiragana)
 {
     InterlockedIncrement(&g_cRefDll);
 }
 
 CTextService::~CTextService()
 {
-    if (m_pComposition) { m_pComposition->Release(); m_pComposition = nullptr; }
+    if (m_pComposition)
+    {
+        m_pComposition->Release();
+        m_pComposition = nullptr;
+    }
     InterlockedDecrement(&g_cRefDll);
 }
 
@@ -474,7 +497,7 @@ STDMETHODIMP CTextService::Activate(ITfThreadMgr* pThreadMgr, TfClientId tfClien
     if (FAILED(hr))
     {
         wchar_t buf[96];
-        swprintf_s(buf, L"[GenerativeIME] InitKeyEventSink failed hr=0x%08X\n", (unsigned)hr);
+        swprintf_s(buf, L"[GenerativeIME] InitKeyEventSink failed hr=0x%08X\n", static_cast<unsigned>(hr));
         OutputDebugStringW(buf);
         Deactivate();
         return hr;
@@ -482,46 +505,46 @@ STDMETHODIMP CTextService::Activate(ITfThreadMgr* pThreadMgr, TfClientId tfClien
 
     HRESULT hrPk = InitPreservedKeys();
     wchar_t pkbuf[96];
-    swprintf_s(pkbuf, L"[GenerativeIME] InitPreservedKeys hr=0x%08X\n", (unsigned)hrPk);
+    swprintf_s(pkbuf, L"[GenerativeIME] InitPreservedKeys hr=0x%08X\n", static_cast<unsigned>(hrPk));
     OutputDebugStringW(pkbuf);
 
     HRESULT hrComp = SetIMEStateCompartments(TRUE);
     wchar_t cbuf[96];
-    swprintf_s(cbuf, L"[GenerativeIME] SetIMEStateCompartments(TRUE) hr=0x%08X\n", (unsigned)hrComp);
+    swprintf_s(cbuf, L"[GenerativeIME] SetIMEStateCompartments(TRUE) hr=0x%08X\n", static_cast<unsigned>(hrComp));
     OutputDebugStringW(cbuf);
 
     HRESULT hrAtom = InitDisplayAttributeGuidAtom();
     wchar_t abuf[128];
     swprintf_s(abuf, L"[GenerativeIME] InitDisplayAttributeGuidAtom hr=0x%08X atom=0x%08X\n",
-               (unsigned)hrAtom, (unsigned)g_gaDisplayAttributeInput);
+               static_cast<unsigned>(hrAtom), static_cast<unsigned>(g_gaDisplayAttributeInput));
     OutputDebugStringW(abuf);
 
     HRESULT hrLb = InitLangBarItem();
     wchar_t lbuf[96];
-    swprintf_s(lbuf, L"[GenerativeIME] InitLangBarItem hr=0x%08X\n", (unsigned)hrLb);
+    swprintf_s(lbuf, L"[GenerativeIME] InitLangBarItem hr=0x%08X\n", static_cast<unsigned>(hrLb));
     OutputDebugStringW(lbuf);
 
     HRESULT hrSink = InitCompartmentSinks();
     wchar_t sbuf[96];
-    swprintf_s(sbuf, L"[GenerativeIME] InitCompartmentSinks hr=0x%08X\n", (unsigned)hrSink);
+    swprintf_s(sbuf, L"[GenerativeIME] InitCompartmentSinks hr=0x%08X\n", static_cast<unsigned>(hrSink));
     OutputDebugStringW(sbuf);
     SyncImeStateFromCompartments();
 
     HRESULT hrMsg = InitMessageWindow();
     wchar_t mbuf[96];
-    swprintf_s(mbuf, L"[GenerativeIME] InitMessageWindow hr=0x%08X\n", (unsigned)hrMsg);
+    swprintf_s(mbuf, L"[GenerativeIME] InitMessageWindow hr=0x%08X\n", static_cast<unsigned>(hrMsg));
     OutputDebugStringW(mbuf);
 
     if (!m_pCandWnd) m_pCandWnd = new CCandidateWindow();
     HRESULT hrCw = m_pCandWnd->Create();
     wchar_t cwbuf[96];
-    swprintf_s(cwbuf, L"[GenerativeIME] CandidateWindow.Create hr=0x%08X\n", (unsigned)hrCw);
+    swprintf_s(cwbuf, L"[GenerativeIME] CandidateWindow.Create hr=0x%08X\n", static_cast<unsigned>(hrCw));
     OutputDebugStringW(cwbuf);
 
     if (!m_pLearning) m_pLearning = new LearningStore();
     HRESULT hrLs = m_pLearning->Load();
     wchar_t lsbuf[96];
-    swprintf_s(lsbuf, L"[GenerativeIME] LearningStore.Load hr=0x%08X\n", (unsigned)hrLs);
+    swprintf_s(lsbuf, L"[GenerativeIME] LearningStore.Load hr=0x%08X\n", static_cast<unsigned>(hrLs));
     OutputDebugStringW(lsbuf);
 
     // Warm the dictionaries in the background. Doing this inline blocks
@@ -548,7 +571,7 @@ STDMETHODIMP CTextService::Activate(ITfThreadMgr* pThreadMgr, TfClientId tfClien
     {
         wchar_t buf[128];
         swprintf_s(buf, L"[GenerativeIME] Activated this=%p msgWnd=%p clientId=%u\n",
-                   this, m_hwndMsg, (unsigned)m_tfClientId);
+                   this, m_hwndMsg, static_cast<unsigned>(m_tfClientId));
         OutputDebugStringW(buf);
     }
     return S_OK;
@@ -562,8 +585,17 @@ STDMETHODIMP CTextService::Deactivate()
                    this, m_hwndMsg);
         OutputDebugStringW(buf);
     }
-    if (m_pCandWnd) { m_pCandWnd->Destroy(); delete m_pCandWnd; m_pCandWnd = nullptr; }
-    if (m_pLearning) { delete m_pLearning; m_pLearning = nullptr; }
+    if (m_pCandWnd)
+    {
+        m_pCandWnd->Destroy();
+        delete m_pCandWnd;
+        m_pCandWnd = nullptr;
+    }
+    if (m_pLearning)
+    {
+        delete m_pLearning;
+        m_pLearning = nullptr;
+    }
     UninitMessageWindow();
     UninitCompartmentSinks();
     UninitLangBarItem();
@@ -598,7 +630,7 @@ HRESULT CTextService::InitKeyEventSink()
     HRESULT hr = m_pThreadMgr->QueryInterface(IID_ITfKeystrokeMgr, (void**)&pKeystrokeMgr);
     if (FAILED(hr)) return hr;
 
-    hr = pKeystrokeMgr->AdviseKeyEventSink(m_tfClientId, static_cast<ITfKeyEventSink*>(this), TRUE);
+    hr = pKeystrokeMgr->AdviseKeyEventSink(m_tfClientId, this, TRUE);
     pKeystrokeMgr->Release();
     return hr;
 }
@@ -635,12 +667,13 @@ HRESULT CTextService::InitPreservedKeys()
     // keyboards. Without IGNORE_ALL_MODIFIER the preserved-key entry
     // never matches on those boxes and 半角/全角 silently no-ops.
     constexpr UINT kIgnoreAllMods = 0x80000000;
-    auto preserve = [&](REFGUID guid, UINT vk, UINT mod, const wchar_t* desc) {
-        TF_PRESERVEDKEY pk = { vk, mod };
-        pMgr->PreserveKey(m_tfClientId, guid, &pk, desc, (ULONG)wcslen(desc));
+    auto preserve = [&](REFGUID guid, UINT vk, UINT mod, const wchar_t* desc)
+    {
+        TF_PRESERVEDKEY pk = {vk, mod};
+        pMgr->PreserveKey(m_tfClientId, guid, &pk, desc, static_cast<ULONG>(wcslen(desc)));
     };
-    preserve(c_guidKeyKanji,  VK_KANJI,    kIgnoreAllMods, L"GenerativeIME Toggle");
-    preserve(c_guidKeyImeOn,  VK_OEM_AUTO, kIgnoreAllMods, L"GenerativeIME ON");
+    preserve(c_guidKeyKanji, VK_KANJI, kIgnoreAllMods, L"GenerativeIME Toggle");
+    preserve(c_guidKeyImeOn, VK_OEM_AUTO, kIgnoreAllMods, L"GenerativeIME ON");
     preserve(c_guidKeyImeOff, VK_OEM_ENLW, kIgnoreAllMods, L"GenerativeIME OFF");
     // Ctrl+Shift+F5 → misconversion logger. We used to register this as
     // a preserved key too, but observationally OnPreservedKey never fired
@@ -674,13 +707,19 @@ void CTextService::UninitPreservedKeys()
     if (FAILED(m_pThreadMgr->QueryInterface(IID_ITfKeystrokeMgr, (void**)&pMgr)) || !pMgr) return;
 
     TF_PRESERVEDKEY pk;
-    pk = { VK_KANJI,    0 }; pMgr->UnpreserveKey(c_guidKeyKanji,  &pk);
-    pk = { VK_OEM_AUTO, 0 }; pMgr->UnpreserveKey(c_guidKeyImeOn,  &pk);
-    pk = { VK_OEM_ENLW, 0 }; pMgr->UnpreserveKey(c_guidKeyImeOff, &pk);
+    pk = {VK_KANJI, 0};
+    pMgr->UnpreserveKey(c_guidKeyKanji, &pk);
+    pk = {VK_OEM_AUTO, 0};
+    pMgr->UnpreserveKey(c_guidKeyImeOn, &pk);
+    pk = {VK_OEM_ENLW, 0};
+    pMgr->UnpreserveKey(c_guidKeyImeOff, &pk);
     // Best-effort UnpreserveKey in case an older DLL had it registered.
-    pk = { VK_F5, TF_MOD_CONTROL | TF_MOD_SHIFT }; pMgr->UnpreserveKey(c_guidKeyDebugLog, &pk);
-    pk = { VK_F5, TF_MOD_CONTROL | TF_MOD_ALT   }; pMgr->UnpreserveKey(c_guidKeyDebugLog, &pk);
-    pk = { VK_F5, TF_MOD_CONTROL                }; pMgr->UnpreserveKey(c_guidKeyDebugLog, &pk);
+    pk = {VK_F5, TF_MOD_CONTROL | TF_MOD_SHIFT};
+    pMgr->UnpreserveKey(c_guidKeyDebugLog, &pk);
+    pk = {VK_F5, TF_MOD_CONTROL | TF_MOD_ALT};
+    pMgr->UnpreserveKey(c_guidKeyDebugLog, &pk);
+    pk = {VK_F5, TF_MOD_CONTROL};
+    pMgr->UnpreserveKey(c_guidKeyDebugLog, &pk);
 
     pMgr->Release();
 }
@@ -735,7 +774,7 @@ HRESULT CTextService::SetIMEStateCompartments(BOOL enable)
 
     wchar_t buf[160];
     swprintf_s(buf, L"[GenerativeIME]   global OPENCLOSE hr=0x%08X, INPUTMODE_CONVERSION hr=0x%08X\n",
-               (unsigned)hrOpenClose, (unsigned)hrConvMode);
+               static_cast<unsigned>(hrOpenClose), static_cast<unsigned>(hrConvMode));
     OutputDebugStringW(buf);
     return SUCCEEDED(hrOpenClose) ? S_OK : hrOpenClose;
 }
@@ -746,8 +785,8 @@ HRESULT CTextService::SetIMEStateCompartments(BOOL enable)
 HRESULT CTextService::InitDisplayAttributeGuidAtom()
 {
     ITfCategoryMgr* pCategoryMgr = nullptr;
-    HRESULT hr = ::CoCreateInstance(CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER,
-        IID_ITfCategoryMgr, reinterpret_cast<void**>(&pCategoryMgr));
+    HRESULT hr = CoCreateInstance(CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER,
+                                  IID_ITfCategoryMgr, reinterpret_cast<void**>(&pCategoryMgr));
     if (FAILED(hr) || !pCategoryMgr) return hr;
 
     hr = pCategoryMgr->RegisterGUID(c_guidDisplayAttributeInput, &g_gaDisplayAttributeInput);
@@ -760,7 +799,7 @@ HRESULT CTextService::InitDisplayAttributeGuidAtom()
         wchar_t buf[160];
         swprintf_s(buf,
                    L"[GenerativeIME] RegisterGUID(BunsetsuFocus) hr=0x%08X atom=0x%08X\n",
-                   (unsigned)hr2, (unsigned)g_gaDisplayAttributeBunsetsuFocus);
+                   static_cast<unsigned>(hr2), static_cast<unsigned>(g_gaDisplayAttributeBunsetsuFocus));
         OutputDebugStringW(buf);
     }
     pCategoryMgr->Release();
@@ -774,24 +813,32 @@ HRESULT CTextService::InitDisplayAttributeGuidAtom()
 HRESULT CTextService::InitLangBarItem()
 {
     if (!m_pThreadMgr) return E_UNEXPECTED;
-    if (m_pLangBarItem) { OutputDebugStringW(L"[GenerativeIME] LangBar: already initialized, skip\n"); return S_OK; }
+    if (m_pLangBarItem)
+    {
+        OutputDebugStringW(L"[GenerativeIME] LangBar: already initialized, skip\n");
+        return S_OK;
+    }
 
     ITfLangBarItemMgr* pMgr = nullptr;
     HRESULT hr = m_pThreadMgr->QueryInterface(IID_ITfLangBarItemMgr, (void**)&pMgr);
     if (FAILED(hr) || !pMgr)
     {
         wchar_t b[120];
-        swprintf_s(b, L"[GenerativeIME] LangBar: QI(ITfLangBarItemMgr) failed hr=0x%08X\n", (unsigned)hr);
+        swprintf_s(b, L"[GenerativeIME] LangBar: QI(ITfLangBarItemMgr) failed hr=0x%08X\n", static_cast<unsigned>(hr));
         OutputDebugStringW(b);
         return hr;
     }
 
     m_pLangBarItem = new CLangBarItemButton(this);
-    if (!m_pLangBarItem) { pMgr->Release(); return E_OUTOFMEMORY; }
+    if (!m_pLangBarItem)
+    {
+        pMgr->Release();
+        return E_OUTOFMEMORY;
+    }
 
     hr = pMgr->AddItem(m_pLangBarItem);
     wchar_t b[120];
-    swprintf_s(b, L"[GenerativeIME] LangBar: AddItem hr=0x%08X (item=%p)\n", (unsigned)hr, (void*)m_pLangBarItem);
+    swprintf_s(b, L"[GenerativeIME] LangBar: AddItem hr=0x%08X (item=%p)\n", static_cast<unsigned>(hr), m_pLangBarItem);
     OutputDebugStringW(b);
     if (FAILED(hr))
     {
@@ -845,13 +892,21 @@ HRESULT CTextService::InitCompartmentSinks()
 
         ITfSource* pSource = nullptr;
         h = pComp->QueryInterface(IID_ITfSource, (void**)&pSource);
-        if (FAILED(h) || !pSource) { pComp->Release(); return h; }
+        if (FAILED(h) || !pSource)
+        {
+            pComp->Release();
+            return h;
+        }
 
         h = pSource->AdviseSink(IID_ITfCompartmentEventSink,
                                 static_cast<ITfCompartmentEventSink*>(this), pCookie);
         pSource->Release();
 
-        if (FAILED(h)) { pComp->Release(); return h; }
+        if (FAILED(h))
+        {
+            pComp->Release();
+            return h;
+        }
         *ppKeep = pComp; // hand off ownership
         return S_OK;
     };
@@ -881,7 +936,7 @@ void CTextService::UninitCompartmentSinks()
         *pCookie = TF_INVALID_COOKIE;
     };
     unadvise(&m_pCompOpenClose, &m_dwCookieOpenClose);
-    unadvise(&m_pCompConvMode,  &m_dwCookieConvMode);
+    unadvise(&m_pCompConvMode, &m_dwCookieConvMode);
 }
 
 // Reads current OPENCLOSE value and propagates to m_isImeOn + LangBarItem.
@@ -1004,11 +1059,11 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
             ascii.reserve(display.size());
             for (wchar_t c : display)
             {
-                if      (c >= 0xFF21 && c <= 0xFF3A) ascii.push_back((wchar_t)(c - 0xFF21 + L'a'));
-                else if (c >= 0xFF41 && c <= 0xFF5A) ascii.push_back((wchar_t)(c - 0xFF41 + L'a'));
-                else if (c >= L'A'   && c <= L'Z')   ascii.push_back((wchar_t)(c - L'A'   + L'a'));
-                else if (c >= 0xFF10 && c <= 0xFF19) ascii.push_back((wchar_t)(c - 0xFF10 + L'0'));
-                else                                 ascii.push_back(c);
+                if (c >= 0xFF21 && c <= 0xFF3A) ascii.push_back(static_cast<wchar_t>(c - 0xFF21 + L'a'));
+                else if (c >= 0xFF41 && c <= 0xFF5A) ascii.push_back(static_cast<wchar_t>(c - 0xFF41 + L'a'));
+                else if (c >= L'A' && c <= L'Z') ascii.push_back(static_cast<wchar_t>(c - L'A' + L'a'));
+                else if (c >= 0xFF10 && c <= 0xFF19) ascii.push_back(static_cast<wchar_t>(c - 0xFF10 + L'0'));
+                else ascii.push_back(c);
             }
             auto r = romaji::Convert(ascii);
             if (r.remaining.empty() && !r.hira.empty())
@@ -1016,7 +1071,7 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
                 std::wstring hira = r.hira;
                 std::wstring kata = ToFullKatakana(hira);
                 std::wstring half = ToHalfKatakana(kata);
-                for (const std::wstring& k : { hira, kata, half })
+                for (const std::wstring& k : {hira, kata, half})
                     if (std::find(variants.begin(), variants.end(), k) == variants.end())
                         variants.push_back(k);
             }
@@ -1035,7 +1090,8 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
             // run of length 1), so this is where the regional-indicator
             // form has to be surfaced — the whole-reading fav path below
             // never fires for a fresh "j".
-            for (auto& lv : symbols::LetterVariants(ascii)) {
+            for (auto& lv : symbols::LetterVariants(ascii))
+            {
                 if (std::find(variants.begin(), variants.end(), lv) == variants.end())
                     variants.push_back(lv);
             }
@@ -1044,7 +1100,8 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
             // United States above the flag, matching the "typed form is
             // the default" contract; the flag rides at the tail as an
             // extra option.
-            for (auto& fl : symbols::FlagFromIso2(ascii)) {
+            for (auto& fl : symbols::FlagFromIso2(ascii))
+            {
                 if (std::find(variants.begin(), variants.end(), fl) == variants.end())
                     variants.push_back(fl);
             }
@@ -1064,7 +1121,11 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
             {
                 bool allLetters = upper.size() >= 2 && upper.size() <= 8;
                 for (wchar_t c : upper)
-                    if (c < L'A' || c > L'Z') { allLetters = false; break; }
+                    if (c < L'A' || c > L'Z')
+                    {
+                        allLetters = false;
+                        break;
+                    }
                 if (allLetters)
                     StartAcronymExpandAsync(pContext, upper, display, variants);
             }
@@ -1094,8 +1155,9 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
         std::wstring fav = m_pLearning->GetFav(reading, ctx);
         if (!fav.empty())
         {
-            std::vector<std::wstring> cands = { fav };
-            auto addUnique = [&cands](std::wstring c) {
+            std::vector<std::wstring> cands = {fav};
+            auto addUnique = [&cands](std::wstring c)
+            {
                 if (c.empty()) return;
                 if (std::find(cands.begin(), cands.end(), c) == cands.end())
                     cands.push_back(std::move(c));
@@ -1120,7 +1182,8 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
                     {
                         std::vector<std::wstring> clean;
                         clean.reserve(hits.size());
-                        for (auto& c : hits) {
+                        for (auto& c : hits)
+                        {
                             if (bunsetsu::ReadsAs(c, reading, *mecab))
                                 clean.push_back(std::move(c));
                         }
@@ -1182,7 +1245,7 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
         auto dv = m_docVocab.find(reading);
         if (dv != m_docVocab.end() && dv->second != reading)
         {
-            std::vector<std::wstring> cands = { dv->second };
+            std::vector<std::wstring> cands = {dv->second};
             // Stack SKK hits behind the document word so Space can still
             // reach the ordinary homophones (same shape as the fav path).
             if (auto* skk = SkkDictionary::GetGlobal(); skk && skk->IsLoaded())
@@ -1194,7 +1257,8 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
                     {
                         std::vector<std::wstring> clean;
                         clean.reserve(hits.size());
-                        for (auto& c : hits) {
+                        for (auto& c : hits)
+                        {
                             if (bunsetsu::ReadsAs(c, reading, *mecab))
                                 clean.push_back(std::move(c));
                         }
@@ -1203,16 +1267,19 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
                 }
                 std::vector<std::wstring> tail = modernranking::PromoteToTop(
                     reading, std::vector<std::wstring>(hits));
-                for (auto& c : tail) {
+                for (auto& c : tail)
+                {
                     if (std::find(cands.begin(), cands.end(), c) == cands.end())
                         cands.push_back(std::move(c));
                 }
             }
-            for (auto& mv : masks::Variants(reading)) {
+            for (auto& mv : masks::Variants(reading))
+            {
                 if (std::find(cands.begin(), cands.end(), mv) == cands.end())
                     cands.push_back(std::move(mv));
             }
-            for (auto& a : alphaspell::Spell(reading)) {
+            for (auto& a : alphaspell::Spell(reading))
+            {
                 if (std::find(cands.begin(), cands.end(), a) == cands.end())
                     cands.push_back(std::move(a));
             }
@@ -1244,11 +1311,12 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
         // Non-kanji SKK hits (ぷらす → ＋ is the SKK entry for ぷらす —
         // fullwidth, same glyph family as the symbol dict's ＋) stay OFF
         // the priority track so the ASCII + at symHits[0] remains default.
-        auto hasKanji = [](const std::wstring& s) -> bool {
+        auto hasKanji = [](const std::wstring& s) -> bool
+        {
             for (wchar_t c : s)
             {
-                if ((c >= 0x4E00 && c <= 0x9FFF) ||  // CJK Unified Ideographs
-                    (c >= 0x3400 && c <= 0x4DBF))    // CJK Extension A
+                if ((c >= 0x4E00 && c <= 0x9FFF) || // CJK Unified Ideographs
+                    (c >= 0x3400 && c <= 0x4DBF)) // CJK Extension A
                     return true;
             }
             return false;
@@ -1382,7 +1450,7 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
                 mecab && mecab->IsReady() && !skk->IsUserDictReading(reading))
             {
                 std::wstring prevTop = skkHits.front();
-                size_t       beforeN = skkHits.size();
+                size_t beforeN = skkHits.size();
                 skkHits = bunsetsu::MergeMecabVerbForms(reading, *mecab, skkHits);
                 if (skkHits.size() != beforeN || skkHits.front() != prevTop)
                 {
@@ -1399,14 +1467,16 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
             // Append sensitive-reading mask variants after learning/reorder
             // so masks land at the tail of the candidate list, out of the way
             // of the primary conversion but reachable via ↓/Space cycling.
-            for (auto& m : masks::Variants(reading)) {
+            for (auto& m : masks::Variants(reading))
+            {
                 if (std::find(skkHits.begin(), skkHits.end(), m) == skkHits.end())
                     skkHits.push_back(std::move(m));
             }
             // Acronym forms (あいえむいー → IME/ime) likewise ride at the
             // tail: dictionary words stay primary, the spelled-out letters
             // are one ↓ away.
-            for (auto& a : alphaspell::Spell(reading)) {
+            for (auto& a : alphaspell::Spell(reading))
+            {
                 if (std::find(skkHits.begin(), skkHits.end(), a) == skkHits.end())
                     skkHits.push_back(std::move(a));
             }
@@ -1442,17 +1512,19 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
             auto maskCands = masks::Variants(reading);
             if (!maskCands.empty() && m_pCandWnd)
             {
-                std::vector<std::wstring> cands = { reading };
+                std::vector<std::wstring> cands = {reading};
                 // Katakana equivalent as second option, then all masks.
                 std::wstring kata;
                 kata.reserve(reading.size());
-                for (wchar_t c : reading) {
-                    int u = (int)c;
-                    if (u >= 0x3041 && u <= 0x3096) kata.push_back((wchar_t)(u + 0x60));
+                for (wchar_t c : reading)
+                {
+                    int u = c;
+                    if (u >= 0x3041 && u <= 0x3096) kata.push_back(static_cast<wchar_t>(u + 0x60));
                     else kata.push_back(c);
                 }
                 if (kata != reading) cands.push_back(kata);
-                for (auto& m : maskCands) {
+                for (auto& m : maskCands)
+                {
                     if (std::find(cands.begin(), cands.end(), m) == cands.end())
                         cands.push_back(std::move(m));
                 }
@@ -1479,9 +1551,10 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
                 cands.push_back(reading);
                 std::wstring kata;
                 kata.reserve(reading.size());
-                for (wchar_t c : reading) {
-                    int u = (int)c;
-                    if (u >= 0x3041 && u <= 0x3096) kata.push_back((wchar_t)(u + 0x60));
+                for (wchar_t c : reading)
+                {
+                    int u = c;
+                    if (u >= 0x3041 && u <= 0x3096) kata.push_back(static_cast<wchar_t>(u + 0x60));
                     else kata.push_back(c);
                 }
                 if (kata != reading &&
@@ -1521,7 +1594,8 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
                     swprintf_s(logbuf,
                                L"[GenerativeIME] MeCab single morpheme: %zu candidates, top=%s\n",
                                parts[0].candidates.size(),
-                               parts[0].candidates.empty() ? L"(none)"
+                               parts[0].candidates.empty()
+                                   ? L"(none)"
                                    : parts[0].candidates[0].c_str());
                     OutputDebugStringW(logbuf);
                     m_pCandWnd->SetCandidates(parts[0].candidates);
@@ -1583,7 +1657,7 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
             OutputDebugStringW(logbuf);
 
             m_lastReading = reading;
-            m_pCandWnd->SetCandidates({ combined });
+            m_pCandWnd->SetCandidates({combined});
             POINT pt = QueryCandidateAnchorPos(pContext);
             m_pCandWnd->ShowAt(pt);
             ApplyCandidateSelection(pContext);
@@ -1624,17 +1698,17 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
         prompt += L"\n";
 
         ollama::GenerateOptions opts;
-        opts.model       = L"gemma4:12b";
-        opts.prompt      = prompt;
-        opts.jsonFormat  = true;
+        opts.model = L"gemma4:12b";
+        opts.prompt = prompt;
+        opts.jsonFormat = true;
         opts.temperature = 0.2;
-        opts.numPredict  = 256;
-        opts.keepAlive   = L"30m";
-        opts.think       = false;
-        opts.timeoutMs   = 60000;
+        opts.numPredict = 256;
+        opts.keepAlive = L"30m";
+        opts.think = false;
+        opts.timeoutMs = 60000;
 
         auto resp = ollama::Generate(opts);
-        pending->hr         = resp.hr;
+        pending->hr = resp.hr;
         pending->httpStatus = resp.httpStatus;
         if (SUCCEEDED(resp.hr) && !resp.response.empty())
         {
@@ -1655,7 +1729,8 @@ void CTextService::HandleOllamaDone(PendingOllamaRequest* pending)
     if (!pending) return;
     wchar_t logbuf[200];
     swprintf_s(logbuf, L"[GenerativeIME] Ollama: hr=0x%08X http=%u candidates=%zu\n",
-               (unsigned)pending->hr, (unsigned)pending->httpStatus, pending->candidates.size());
+               static_cast<unsigned>(pending->hr), static_cast<unsigned>(pending->httpStatus),
+               pending->candidates.size());
     OutputDebugStringW(logbuf);
 
     // Only apply if the composition is still live. If the user typed more
@@ -1699,15 +1774,15 @@ void CTextService::HandleOllamaDone(PendingOllamaRequest* pending)
         if (auto* mecab = MecabAnalyzer::GetGlobal(); mecab && mecab->IsReady())
         {
             std::vector<std::wstring> filtered = cands;
-            filtered.erase(std::remove_if(filtered.begin(), filtered.end(),
-                [&](const std::wstring& c)
-                {
-                    return !bunsetsu::ReadsAs(c, pending->reading, *mecab);
-                }),
-                filtered.end());
+            std::erase_if(filtered,
+                          [&](const std::wstring& c)
+                          {
+                              return !bunsetsu::ReadsAs(c, pending->reading, *mecab);
+                          });
             if (filtered.empty())
             {
-                OutputDebugStringW(L"[GenerativeIME] Ollama: all filtered (UniDic vocab mismatch?), keeping unfiltered\n");
+                OutputDebugStringW(
+                    L"[GenerativeIME] Ollama: all filtered (UniDic vocab mismatch?), keeping unfiltered\n");
             }
             else if (filtered.size() != cands.size())
             {
@@ -1786,14 +1861,14 @@ void CTextService::StartReorderAsync(ITfContext* pContext,
         }
 
         ollama::GenerateOptions opts;
-        opts.model       = L"gemma4:12b";
-        opts.prompt      = prompt;
-        opts.jsonFormat  = true;
+        opts.model = L"gemma4:12b";
+        opts.prompt = prompt;
+        opts.jsonFormat = true;
         opts.temperature = 0.1;
-        opts.numPredict  = 128;          // we only need a tiny index array
-        opts.keepAlive   = L"30m";
-        opts.think       = false;
-        opts.timeoutMs   = 30000;
+        opts.numPredict = 128; // we only need a tiny index array
+        opts.keepAlive = L"30m";
+        opts.think = false;
+        opts.timeoutMs = 30000;
 
         auto resp = ollama::Generate(opts);
         if (SUCCEEDED(resp.hr) && !resp.response.empty())
@@ -1815,7 +1890,7 @@ void CTextService::StartReorderAsync(ITfContext* pContext,
                 std::vector<bool> check(N, false);
                 for (int idx : order)
                 {
-                    if (idx < 0 || (size_t)idx >= N || check[idx])
+                    if (idx < 0 || static_cast<size_t>(idx) >= N || check[idx])
                     {
                         valid_perm = false;
                         break;
@@ -1828,12 +1903,12 @@ void CTextService::StartReorderAsync(ITfContext* pContext,
             // error rate; independent of whether we adopt the reorder.
             // Grep DebugView for "reorder:raw=" to compute broken rate.
             {
-                const wchar_t* reason = L"valid";
+                auto reason = L"valid";
                 if (!valid_perm)
                 {
-                    if (order.size() < N)      reason = L"truncation";
+                    if (order.size() < N) reason = L"truncation";
                     else if (order.size() > N) reason = L"overrun";
-                    else                       reason = L"dup-or-oor";
+                    else reason = L"dup-or-oor";
                 }
                 wchar_t buf[160];
                 swprintf_s(buf, L"[GenerativeIME] Ollama reorder:raw=%s returned=%zu expected=%zu\n",
@@ -1947,7 +2022,8 @@ void CTextService::StartMecabSupplementAsync(ITfContext* pContext,
         prompt += L"2. 国語辞典に載っている実在の単語・自然な複合語のみ。\n";
         prompt += L"3. 「所為」「為」「居る」「出来る」「御」「様」など、現代日本語であまり書かない漢字表記は避ける。\n";
         prompt += L"4. 形態素解析器の答えと同じ提案はしない。\n";
-        prompt += L"5. 読みに「うぃ/うぇ/うぉ/ヴ/ふぁ/ふぃ/ふぇ/ふぉ/てぃ/でぃ/とぅ/どぅ/つぁ/いぇ/しぇ/じぇ/ちぇ」 等の外来音表記が含まれる場合は、対応するカタカナ (ウィ/ウェ/ウォ/ヴ/ファ/フィ/フェ/フォ/ティ/ディ/トゥ/ドゥ/ツァ/イェ/シェ/ジェ/チェ) を使った外来語の候補 (例: 「うぃんどう」→「ウィンドウ」、「こうほうぃんどう」→「候補ウィンドウ」) も積極的に検討してください。\n";
+        prompt +=
+            L"5. 読みに「うぃ/うぇ/うぉ/ヴ/ふぁ/ふぃ/ふぇ/ふぉ/てぃ/でぃ/とぅ/どぅ/つぁ/いぇ/しぇ/じぇ/ちぇ」 等の外来音表記が含まれる場合は、対応するカタカナ (ウィ/ウェ/ウォ/ヴ/ファ/フィ/フェ/フォ/ティ/ディ/トゥ/ドゥ/ツァ/イェ/シェ/ジェ/チェ) を使った外来語の候補 (例: 「うぃんどう」→「ウィンドウ」、「こうほうぃんどう」→「候補ウィンドウ」) も積極的に検討してください。\n";
         prompt += L"6. 部分的なひらがな + カタカナ混じり (例:「候補」+「ウィンドウ」) は OK。\n";
         prompt += L"\n";
         if (!req->recentContext.empty())
@@ -1964,18 +2040,18 @@ void CTextService::StartMecabSupplementAsync(ITfContext* pContext,
         prompt += L"\n";
 
         ollama::GenerateOptions opts;
-        opts.model       = L"gemma4:12b";
-        opts.prompt      = prompt;
-        opts.jsonFormat  = true;
+        opts.model = L"gemma4:12b";
+        opts.prompt = prompt;
+        opts.jsonFormat = true;
         opts.temperature = 0.2;
-        opts.numPredict  = 192;
-        opts.keepAlive   = L"30m";
-        opts.think       = false;
+        opts.numPredict = 192;
+        opts.keepAlive = L"30m";
+        opts.think = false;
         // Generous timeout: gemma4:12b cold-load is ~90s on CPU-only boxes
         // and we'd rather have the user see a late candidate-list update
         // than silently drop the request after 30s. The Activate-time
         // warmup keeps subsequent calls in the sub-second range.
-        opts.timeoutMs   = 120000;
+        opts.timeoutMs = 120000;
 
         auto resp = ollama::Generate(opts);
         req->hr = resp.hr;
@@ -2000,21 +2076,21 @@ void CTextService::StartOllamaWarmupAsync()
     std::thread([]()
     {
         ollama::GenerateOptions opts;
-        opts.model       = L"gemma4:12b";
-        opts.prompt      = L"warmup";
-        opts.jsonFormat  = false;
+        opts.model = L"gemma4:12b";
+        opts.prompt = L"warmup";
+        opts.jsonFormat = false;
         opts.temperature = 0.0;
-        opts.numPredict  = 4;
-        opts.keepAlive   = L"30m";
-        opts.think       = false;
-        opts.timeoutMs   = 180000;
+        opts.numPredict = 4;
+        opts.keepAlive = L"30m";
+        opts.think = false;
+        opts.timeoutMs = 180000;
 
         OutputDebugStringW(L"[GenerativeIME] Ollama: warmup begin (async)\n");
         auto resp = ollama::Generate(opts);
         wchar_t buf[128];
         swprintf_s(buf,
                    L"[GenerativeIME] Ollama: warmup done hr=0x%08X http=%u\n",
-                   (unsigned)resp.hr, (unsigned)resp.httpStatus);
+                   static_cast<unsigned>(resp.hr), static_cast<unsigned>(resp.httpStatus));
         OutputDebugStringW(buf);
     }).detach();
 }
@@ -2071,7 +2147,7 @@ void CTextService::HandleOllamaFallbackDone(PendingOllamaFallbackRequest* pendin
                     if (pieces[i].empty()) continue;
                     auto& cur = m_bunsetsuList[i];
                     if (std::find(cur.candidates.begin(), cur.candidates.end(), pieces[i])
-                            != cur.candidates.end())
+                        != cur.candidates.end())
                         continue;
                     // Prepend Ollama pieces to the head so the LLM's take
                     // beats the SKK / MeCab defaults; learning fav still
@@ -2103,7 +2179,7 @@ void CTextService::HandleOllamaFallbackDone(PendingOllamaFallbackRequest* pendin
         wchar_t logbuf[160];
         swprintf_s(logbuf,
                    L"[GenerativeIME] Ollama fallback: hr=0x%08X candidates=%zu — dropping\n",
-                   (unsigned)pending->hr, pending->candidates.size());
+                   static_cast<unsigned>(pending->hr), pending->candidates.size());
         OutputDebugStringW(logbuf);
         delete pending;
         return;
@@ -2118,15 +2194,15 @@ void CTextService::HandleOllamaFallbackDone(PendingOllamaFallbackRequest* pendin
     if (auto* mecab = MecabAnalyzer::GetGlobal(); mecab && mecab->IsReady())
     {
         std::vector<std::wstring> filtered = pending->candidates;
-        filtered.erase(std::remove_if(filtered.begin(), filtered.end(),
-            [&](const std::wstring& c)
-            {
-                return !bunsetsu::ReadsAs(c, pending->reading, *mecab);
-            }),
-            filtered.end());
+        std::erase_if(filtered,
+                      [&](const std::wstring& c)
+                      {
+                          return !bunsetsu::ReadsAs(c, pending->reading, *mecab);
+                      });
         if (filtered.empty())
         {
-            OutputDebugStringW(L"[GenerativeIME] Ollama fallback: all filtered (UniDic vocab mismatch?), keeping unfiltered\n");
+            OutputDebugStringW(
+                L"[GenerativeIME] Ollama fallback: all filtered (UniDic vocab mismatch?), keeping unfiltered\n");
         }
         else if (filtered.size() != pending->candidates.size())
         {
@@ -2226,14 +2302,14 @@ void CTextService::StartAcronymExpandAsync(ITfContext* pContext,
         prompt += L"\n";
 
         ollama::GenerateOptions opts;
-        opts.model       = L"gemma4:12b";
-        opts.prompt      = prompt;
-        opts.jsonFormat  = true;
+        opts.model = L"gemma4:12b";
+        opts.prompt = prompt;
+        opts.jsonFormat = true;
         opts.temperature = 0.1;
-        opts.numPredict  = 192;
-        opts.keepAlive   = L"30m";
-        opts.think       = false;
-        opts.timeoutMs   = 120000;
+        opts.numPredict = 192;
+        opts.keepAlive = L"30m";
+        opts.think = false;
+        opts.timeoutMs = 120000;
 
         auto resp = ollama::Generate(opts);
         req->hr = resp.hr;
@@ -2300,7 +2376,7 @@ void CTextService::HandleAcronymDone(PendingAcronymRequest* pending)
     if (merged.size() == pending->base.size())
     {
         delete pending;
-        return;   // nothing new to add
+        return; // nothing new to add
     }
 
     m_pCandWnd->SetCandidates(merged);
@@ -2314,20 +2390,20 @@ void CTextService::HandleAcronymDone(PendingAcronymRequest* pending)
 // GUITHREADINFO, (3) mouse cursor as last-ditch fallback.
 POINT CTextService::QueryCandidateAnchorPos(ITfContext* pContext)
 {
-    POINT pt = { 0, 0 };
+    POINT pt = {0, 0};
     if (pContext && m_pComposition)
     {
-        CGetRectSession* sess = new CGetRectSession(pContext, m_pComposition, &pt);
+        auto sess = new CGetRectSession(pContext, m_pComposition, &pt);
         HRESULT hrSession = S_OK;
         HRESULT hr = pContext->RequestEditSession(m_tfClientId, sess,
-            TF_ES_SYNC | TF_ES_READ, &hrSession);
+                                                  TF_ES_SYNC | TF_ES_READ, &hrSession);
         sess->Release();
         if (SUCCEEDED(hr) && SUCCEEDED(hrSession) && (pt.x != 0 || pt.y != 0))
         {
             return pt;
         }
     }
-    GUITHREADINFO gti = { sizeof(gti) };
+    GUITHREADINFO gti = {sizeof(gti)};
     if (GetGUIThreadInfo(0, &gti) && gti.hwndCaret)
     {
         pt.x = gti.rcCaret.left;
@@ -2346,14 +2422,14 @@ POINT CTextService::QueryCandidateAnchorPos(ITfContext* pContext)
 // the substring rect query came back empty.
 POINT CTextService::QueryBunsetsuAnchorPos(ITfContext* pContext, size_t offset, size_t length)
 {
-    POINT pt = { 0, 0 };
+    POINT pt = {0, 0};
     if (pContext && m_pComposition && length > 0)
     {
-        CGetBunsetsuRectSession* sess = new CGetBunsetsuRectSession(
-            pContext, m_pComposition, (ULONG)offset, (ULONG)length, &pt);
+        auto sess = new CGetBunsetsuRectSession(
+            pContext, m_pComposition, static_cast<ULONG>(offset), static_cast<ULONG>(length), &pt);
         HRESULT hrSession = S_OK;
         HRESULT hr = pContext->RequestEditSession(m_tfClientId, sess,
-            TF_ES_SYNC | TF_ES_READ, &hrSession);
+                                                  TF_ES_SYNC | TF_ES_READ, &hrSession);
         sess->Release();
         if (SUCCEEDED(hr) && SUCCEEDED(hrSession) && (pt.x != 0 || pt.y != 0))
         {
@@ -2371,8 +2447,8 @@ void CTextService::SyncFocusedBunsetsuSelection()
     int sel = m_pCandWnd->GetSelectedIndex();
     if (sel < 0) return;
     auto& b = m_bunsetsuList[m_focusedBunsetsu];
-    if ((size_t)sel < b.candidates.size())
-        b.selected = (size_t)sel;
+    if (static_cast<size_t>(sel) < b.candidates.size())
+        b.selected = static_cast<size_t>(sel);
 }
 
 void CTextService::ApplyCandidateSelection(ITfContext* pContext)
@@ -2438,12 +2514,14 @@ void CTextService::UpdatePrediction(ITfContext* pContext)
     {
         if (kv.first.size() <= prefix.size()) continue;
         if (kv.first.compare(0, prefix.size(), prefix) != 0) continue;
-        preds.push_back({ kv.first, kv.second });
+        preds.push_back({kv.first, kv.second});
     }
     std::stable_sort(preds.begin(), preds.end(),
                      [](const SkkDictionary::Prediction& a,
                         const SkkDictionary::Prediction& b)
-                     { return a.reading.size() < b.reading.size(); });
+                     {
+                         return a.reading.size() < b.reading.size();
+                     });
     if (preds.size() > 9) preds.resize(9);
 
     for (auto& p : skk->PredictCompletions(prefix, 9))
@@ -2452,7 +2530,11 @@ void CTextService::UpdatePrediction(ITfContext* pContext)
         bool dup = false;
         for (const auto& q : preds)
         {
-            if (q.word == p.word) { dup = true; break; }
+            if (q.word == p.word)
+            {
+                dup = true;
+                break;
+            }
         }
         if (!dup) preds.push_back(std::move(p));
     }
@@ -2493,11 +2575,11 @@ void CTextService::NavigatePrediction(int delta, ITfContext* pContext)
     if (!m_pCandWnd) return;
     if (m_compositionConverted)
     {
-        if (delta > 0)      m_pCandWnd->SelectNext();
+        if (delta > 0) m_pCandWnd->SelectNext();
         else if (delta < 0) m_pCandWnd->SelectPrev();
     }
     int sel = m_pCandWnd->GetSelectedIndex();
-    if (sel >= 0 && sel < (int)m_predictionReadings.size())
+    if (sel >= 0 && sel < static_cast<int>(m_predictionReadings.size()))
         m_lastReading = m_predictionReadings[sel];
     if (pContext) ApplyCandidateSelection(pContext);
 }
@@ -2521,7 +2603,7 @@ namespace
     {
         std::wstring out(s);
         for (auto& c : out)
-            if (c >= 0x30A1 && c <= 0x30F6) c = (wchar_t)(c - 0x60);
+            if (c >= 0x30A1 && c <= 0x30F6) c = static_cast<wchar_t>(c - 0x60);
         return out;
     }
 }
@@ -2549,47 +2631,61 @@ void CTextService::ScanDocumentVocab(ITfContext* pContext)
         LONG m_max;
         std::wstring* m_outPrefix;
         std::wstring* m_outSuffix;
+
         GetDocSlice(ITfContext* c, LONG max, std::wstring* p, std::wstring* s)
             : m_ctx(c), m_max(max), m_outPrefix(p), m_outSuffix(s)
-            { if (m_ctx) m_ctx->AddRef(); }
+        {
+            if (m_ctx) m_ctx->AddRef();
+        }
+
         ~GetDocSlice() { if (m_ctx) m_ctx->Release(); }
-        STDMETHODIMP QueryInterface(REFIID riid, void** pp) override {
+        STDMETHODIMP QueryInterface(REFIID riid, void** pp) override
+        {
             if (!pp) return E_INVALIDARG;
             *pp = nullptr;
-            if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfEditSession)) {
-                *pp = static_cast<ITfEditSession*>(this); AddRef(); return S_OK;
+            if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfEditSession))
+            {
+                *pp = static_cast<ITfEditSession*>(this);
+                AddRef();
+                return S_OK;
             }
             return E_NOINTERFACE;
         }
+
         STDMETHODIMP_(ULONG) AddRef() override { return InterlockedIncrement(&m_cRef); }
-        STDMETHODIMP_(ULONG) Release() override {
+        STDMETHODIMP_(ULONG) Release() override
+        {
             LONG c = InterlockedDecrement(&m_cRef);
             if (c == 0) delete this;
             return c;
         }
-        STDMETHODIMP DoEditSession(TfEditCookie ec) override {
+
+        STDMETHODIMP DoEditSession(TfEditCookie ec) override
+        {
             TF_SELECTION sel = {};
             ULONG fetched = 0;
             HRESULT hr = m_ctx->GetSelection(ec, TF_DEFAULT_SELECTION, 1, &sel, &fetched);
             if (FAILED(hr) || fetched == 0 || !sel.range) return hr;
-            std::vector<wchar_t> buf((size_t)m_max + 1, L'\0');
+            std::vector<wchar_t> buf(static_cast<size_t>(m_max) + 1, L'\0');
             ITfRange* preR = nullptr;
             sel.range->Clone(&preR);
-            if (preR) {
+            if (preR)
+            {
                 LONG shifted = 0;
                 preR->ShiftStart(ec, -m_max, &shifted, nullptr);
                 ULONG got = 0;
-                preR->GetText(ec, 0, buf.data(), (ULONG)m_max, &got);
+                preR->GetText(ec, 0, buf.data(), static_cast<ULONG>(m_max), &got);
                 if (got > 0) m_outPrefix->assign(buf.data(), got);
                 preR->Release();
             }
             ITfRange* sufR = nullptr;
             sel.range->Clone(&sufR);
-            if (sufR) {
+            if (sufR)
+            {
                 LONG shifted = 0;
                 sufR->ShiftEnd(ec, m_max, &shifted, nullptr);
                 ULONG got = 0;
-                sufR->GetText(ec, 0, buf.data(), (ULONG)m_max, &got);
+                sufR->GetText(ec, 0, buf.data(), static_cast<ULONG>(m_max), &got);
                 if (got > 0) m_outSuffix->assign(buf.data(), got);
                 sufR->Release();
             }
@@ -2599,7 +2695,7 @@ void CTextService::ScanDocumentVocab(ITfContext* pContext)
     };
 
     std::wstring prefix, suffix;
-    GetDocSlice* s = new GetDocSlice(pContext, 500, &prefix, &suffix);
+    auto s = new GetDocSlice(pContext, 500, &prefix, &suffix);
     HRESULT hrS = S_OK;
     pContext->RequestEditSession(m_tfClientId, s, TF_ES_SYNC | TF_ES_READ, &hrS);
     s->Release();
@@ -2669,21 +2765,30 @@ bool CTextService::TryAbsorbCloseBracket(ITfContext* pContext)
     public:
         AbsorbSession(ITfContext* c, wchar_t* out)
             : m_ctx(c), m_out(out) { if (m_ctx) m_ctx->AddRef(); }
-        STDMETHODIMP QueryInterface(REFIID riid, void** pp) override {
+
+        STDMETHODIMP QueryInterface(REFIID riid, void** pp) override
+        {
             if (!pp) return E_INVALIDARG;
             *pp = nullptr;
-            if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfEditSession)) {
-                *pp = static_cast<ITfEditSession*>(this); AddRef(); return S_OK;
+            if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfEditSession))
+            {
+                *pp = static_cast<ITfEditSession*>(this);
+                AddRef();
+                return S_OK;
             }
             return E_NOINTERFACE;
         }
+
         STDMETHODIMP_(ULONG) AddRef() override { return InterlockedIncrement(&m_cRef); }
-        STDMETHODIMP_(ULONG) Release() override {
+        STDMETHODIMP_(ULONG) Release() override
+        {
             LONG c = InterlockedDecrement(&m_cRef);
             if (c == 0) delete this;
             return c;
         }
-        STDMETHODIMP DoEditSession(TfEditCookie ec) override {
+
+        STDMETHODIMP DoEditSession(TfEditCookie ec) override
+        {
             TF_SELECTION sel = {};
             ULONG fetched = 0;
             HRESULT hr = m_ctx->GetSelection(ec, TF_DEFAULT_SELECTION, 1, &sel, &fetched);
@@ -2712,14 +2817,15 @@ bool CTextService::TryAbsorbCloseBracket(ITfContext* pContext)
             peek->Release();
             return S_OK;
         }
+
     private:
         ~AbsorbSession() { if (m_ctx) m_ctx->Release(); }
         LONG m_cRef = 1;
         ITfContext* m_ctx;
-        wchar_t*    m_out;
+        wchar_t* m_out;
     };
 
-    AbsorbSession* s = new AbsorbSession(pContext, &m_absorbedCloseBracket);
+    auto s = new AbsorbSession(pContext, &m_absorbedCloseBracket);
     HRESULT hrS = S_OK;
     pContext->RequestEditSession(m_tfClientId, s, TF_ES_SYNC | TF_ES_READWRITE, &hrS);
     s->Release();
@@ -2764,7 +2870,7 @@ bool CTextService::CommitConvertedIfAny(ITfContext* pContext)
             for (const auto& b : m_bunsetsuList)
             {
                 if (b.reading.empty() || b.candidates.empty()) continue;
-                if (b.selected >= b.candidates.size())          continue;
+                if (b.selected >= b.candidates.size()) continue;
                 m_pLearning->Record(b.reading, b.candidates[b.selected], ctx);
                 joinedReading += b.reading;
                 clauseReadings.push_back(b.reading);
@@ -2800,8 +2906,8 @@ bool CTextService::CommitConvertedIfAny(ITfContext* pContext)
         // committed by typing the next chunk instead of Enter loses both the
         // form and its learning.
         std::wstring picked = !m_fkeyConvertedText.empty()
-                            ? m_fkeyConvertedText
-                            : m_pCandWnd->GetSelected();
+                                  ? m_fkeyConvertedText
+                                  : m_pCandWnd->GetSelected();
         if (m_pLearning && !m_lastReading.empty() && !picked.empty())
         {
             m_pLearning->Record(m_lastReading, picked, AppContext::Capture());
@@ -2846,10 +2952,10 @@ void CTextService::EnterBunsetsuMode(std::vector<Bunsetsu> parts,
         {
             if (b.reading.empty() || b.candidates.empty()) continue;
             b.candidates = m_pLearning->Reorder(b.reading, b.candidates);
-            b.selected   = 0;
+            b.selected = 0;
         }
     }
-    m_bunsetsuList    = std::move(parts);
+    m_bunsetsuList = std::move(parts);
     m_focusedBunsetsu = 0;
     RepaintBunsetsu(pContext);
 }
@@ -2870,7 +2976,7 @@ void CTextService::RepaintBunsetsu(ITfContext* pContext)
     // Enter records each piece independently.
     m_pCandWnd->SetCandidates(cur.candidates);
     if (cur.selected < cur.candidates.size())
-        m_pCandWnd->SelectIndex((int)cur.selected);
+        m_pCandWnd->SelectIndex(static_cast<int>(cur.selected));
     m_lastReading = cur.reading;
 
     if (pContext)
@@ -2910,17 +3016,21 @@ void CTextService::CycleNonconvertForm(ITfContext* pContext)
     std::wstring text;
     switch (m_nonconvertCycle)
     {
-    case 0: text = hira; break;
-    case 1: text = ToFullKatakana(hira); break;
-    case 2: text = ToHalfKatakana(ToFullKatakana(hira)); break;
-    case 3: text = m_romajiBuffer; break;
+    case 0: text = hira;
+        break;
+    case 1: text = ToFullKatakana(hira);
+        break;
+    case 2: text = ToHalfKatakana(ToFullKatakana(hira));
+        break;
+    case 3: text = m_romajiBuffer;
+        break;
     }
 
     if (m_pCandWnd) m_pCandWnd->Hide();
     if (!text.empty()) RequestEditSession(pContext, EditAction::Update, text);
     m_compositionConverted = TRUE;
-    m_fkeyConvertedText    = text;
-    m_lastReading          = hira;
+    m_fkeyConvertedText = text;
+    m_lastReading = hira;
 }
 
 void CTextService::TryReconvertFromSelection(ITfContext* pContext)
@@ -2939,21 +3049,29 @@ void CTextService::TryReconvertFromSelection(ITfContext* pContext)
         std::wstring* m_out;
         GetSelText(ITfContext* c, std::wstring* o) : m_ctx(c), m_out(o) { if (m_ctx) m_ctx->AddRef(); }
         ~GetSelText() { if (m_ctx) m_ctx->Release(); }
-        STDMETHODIMP QueryInterface(REFIID riid, void** pp) override {
+        STDMETHODIMP QueryInterface(REFIID riid, void** pp) override
+        {
             if (!pp) return E_INVALIDARG;
             *pp = nullptr;
-            if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfEditSession)) {
-                *pp = static_cast<ITfEditSession*>(this); AddRef(); return S_OK;
+            if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfEditSession))
+            {
+                *pp = static_cast<ITfEditSession*>(this);
+                AddRef();
+                return S_OK;
             }
             return E_NOINTERFACE;
         }
+
         STDMETHODIMP_(ULONG) AddRef() override { return InterlockedIncrement(&m_cRef); }
-        STDMETHODIMP_(ULONG) Release() override {
+        STDMETHODIMP_(ULONG) Release() override
+        {
             LONG c = InterlockedDecrement(&m_cRef);
             if (c == 0) delete this;
             return c;
         }
-        STDMETHODIMP DoEditSession(TfEditCookie ec) override {
+
+        STDMETHODIMP DoEditSession(TfEditCookie ec) override
+        {
             TF_SELECTION sel = {};
             ULONG fetched = 0;
             HRESULT hr = m_ctx->GetSelection(ec, TF_DEFAULT_SELECTION, 1, &sel, &fetched);
@@ -2970,7 +3088,7 @@ void CTextService::TryReconvertFromSelection(ITfContext* pContext)
     };
 
     std::wstring selected;
-    GetSelText* sess = new GetSelText(pContext, &selected);
+    auto sess = new GetSelText(pContext, &selected);
     HRESULT hrSession = S_OK;
     pContext->RequestEditSession(m_tfClientId, sess, TF_ES_SYNC | TF_ES_READ, &hrSession);
     sess->Release();
@@ -2980,7 +3098,7 @@ void CTextService::TryReconvertFromSelection(ITfContext* pContext)
     // immediately after). We grab text on both sides of the caret, run
     // MeCab on the combined slice, find the morpheme that contains the
     // caret offset, and extend the host selection across that morpheme.
-    LONG targetBack    = 0;
+    LONG targetBack = 0;
     LONG targetForward = 0;
     if (selected.empty())
     {
@@ -2991,25 +3109,37 @@ void CTextService::TryReconvertFromSelection(ITfContext* pContext)
             LONG m_max;
             std::wstring* m_outPrefix;
             std::wstring* m_outSuffix;
+
             GetCaretSlice(ITfContext* c, LONG max, std::wstring* p, std::wstring* s)
                 : m_ctx(c), m_max(max), m_outPrefix(p), m_outSuffix(s)
-                { if (m_ctx) m_ctx->AddRef(); }
+            {
+                if (m_ctx) m_ctx->AddRef();
+            }
+
             ~GetCaretSlice() { if (m_ctx) m_ctx->Release(); }
-            STDMETHODIMP QueryInterface(REFIID riid, void** pp) override {
+            STDMETHODIMP QueryInterface(REFIID riid, void** pp) override
+            {
                 if (!pp) return E_INVALIDARG;
                 *pp = nullptr;
-                if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfEditSession)) {
-                    *pp = static_cast<ITfEditSession*>(this); AddRef(); return S_OK;
+                if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfEditSession))
+                {
+                    *pp = static_cast<ITfEditSession*>(this);
+                    AddRef();
+                    return S_OK;
                 }
                 return E_NOINTERFACE;
             }
+
             STDMETHODIMP_(ULONG) AddRef() override { return InterlockedIncrement(&m_cRef); }
-            STDMETHODIMP_(ULONG) Release() override {
+            STDMETHODIMP_(ULONG) Release() override
+            {
                 LONG c = InterlockedDecrement(&m_cRef);
                 if (c == 0) delete this;
                 return c;
             }
-            STDMETHODIMP DoEditSession(TfEditCookie ec) override {
+
+            STDMETHODIMP DoEditSession(TfEditCookie ec) override
+            {
                 TF_SELECTION sel = {};
                 ULONG fetched = 0;
                 HRESULT hr = m_ctx->GetSelection(ec, TF_DEFAULT_SELECTION, 1, &sel, &fetched);
@@ -3017,7 +3147,8 @@ void CTextService::TryReconvertFromSelection(ITfContext* pContext)
                 // Prefix: clone selection range, walk start back m_max.
                 ITfRange* preR = nullptr;
                 sel.range->Clone(&preR);
-                if (preR) {
+                if (preR)
+                {
                     LONG shifted = 0;
                     preR->ShiftStart(ec, -m_max, &shifted, nullptr);
                     wchar_t buf[256] = {};
@@ -3029,7 +3160,8 @@ void CTextService::TryReconvertFromSelection(ITfContext* pContext)
                 // Suffix: clone, walk end forward m_max.
                 ITfRange* sufR = nullptr;
                 sel.range->Clone(&sufR);
-                if (sufR) {
+                if (sufR)
+                {
                     LONG shifted = 0;
                     sufR->ShiftEnd(ec, m_max, &shifted, nullptr);
                     wchar_t buf[256] = {};
@@ -3043,10 +3175,10 @@ void CTextService::TryReconvertFromSelection(ITfContext* pContext)
             }
         };
         std::wstring prefix, suffix;
-        GetCaretSlice* gp = new GetCaretSlice(pContext, 20, &prefix, &suffix);
+        auto gp = new GetCaretSlice(pContext, 20, &prefix, &suffix);
         HRESULT hrGp = S_OK;
         pContext->RequestEditSession(m_tfClientId, gp,
-            TF_ES_SYNC | TF_ES_READ, &hrGp);
+                                     TF_ES_SYNC | TF_ES_READ, &hrGp);
         gp->Release();
 
         std::wstring combined = prefix + suffix;
@@ -3062,13 +3194,13 @@ void CTextService::TryReconvertFromSelection(ITfContext* pContext)
                 // at position caretOffset (0-based). Adopt this morpheme
                 // when the caret falls strictly inside, at its end edge,
                 // or — for the first morpheme only — exactly at offset 0.
-                bool inside  = (caretOffset > cum && caretOffset <= end);
+                bool inside = (caretOffset > cum && caretOffset <= end);
                 bool atStart = (cum == 0 && caretOffset == 0);
                 if (inside || atStart)
                 {
-                    selected      = m.surface;
-                    targetBack    = (LONG)(caretOffset - cum);
-                    targetForward = (LONG)(end - caretOffset);
+                    selected = m.surface;
+                    targetBack = static_cast<LONG>(caretOffset - cum);
+                    targetForward = static_cast<LONG>(end - caretOffset);
                     break;
                 }
                 cum = end;
@@ -3093,24 +3225,34 @@ void CTextService::TryReconvertFromSelection(ITfContext* pContext)
             ITfContext* m_ctx;
             LONG m_back;
             LONG m_forward;
+
             ExtendRange(ITfContext* c, LONG b, LONG f)
                 : m_ctx(c), m_back(b), m_forward(f) { if (m_ctx) m_ctx->AddRef(); }
+
             ~ExtendRange() { if (m_ctx) m_ctx->Release(); }
-            STDMETHODIMP QueryInterface(REFIID riid, void** pp) override {
+            STDMETHODIMP QueryInterface(REFIID riid, void** pp) override
+            {
                 if (!pp) return E_INVALIDARG;
                 *pp = nullptr;
-                if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfEditSession)) {
-                    *pp = static_cast<ITfEditSession*>(this); AddRef(); return S_OK;
+                if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfEditSession))
+                {
+                    *pp = static_cast<ITfEditSession*>(this);
+                    AddRef();
+                    return S_OK;
                 }
                 return E_NOINTERFACE;
             }
+
             STDMETHODIMP_(ULONG) AddRef() override { return InterlockedIncrement(&m_cRef); }
-            STDMETHODIMP_(ULONG) Release() override {
+            STDMETHODIMP_(ULONG) Release() override
+            {
                 LONG c = InterlockedDecrement(&m_cRef);
                 if (c == 0) delete this;
                 return c;
             }
-            STDMETHODIMP DoEditSession(TfEditCookie ec) override {
+
+            STDMETHODIMP DoEditSession(TfEditCookie ec) override
+            {
                 TF_SELECTION sel = {};
                 ULONG fetched = 0;
                 HRESULT hr = m_ctx->GetSelection(ec, TF_DEFAULT_SELECTION, 1, &sel, &fetched);
@@ -3125,10 +3267,10 @@ void CTextService::TryReconvertFromSelection(ITfContext* pContext)
                 return S_OK;
             }
         };
-        ExtendRange* ext = new ExtendRange(pContext, targetBack, targetForward);
+        auto ext = new ExtendRange(pContext, targetBack, targetForward);
         HRESULT hrExt = S_OK;
         pContext->RequestEditSession(m_tfClientId, ext,
-            TF_ES_SYNC | TF_ES_READWRITE, &hrExt);
+                                     TF_ES_SYNC | TF_ES_READWRITE, &hrExt);
         ext->Release();
     }
 
@@ -3142,7 +3284,7 @@ void CTextService::TryReconvertFromSelection(ITfContext* pContext)
         for (const auto& m : morphemes)
         {
             if (!m.pronunciation.empty()) reading += m.pronunciation;
-            else                          reading += m.surface;
+            else reading += m.surface;
         }
     }
     if (reading.empty()) reading = selected;
@@ -3178,7 +3320,7 @@ void CTextService::ResizeFocusedBunsetsu(int delta, ITfContext* pContext)
     if (m_focusedBunsetsu >= m_bunsetsuList.size()) return;
 
     auto* mecab = MecabAnalyzer::GetGlobal();
-    auto* skk   = SkkDictionary::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
 
     // NB: reference-into-vector semantics. We used to hold `auto& cur =
     // m_bunsetsuList[m_focusedBunsetsu]` across mutations of the same
@@ -3208,7 +3350,7 @@ void CTextService::ResizeFocusedBunsetsu(int delta, ITfContext* pContext)
         if (m_pLearning && !newFocused.candidates.empty())
         {
             newFocused.candidates = m_pLearning->Reorder(newFocused.reading, newFocused.candidates);
-            newFocused.selected   = 0;
+            newFocused.selected = 0;
         }
         if (newNxt.empty())
         {
@@ -3222,7 +3364,7 @@ void CTextService::ResizeFocusedBunsetsu(int delta, ITfContext* pContext)
             if (m_pLearning && !rebuilt.candidates.empty())
             {
                 rebuilt.candidates = m_pLearning->Reorder(rebuilt.reading, rebuilt.candidates);
-                rebuilt.selected   = 0;
+                rebuilt.selected = 0;
             }
             m_bunsetsuList[m_focusedBunsetsu + 1] = std::move(rebuilt);
         }
@@ -3303,27 +3445,28 @@ static void AppendDebugLine(const wchar_t* line)
     wchar_t stamped[512];
     swprintf_s(stamped, L"%04d-%02d-%02dT%02d:%02d:%02d [pid=%lu] %s\r\n",
                st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond,
-               (unsigned long)GetCurrentProcessId(), line);
+               GetCurrentProcessId(), line);
 
     int utf8Len = WideCharToMultiByte(CP_UTF8, 0, stamped, -1, nullptr, 0, nullptr, nullptr);
     if (utf8Len <= 1) return;
-    std::string utf8((size_t)utf8Len - 1, '\0');
+    std::string utf8(static_cast<size_t>(utf8Len) - 1, '\0');
     WideCharToMultiByte(CP_UTF8, 0, stamped, -1, utf8.data(), utf8Len - 1, nullptr, nullptr);
 
-    auto tryWrite = [&](const std::wstring& path) -> bool {
+    auto tryWrite = [&](const std::wstring& path) -> bool
+    {
         HANDLE h = CreateFileW(path.c_str(), FILE_APPEND_DATA,
                                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                                nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (h == INVALID_HANDLE_VALUE) return false;
         DWORD w = 0;
-        BOOL ok = WriteFile(h, utf8.data(), (DWORD)utf8.size(), &w, nullptr);
+        BOOL ok = WriteFile(h, utf8.data(), static_cast<DWORD>(utf8.size()), &w, nullptr);
         CloseHandle(h);
         return ok != FALSE;
     };
 
     // Primary path via env var (avoids SHGetKnownFolderPath / COM dep).
     wchar_t appdata[MAX_PATH * 2];
-    DWORD n = GetEnvironmentVariableW(L"APPDATA", appdata, (DWORD)_countof(appdata));
+    DWORD n = GetEnvironmentVariableW(L"APPDATA", appdata, _countof(appdata));
     if (n > 0 && n < _countof(appdata))
     {
         std::wstring dir = appdata;
@@ -3334,7 +3477,7 @@ static void AppendDebugLine(const wchar_t* line)
 
     // Fallback path.
     wchar_t tmp[MAX_PATH * 2];
-    n = GetEnvironmentVariableW(L"TEMP", tmp, (DWORD)_countof(tmp));
+    n = GetEnvironmentVariableW(L"TEMP", tmp, _countof(tmp));
     if (n > 0 && n < _countof(tmp))
     {
         std::wstring path = tmp;
@@ -3352,7 +3495,7 @@ void CTextService::LogMisconversionAttempt()
     // parent directory of SkkDictionary::UserDictDir so users already
     // looking there for their dict files find the log alongside.
     wchar_t appdata[MAX_PATH * 2];
-    DWORD n = GetEnvironmentVariableW(L"APPDATA", appdata, (DWORD)_countof(appdata));
+    DWORD n = GetEnvironmentVariableW(L"APPDATA", appdata, _countof(appdata));
     if (n == 0 || n >= _countof(appdata)) return;
     std::wstring dir = appdata;
     dir += L"\\GenerativeIME";
@@ -3394,28 +3537,52 @@ void CTextService::LogMisconversionAttempt()
     entry += L"--- ";
     entry += timestamp;
     entry += L" ---\r\n";
-    entry += L"buffer: ";       entry += m_romajiBuffer;       entry += L"\r\n";
-    entry += L"display: ";      entry += display;              entry += L"\r\n";
-    entry += L"lastReading: ";  entry += m_lastReading;        entry += L"\r\n";
-    entry += L"selected: ";     entry += selected;             entry += L"\r\n";
-    entry += L"candidates: ";   entry += cands;                entry += L"\r\n";
-    entry += L"lastCommitted: ";entry += m_lastCommittedText;  entry += L"\r\n";
-    entry += L"context: ";      entry += m_recentContext;      entry += L"\r\n";
-    entry += L"imeMode: ";      entry += std::to_wstring((int)m_imeMode);       entry += L"\r\n";
-    entry += L"converted: ";    entry += boolStr(m_compositionConverted != 0);  entry += L"\r\n";
-    entry += L"predictionActive: "; entry += boolStr(m_predictionActive);       entry += L"\r\n";
-    entry += L"bunsetsuMode: "; entry += boolStr(InBunsetsuMode());             entry += L"\r\n";
-    entry += L"forgetReading: "; entry += m_lastCommittedReading;                entry += L"\r\n";
+    entry += L"buffer: ";
+    entry += m_romajiBuffer;
+    entry += L"\r\n";
+    entry += L"display: ";
+    entry += display;
+    entry += L"\r\n";
+    entry += L"lastReading: ";
+    entry += m_lastReading;
+    entry += L"\r\n";
+    entry += L"selected: ";
+    entry += selected;
+    entry += L"\r\n";
+    entry += L"candidates: ";
+    entry += cands;
+    entry += L"\r\n";
+    entry += L"lastCommitted: ";
+    entry += m_lastCommittedText;
+    entry += L"\r\n";
+    entry += L"context: ";
+    entry += m_recentContext;
+    entry += L"\r\n";
+    entry += L"imeMode: ";
+    entry += std::to_wstring(static_cast<int>(m_imeMode));
+    entry += L"\r\n";
+    entry += L"converted: ";
+    entry += boolStr(m_compositionConverted != 0);
+    entry += L"\r\n";
+    entry += L"predictionActive: ";
+    entry += boolStr(m_predictionActive);
+    entry += L"\r\n";
+    entry += L"bunsetsuMode: ";
+    entry += boolStr(InBunsetsuMode());
+    entry += L"\r\n";
+    entry += L"forgetReading: ";
+    entry += m_lastCommittedReading;
+    entry += L"\r\n";
     entry += L"\r\n";
 
     // Convert to UTF-8 for cross-tool friendliness (grep / rg / VS Code
     // default to UTF-8; wchar_t writes would need a BOM and produce a
     // file most Unix tools mishandle).
-    int utf8Len = WideCharToMultiByte(CP_UTF8, 0, entry.c_str(), (int)entry.size(),
-                                       nullptr, 0, nullptr, nullptr);
+    int utf8Len = WideCharToMultiByte(CP_UTF8, 0, entry.c_str(), static_cast<int>(entry.size()),
+                                      nullptr, 0, nullptr, nullptr);
     if (utf8Len <= 0) return;
-    std::string utf8((size_t)utf8Len, '\0');
-    WideCharToMultiByte(CP_UTF8, 0, entry.c_str(), (int)entry.size(),
+    std::string utf8(static_cast<size_t>(utf8Len), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, entry.c_str(), static_cast<int>(entry.size()),
                         utf8.data(), utf8Len, nullptr, nullptr);
 
     HANDLE h = CreateFileW(path.c_str(),
@@ -3434,13 +3601,13 @@ void CTextService::LogMisconversionAttempt()
     GetFileSizeEx(h, &size);
     if (size.QuadPart == 0)
     {
-        const unsigned char bom[3] = { 0xEF, 0xBB, 0xBF };
+        constexpr unsigned char bom[3] = {0xEF, 0xBB, 0xBF};
         DWORD written = 0;
         WriteFile(h, bom, 3, &written, nullptr);
     }
 
     DWORD written = 0;
-    WriteFile(h, utf8.data(), (DWORD)utf8.size(), &written, nullptr);
+    WriteFile(h, utf8.data(), static_cast<DWORD>(utf8.size()), &written, nullptr);
     CloseHandle(h);
 
     // Forget the bad pick — the commit that just went to disk (and its
@@ -3495,10 +3662,11 @@ bool CTextService::ToggleCodepointInPlace(ITfContext* pContext)
     std::wstring rep;
     LONG replaceLen = 0;
 
-    auto hexVal = [](wchar_t c) -> int {
-        if (c >= L'0' && c <= L'9') return (int)(c - L'0');
-        if (c >= L'a' && c <= L'f') return 10 + (int)(c - L'a');
-        if (c >= L'A' && c <= L'F') return 10 + (int)(c - L'A');
+    auto hexVal = [](wchar_t c) -> int
+    {
+        if (c >= L'0' && c <= L'9') return c - L'0';
+        if (c >= L'a' && c <= L'f') return 10 + (c - L'a');
+        if (c >= L'A' && c <= L'F') return 10 + (c - L'A');
         return -1;
     };
 
@@ -3515,22 +3683,26 @@ bool CTextService::ToggleCodepointInPlace(ITfContext* pContext)
         for (wchar_t c : last)
         {
             int v = hexVal(c);
-            if (v < 0) { ok = false; break; }
-            cp = (cp << 4) | (unsigned)v;
+            if (v < 0)
+            {
+                ok = false;
+                break;
+            }
+            cp = (cp << 4) | static_cast<unsigned>(v);
         }
         if (ok && cp <= 0x10FFFF && (cp < 0xD800 || cp > 0xDFFF))
         {
             if (cp <= 0xFFFF)
             {
-                rep.push_back((wchar_t)cp);
+                rep.push_back(static_cast<wchar_t>(cp));
             }
             else
             {
                 unsigned s = cp - 0x10000;
-                rep.push_back((wchar_t)(0xD800 | (s >> 10)));
-                rep.push_back((wchar_t)(0xDC00 | (s & 0x3FF)));
+                rep.push_back(static_cast<wchar_t>(0xD800 | (s >> 10)));
+                rep.push_back(static_cast<wchar_t>(0xDC00 | (s & 0x3FF)));
             }
-            replaceLen = (LONG)last.size();
+            replaceLen = static_cast<LONG>(last.size());
             hexToChar = true;
         }
     }
@@ -3550,18 +3722,18 @@ bool CTextService::ToggleCodepointInPlace(ITfContext* pContext)
             wchar_t lo = last[last.size() - 1];
             if (hi >= 0xD800 && hi <= 0xDBFF && lo >= 0xDC00 && lo <= 0xDFFF)
             {
-                cp = 0x10000 + (((unsigned)(hi - 0xD800)) << 10)
-                             +  (unsigned)(lo - 0xDC00);
+                cp = 0x10000 + (static_cast<unsigned>(hi - 0xD800) << 10)
+                    + static_cast<unsigned>(lo - 0xDC00);
                 take = 2;
             }
             else
             {
-                cp = (unsigned)lo;
+                cp = static_cast<unsigned>(lo);
             }
         }
         else
         {
-            cp = (unsigned)last.back();
+            cp = static_cast<unsigned>(last.back());
         }
         wchar_t hex[8];
         swprintf_s(hex, cp <= 0xFFFF ? L"%04X" : L"%05X", cp);
@@ -3585,29 +3757,40 @@ bool CTextService::ToggleCodepointInPlace(ITfContext* pContext)
 
         ToggleSession(ITfContext* c, LONG len, const wchar_t* rep, LONG repLen)
             : m_ctx(c), m_len(len), m_repText(rep), m_repLen(repLen)
-        { if (m_ctx) m_ctx->AddRef(); }
+        {
+            if (m_ctx) m_ctx->AddRef();
+        }
+
         ~ToggleSession() { if (m_ctx) m_ctx->Release(); }
 
-        STDMETHODIMP QueryInterface(REFIID riid, void** pp) override {
+        STDMETHODIMP QueryInterface(REFIID riid, void** pp) override
+        {
             if (!pp) return E_INVALIDARG;
             *pp = nullptr;
-            if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfEditSession)) {
-                *pp = static_cast<ITfEditSession*>(this); AddRef(); return S_OK;
+            if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfEditSession))
+            {
+                *pp = static_cast<ITfEditSession*>(this);
+                AddRef();
+                return S_OK;
             }
             return E_NOINTERFACE;
         }
+
         STDMETHODIMP_(ULONG) AddRef() override { return InterlockedIncrement(&m_cRef); }
-        STDMETHODIMP_(ULONG) Release() override {
+        STDMETHODIMP_(ULONG) Release() override
+        {
             LONG c = InterlockedDecrement(&m_cRef);
             if (c == 0) delete this;
             return c;
         }
 
-        STDMETHODIMP DoEditSession(TfEditCookie ec) override {
+        STDMETHODIMP DoEditSession(TfEditCookie ec) override
+        {
             TF_SELECTION sel = {};
             ULONG fetched = 0;
             if (FAILED(m_ctx->GetSelection(ec, TF_DEFAULT_SELECTION, 1, &sel, &fetched))
-                || fetched == 0 || !sel.range) return S_OK;
+                || fetched == 0 || !sel.range)
+                return S_OK;
 
             ITfRange* pRange = nullptr;
             sel.range->Clone(&pRange);
@@ -3641,10 +3824,10 @@ bool CTextService::ToggleCodepointInPlace(ITfContext* pContext)
         }
     };
 
-    auto* s = new ToggleSession(pContext, replaceLen, rep.c_str(), (LONG)rep.length());
+    auto* s = new ToggleSession(pContext, replaceLen, rep.c_str(), static_cast<LONG>(rep.length()));
     HRESULT hrSess = S_OK;
     HRESULT hr = pContext->RequestEditSession(m_tfClientId, s,
-        TF_ES_SYNC | TF_ES_READWRITE, &hrSess);
+                                              TF_ES_SYNC | TF_ES_READWRITE, &hrSess);
     bool ok = s->m_ok;
     s->Release();
     if (FAILED(hr) || FAILED(hrSess) || !ok) return false;
@@ -3654,8 +3837,8 @@ bool CTextService::ToggleCodepointInPlace(ITfContext* pContext)
     // m_recentContext (LLM prompt context) so we don't send an
     // inconsistent tail.
     m_lastCommittedText = rep;
-    if (m_recentContext.size() >= (size_t)replaceLen)
-        m_recentContext.erase(m_recentContext.size() - (size_t)replaceLen);
+    if (m_recentContext.size() >= static_cast<size_t>(replaceLen))
+        m_recentContext.erase(m_recentContext.size() - static_cast<size_t>(replaceLen));
     m_recentContext.append(rep);
     if (m_recentContext.size() > kRecentContextMax)
         m_recentContext.erase(0, m_recentContext.size() - kRecentContextMax);
@@ -3694,8 +3877,8 @@ LRESULT CALLBACK CTextService::StaticWndProc(HWND hwnd, UINT msg, WPARAM wParam,
         }
         if (msg == WM_LANGBAR_MENU)
         {
-            int x = (int)(short)LOWORD(lParam);
-            int y = (int)(short)HIWORD(lParam);
+            int x = static_cast<short>(LOWORD(lParam));
+            int y = static_cast<short>(HIWORD(lParam));
             self->ShowLangBarMenu(x, y);
             return 0;
         }
@@ -3703,7 +3886,7 @@ LRESULT CALLBACK CTextService::StaticWndProc(HWND hwnd, UINT msg, WPARAM wParam,
         {
             // wParam encodes ImeMode (0=Off, 1=Hiragana, 2=FullKatakana,
             // 3=HalfKatakana, 4=FullAlnum). Clamp to known values.
-            int v = (int)wParam;
+            int v = static_cast<int>(wParam);
             {
                 wchar_t buf[128];
                 swprintf_s(buf, L"[GenerativeIME] WM_SET_IME_MODE this=%p hwnd=%p wParam=%d\n",
@@ -3721,7 +3904,9 @@ LRESULT CALLBACK CTextService::StaticWndProc(HWND hwnd, UINT msg, WPARAM wParam,
 // Disabled in the rollback — see CLangBarItemButton::OnClick comment.
 // Kept as a no-op so the WM_LANGBAR_MENU handler in StaticWndProc still has
 // a target; we'll re-enable when the menu hosting is redesigned.
-void CTextService::ShowLangBarMenu(int /*x*/, int /*y*/) {}
+void CTextService::ShowLangBarMenu(int /*x*/, int /*y*/)
+{
+}
 
 HWND CTextService::GetPopupOwnerHwnd() const
 {
@@ -3736,7 +3921,7 @@ void CTextService::SetImeMode(ImeMode mode)
     {
         wchar_t buf[160];
         swprintf_s(buf, L"[GenerativeIME] SetImeMode enter this=%p mode=%d cur isImeOn=%d cur imeMode=%d\n",
-                   this, (int)mode, (int)m_isImeOn, (int)m_imeMode);
+                   this, mode, static_cast<int>(m_isImeOn), m_imeMode);
         OutputDebugStringW(buf);
     }
 
@@ -3761,7 +3946,7 @@ void CTextService::SetImeMode(ImeMode mode)
     {
         wchar_t buf[128];
         swprintf_s(buf, L"[GenerativeIME] SetImeMode exit isImeOn=%d imeMode=%d\n",
-                   (int)m_isImeOn, (int)m_imeMode);
+                   static_cast<int>(m_isImeOn), m_imeMode);
         OutputDebugStringW(buf);
     }
 }
@@ -3770,14 +3955,14 @@ HRESULT CTextService::InitMessageWindow()
 {
     if (m_hwndMsg) return S_OK;
 
-    WNDCLASSEXW wc = { sizeof(wc) };
-    wc.lpfnWndProc   = StaticWndProc;
-    wc.hInstance     = g_hInst;
+    WNDCLASSEXW wc = {sizeof(wc)};
+    wc.lpfnWndProc = StaticWndProc;
+    wc.hInstance = g_hInst;
     wc.lpszClassName = kMsgWndClass;
     RegisterClassExW(&wc); // ignore "already registered" error from re-Activate
 
     m_hwndMsg = CreateWindowExW(0, kMsgWndClass, nullptr, 0,
-        0, 0, 0, 0, HWND_MESSAGE, nullptr, g_hInst, this);
+                                0, 0, 0, 0, HWND_MESSAGE, nullptr, g_hInst, this);
     return m_hwndMsg ? S_OK : HRESULT_FROM_WIN32(GetLastError());
 }
 
@@ -3828,10 +4013,23 @@ static bool IsCloseBracketChar(wchar_t c)
 {
     switch (c)
     {
-    case L'」': case L'』': case L'）': case L'〕': case L'】': case L'］':
-    case L'｝': case L'〉': case L'》': case L'〙': case L'〛':
-    case L')':  case L']':  case L'}':  case L'>':
-    case L'”':  case L'’':
+    case L'」':
+    case L'』':
+    case L'）':
+    case L'〕':
+    case L'】':
+    case L'］':
+    case L'｝':
+    case L'〉':
+    case L'》':
+    case L'〙':
+    case L'〛':
+    case L')':
+    case L']':
+    case L'}':
+    case L'>':
+    case L'”':
+    case L'’':
         return true;
     default:
         return false;
@@ -3848,26 +4046,26 @@ static size_t BracketPairCaretBackShift(const std::wstring& text)
     wchar_t o = text[0], c = text[1];
     switch (o)
     {
-    case L'「':  return (c == L'」')  ? 1 : 0;   // U+300C / U+300D
-    case L'『':  return (c == L'』')  ? 1 : 0;   // U+300E / U+300F
-    case L'（':  return (c == L'）')  ? 1 : 0;   // U+FF08 / U+FF09
-    case L'〔':  return (c == L'〕')  ? 1 : 0;   // U+3014 / U+3015
-    case L'【':  return (c == L'】')  ? 1 : 0;   // U+3010 / U+3011
-    case L'［':  return (c == L'］')  ? 1 : 0;   // U+FF3B / U+FF3D
-    case L'｛':  return (c == L'｝')  ? 1 : 0;   // U+FF5B / U+FF5D
-    case L'〈':  return (c == L'〉')  ? 1 : 0;   // U+3008 / U+3009
-    case L'《':  return (c == L'》')  ? 1 : 0;   // U+300A / U+300B
-    case L'〘':  return (c == L'〙')  ? 1 : 0;   // U+3018 / U+3019
-    case L'〚':  return (c == L'〛')  ? 1 : 0;   // U+301A / U+301B
-    case L'(':   return (c == L')')   ? 1 : 0;
-    case L'[':   return (c == L']')   ? 1 : 0;
-    case L'{':   return (c == L'}')   ? 1 : 0;
-    case L'<':   return (c == L'>')   ? 1 : 0;
-    case L'"':   return (c == L'"')   ? 1 : 0;
-    case L'\'':  return (c == L'\'')  ? 1 : 0;
-    case L'“':   return (c == L'”')   ? 1 : 0;   // U+201C / U+201D
-    case L'‘':   return (c == L'’')   ? 1 : 0;   // U+2018 / U+2019
-    default:     return 0;
+    case L'「': return (c == L'」') ? 1 : 0; // U+300C / U+300D
+    case L'『': return (c == L'』') ? 1 : 0; // U+300E / U+300F
+    case L'（': return (c == L'）') ? 1 : 0; // U+FF08 / U+FF09
+    case L'〔': return (c == L'〕') ? 1 : 0; // U+3014 / U+3015
+    case L'【': return (c == L'】') ? 1 : 0; // U+3010 / U+3011
+    case L'［': return (c == L'］') ? 1 : 0; // U+FF3B / U+FF3D
+    case L'｛': return (c == L'｝') ? 1 : 0; // U+FF5B / U+FF5D
+    case L'〈': return (c == L'〉') ? 1 : 0; // U+3008 / U+3009
+    case L'《': return (c == L'》') ? 1 : 0; // U+300A / U+300B
+    case L'〘': return (c == L'〙') ? 1 : 0; // U+3018 / U+3019
+    case L'〚': return (c == L'〛') ? 1 : 0; // U+301A / U+301B
+    case L'(': return (c == L')') ? 1 : 0;
+    case L'[': return (c == L']') ? 1 : 0;
+    case L'{': return (c == L'}') ? 1 : 0;
+    case L'<': return (c == L'>') ? 1 : 0;
+    case L'"': return (c == L'"') ? 1 : 0;
+    case L'\'': return (c == L'\'') ? 1 : 0;
+    case L'“': return (c == L'”') ? 1 : 0; // U+201C / U+201D
+    case L'‘': return (c == L'’') ? 1 : 0; // U+2018 / U+2019
+    default: return 0;
     }
 }
 
@@ -3876,10 +4074,11 @@ static size_t BracketPairCaretBackShift(const std::wstring& text)
 // route the resolved character through the kana table (",", "." → "、", "。").
 static bool IsSymbolKey(WPARAM wParam)
 {
-    if (wParam >= VK_OEM_1 && wParam <= VK_OEM_3) return true;   // 0xBA-0xC0
-    if (wParam >= VK_OEM_4 && wParam <= VK_OEM_8) return true;   // 0xDB-0xDF
+    if (wParam >= VK_OEM_1 && wParam <= VK_OEM_3) return true; // 0xBA-0xC0
+    if (wParam >= VK_OEM_4 && wParam <= VK_OEM_8) return true; // 0xDB-0xDF
     if (wParam == VK_OEM_PLUS || wParam == VK_OEM_COMMA
-     || wParam == VK_OEM_MINUS || wParam == VK_OEM_PERIOD) return true;
+        || wParam == VK_OEM_MINUS || wParam == VK_OEM_PERIOD)
+        return true;
     // Number row when held with Shift produces ! @ # $ % ^ & * ( ) on a
     // US/JP layout — let the IME claim those so we can render them as
     // 全角「！」「＠」… in the composition. Unshifted digits stay with
@@ -3899,7 +4098,7 @@ static wchar_t ResolveSymbolChar(WPARAM wParam, LPARAM lParam)
     wchar_t buf[8] = {};
     // flags=2 (Win10+): "don't change kernel keyboard state" — leaves dead-key
     // sequences alone so a stray accent doesn't get consumed by our peek.
-    int n = ToUnicode((UINT)wParam, scanCode, keyState, buf, 8, 2);
+    int n = ToUnicode(static_cast<UINT>(wParam), scanCode, keyState, buf, 8, 2);
     return (n > 0) ? buf[0] : L'\0';
 }
 
@@ -3926,7 +4125,8 @@ bool CTextService::ShouldEat(WPARAM wParam) const
     // the IME on.
     if (wParam == 0xF2 /* VK_DBE_HIRAGANA */ ||
         wParam == 0xF1 /* VK_DBE_KATAKANA */ ||
-        wParam == VK_KANA) return true;
+        wParam == VK_KANA)
+        return true;
     if (!m_isImeOn) return false;
     // Ctrl+Shift+F5 fallback claim. Preserved-key registration should
     // already have TSF routing this to OnPreservedKey, but observationally
@@ -3936,7 +4136,8 @@ bool CTextService::ShouldEat(WPARAM wParam) const
     // is fine, the misconversion logger is idempotent per tap.
     if (wParam == VK_F5
         && (GetKeyState(VK_CONTROL) < 0)
-        && (GetKeyState(VK_SHIFT)   < 0)) return true;
+        && (GetKeyState(VK_SHIFT) < 0))
+        return true;
     // Ctrl-modified keys are host shortcuts (Ctrl+X / C / V / A / Z / S /
     // arrow / etc) and belong to the application, not the IME. Without
     // this passthrough, IsAlphaKey would eat Ctrl+V and silently drop
@@ -4012,7 +4213,8 @@ bool CTextService::ShouldEat(WPARAM wParam) const
     // commit (symbol/emoji spam: ‼️‼️‼️…). Only claimed while there IS a
     // previous commit, so a fresh session leaves F4 to the host app.
     if (wParam == VK_F4 && !m_pComposition && !m_lastCommittedText.empty()
-        && GetKeyState(VK_MENU) >= 0) return true;   // Alt+F4 stays the host's
+        && GetKeyState(VK_MENU) >= 0)
+        return true; // Alt+F4 stays the host's
     // 変換 / 無変換 keys (Japanese keyboards). 変換 acts as a convert
     // trigger / re-convert; 無変換 cycles the composition's kana form.
     // Outside a live composition 変換 still applies when the host has a
@@ -4081,7 +4283,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
     // fired — preserved key vs OnKeyDown — for future diagnosis.
     if (wParam == VK_F5
         && (GetKeyState(VK_CONTROL) < 0)
-        && (GetKeyState(VK_SHIFT)   < 0))
+        && (GetKeyState(VK_SHIFT) < 0))
     {
         AppendDebugLine(L"[GenerativeIME] Ctrl+Shift+F5 hit via OnKeyDown fallback");
         LogMisconversionAttempt();
@@ -4110,7 +4312,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
     if (m_imeMode == ImeMode::FullAlnum && !m_pComposition)
     {
         wchar_t ch = ResolveSymbolChar(wParam, lParam);
-        if (ch >= 0x20 && ch <= 0x7E)   // printable ASCII incl. space (→ 全角)
+        if (ch >= 0x20 && ch <= 0x7E) // printable ASCII incl. space (→ 全角)
         {
             std::wstring full = ToFullWidthAscii(std::wstring(1, ch));
             if (pic) RequestEditSession(pic, EditAction::InsertDirect, full);
@@ -4148,7 +4350,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         wchar_t ch;
         if (!shift)
         {
-            ch = static_cast<wchar_t>(wParam - 'A' + 'a');   // canonical lowercase romaji
+            ch = static_cast<wchar_t>(wParam - 'A' + 'a'); // canonical lowercase romaji
         }
         else if (m_imeMode == ImeMode::Hiragana)
         {
@@ -4164,7 +4366,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         {
             // Other modes keep the historical half-width uppercase behavior
             // that feeds SKK direct entries like「Gすぽっと /Gスポット/」.
-            ch = static_cast<wchar_t>(wParam);               // 'A'-'Z' verbatim
+            ch = static_cast<wchar_t>(wParam); // 'A'-'Z' verbatim
         }
         m_romajiBuffer.push_back(ch);
         m_compositionConverted = FALSE;
@@ -4188,12 +4390,12 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         *pfEaten = TRUE;
     }
     else if (wParam >= '0' && wParam <= '9'
-             && GetKeyState(VK_SHIFT) >= 0
-             && (!m_romajiBuffer.empty()
-                 || m_imeMode == ImeMode::Hiragana
-                 || m_imeMode == ImeMode::FullKatakana)
-             && (wParam == '0' || m_predictionActive ||
-                 !m_pCandWnd || !m_pCandWnd->IsVisible()))
+        && GetKeyState(VK_SHIFT) >= 0
+        && (!m_romajiBuffer.empty()
+            || m_imeMode == ImeMode::Hiragana
+            || m_imeMode == ImeMode::FullKatakana)
+        && (wParam == '0' || m_predictionActive ||
+            !m_pCandWnd || !m_pCandWnd->IsVisible()))
     {
         // UNSHIFTED digit inside an active composition (ShouldEat gate
         // above matches the same condition). Pushed as its literal ASCII
@@ -4290,7 +4492,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
                 for (const auto& b : m_bunsetsuList)
                 {
                     if (b.reading.empty() || b.candidates.empty()) continue;
-                    if (b.selected >= b.candidates.size())          continue;
+                    if (b.selected >= b.candidates.size()) continue;
                     m_pLearning->Record(b.reading, b.candidates[b.selected], ctx);
                     joinedReading += b.reading;
                     clauseReadings.push_back(b.reading);
@@ -4358,7 +4560,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         m_compositionConverted = FALSE;
         m_lastReading.clear();
         m_fkeyConvertedText.clear();
-    m_nonconvertCycle = 0;
+        m_nonconvertCycle = 0;
         m_predictionActive = false;
         m_predictionReadings.clear();
         // Defense in depth: only the InBunsetsuMode branch above calls
@@ -4379,7 +4581,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         m_romajiBuffer.clear();
         m_compositionConverted = FALSE;
         m_fkeyConvertedText.clear();
-    m_nonconvertCycle = 0;
+        m_nonconvertCycle = 0;
         m_predictionActive = false;
         m_predictionReadings.clear();
         LeaveBunsetsuMode();
@@ -4483,7 +4685,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
             auto it = std::find(cur.candidates.begin(), cur.candidates.end(), cur.reading);
             if (it != cur.candidates.end())
             {
-                cur.selected = (size_t)std::distance(cur.candidates.begin(), it);
+                cur.selected = static_cast<size_t>(std::distance(cur.candidates.begin(), it));
             }
             else
             {
@@ -4497,9 +4699,9 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
             m_pCandWnd->Hide();
             if (pic) RequestEditSession(pic, EditAction::Update, m_lastReading);
             m_compositionConverted = TRUE;
-            m_fkeyConvertedText    = m_lastReading;
-            m_nonconvertCycle      = 0;
-            m_predictionActive     = false;
+            m_fkeyConvertedText = m_lastReading;
+            m_nonconvertCycle = 0;
+            m_predictionActive = false;
             m_predictionReadings.clear();
         }
         else
@@ -4573,17 +4775,17 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         {
             // Single-bunsetsu mode: Tab cycles candidate window selection.
             if (GetKeyState(VK_SHIFT) < 0) m_pCandWnd->SelectPrev();
-            else                            m_pCandWnd->SelectNext();
+            else m_pCandWnd->SelectNext();
             if (pic) ApplyCandidateSelection(pic);
         }
         *pfEaten = TRUE;
     }
     else if ((wParam == VK_LEFT || wParam == VK_RIGHT) &&
-             !InBunsetsuMode() &&
-             m_pCandWnd && m_pCandWnd->IsVisible() &&
-             (GetKeyState(VK_SHIFT) < 0) &&
-             !m_lastReading.empty() &&
-             m_lastReading.size() >= 2)
+        !InBunsetsuMode() &&
+        m_pCandWnd && m_pCandWnd->IsVisible() &&
+        (GetKeyState(VK_SHIFT) < 0) &&
+        !m_lastReading.empty() &&
+        m_lastReading.size() >= 2)
     {
         // Shift+←/→ pressed while showing a whole-reading single candidate
         // (SKK direct hit for「パーキンソン病」/「アルツハイマー病」/loan
@@ -4593,7 +4795,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         // reading matches short-circuited past bunsetsu mode and Shift+
         // ←/→ silently no-op'd on those inputs.
         auto* mecab = MecabAnalyzer::GetGlobal();
-        auto* skk   = SkkDictionary::GetGlobal();
+        auto* skk = SkkDictionary::GetGlobal();
         size_t cut = m_lastReading.size() - 1;
         std::wstring headR = m_lastReading.substr(0, cut);
         std::wstring tailR = m_lastReading.substr(cut);
@@ -4602,8 +4804,10 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         parts.push_back(bunsetsu::MakeBunsetsuFromReading(tailR, mecab, skk));
         if (m_pLearning)
         {
-            for (auto& b : parts) {
-                if (!b.candidates.empty()) {
+            for (auto& b : parts)
+            {
+                if (!b.candidates.empty())
+                {
                     b.candidates = m_pLearning->Reorder(b.reading, b.candidates);
                     b.selected = 0;
                 }
@@ -4614,14 +4818,15 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         // is by 1 char too small - fold the tail char back in. Shift+Left
         // (shrink) needs no follow-up because "split off 1 to tail" IS the
         // shrink for a single-bunsetsu source.
-        if (wParam == VK_RIGHT) {
+        if (wParam == VK_RIGHT)
+        {
             ResizeFocusedBunsetsu(+1, pic);
         }
         *pfEaten = TRUE;
     }
     else if ((wParam == VK_LEFT || wParam == VK_RIGHT) &&
-             InBunsetsuMode() &&
-             m_pCandWnd && m_pCandWnd->IsVisible())
+        InBunsetsuMode() &&
+        m_pCandWnd && m_pCandWnd->IsVisible())
     {
         // Shift+←/→ resize the focused bunsetsu's reading by one char,
         // pushing or pulling the character across the boundary with the
@@ -4658,149 +4863,149 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
     {
         m_pCandWnd->PageNext();
         if (m_predictionActive) NavigatePrediction(0, pic);
-        else if (pic)           ApplyCandidateSelection(pic);
+        else if (pic) ApplyCandidateSelection(pic);
         *pfEaten = TRUE;
     }
     else if (wParam == VK_PRIOR && m_pCandWnd && m_pCandWnd->IsVisible())
     {
         m_pCandWnd->PagePrev();
         if (m_predictionActive) NavigatePrediction(0, pic);
-        else if (pic)           ApplyCandidateSelection(pic);
+        else if (pic) ApplyCandidateSelection(pic);
         *pfEaten = TRUE;
     }
     else if (wParam == VK_DELETE)
     {
         wchar_t logbuf[200];
-        bool shift  = (GetKeyState(VK_SHIFT)   < 0);
-        bool ctrl   = (GetKeyState(VK_CONTROL) < 0);
+        bool shift = (GetKeyState(VK_SHIFT) < 0);
+        bool ctrl = (GetKeyState(VK_CONTROL) < 0);
         bool wndVis = (m_pCandWnd && m_pCandWnd->IsVisible());
         swprintf_s(logbuf,
                    L"[GenerativeIME] VK_DELETE: shift=%d ctrl=%d wndVisible=%d bunsetsu=%d\n",
-                   (int)shift, (int)ctrl, (int)wndVis, (int)InBunsetsuMode());
+                   shift, ctrl, wndVis, InBunsetsuMode());
         OutputDebugStringW(logbuf);
         if (shift && wndVis)
         {
-        // Shift+Delete: opt-out. Behavior depends on mode.
-        if (InBunsetsuMode())
-        {
-            // Phase B: blacklist the CURRENT bunsetsu boundary pattern.
-            // The user declared that this partition itself is wrong
-            // (not just the per-bunsetsu picks). Record reading-total
-            // → end-offset array so next time SplitMecab tries the
-            // same shape we recognise it as forbidden and route to
-            // Ollama for a fresh take.
-            if (m_pLearning && !m_bunsetsuList.empty())
+            // Shift+Delete: opt-out. Behavior depends on mode.
+            if (InBunsetsuMode())
             {
-                std::wstring fullReading;
-                std::vector<size_t> endOffsets;
-                for (const auto& b : m_bunsetsuList)
+                // Phase B: blacklist the CURRENT bunsetsu boundary pattern.
+                // The user declared that this partition itself is wrong
+                // (not just the per-bunsetsu picks). Record reading-total
+                // → end-offset array so next time SplitMecab tries the
+                // same shape we recognise it as forbidden and route to
+                // Ollama for a fresh take.
+                if (m_pLearning && !m_bunsetsuList.empty())
                 {
-                    fullReading += b.reading;
-                    endOffsets.push_back(fullReading.size());
-                }
-                // Drop the trailing entry (always equals reading.size()
-                // by construction) so the same boundary array compares
-                // equal regardless of total length.
-                if (!endOffsets.empty()) endOffsets.pop_back();
-                m_pLearning->BlacklistBoundary(fullReading, endOffsets);
-                wchar_t logbuf[300];
-                std::wstring joined;
-                for (size_t i = 0; i < endOffsets.size(); ++i)
-                {
-                    if (i) joined.push_back(L',');
-                    joined += std::to_wstring(endOffsets[i]);
-                }
-                swprintf_s(logbuf,
-                           L"[GenerativeIME] BlacklistBoundary: reading=%s ends=[%s]\n",
-                           fullReading.c_str(), joined.c_str());
-                OutputDebugStringW(logbuf);
-            }
-            // Leave Phase B for now; the user will retype (or hit Esc)
-            // and the next conversion will avoid this boundary shape.
-            if (m_pCandWnd) m_pCandWnd->Hide();
-            LeaveBunsetsuMode();
-            if (pic) RequestEditSession(pic, EditAction::EndCancel, L"");
-            m_romajiBuffer.clear();
-            m_compositionConverted = FALSE;
-            m_lastReading.clear();
-        }
-        else
-        {
-            // Single-candidate mode: opt-out the highlighted entry AND
-            // the SplitMecab boundary that produced it. Recording both
-            // means a re-type of the same composite reading skips Phase
-            // B (boundary blacklist hits) AND skips this exact joined
-            // candidate (candidate blacklist hits) so the Ollama
-            // fallback's answer gets a clean shot at the top slot.
-            int sel = m_pCandWnd->GetSelectedIndex();
-            auto cur = m_pCandWnd->GetCandidates();
-            if (sel >= 0 && sel < (int)cur.size() && !m_lastReading.empty())
-            {
-                std::wstring victim = cur[sel];
-                if (m_pLearning && !victim.empty())
-                {
-                    m_pLearning->Blacklist(m_lastReading, victim);
-                    wchar_t logbuf[200];
+                    std::wstring fullReading;
+                    std::vector<size_t> endOffsets;
+                    for (const auto& b : m_bunsetsuList)
+                    {
+                        fullReading += b.reading;
+                        endOffsets.push_back(fullReading.size());
+                    }
+                    // Drop the trailing entry (always equals reading.size()
+                    // by construction) so the same boundary array compares
+                    // equal regardless of total length.
+                    if (!endOffsets.empty()) endOffsets.pop_back();
+                    m_pLearning->BlacklistBoundary(fullReading, endOffsets);
+                    wchar_t logbuf[300];
+                    std::wstring joined;
+                    for (size_t i = 0; i < endOffsets.size(); ++i)
+                    {
+                        if (i) joined.push_back(L',');
+                        joined += std::to_wstring(endOffsets[i]);
+                    }
                     swprintf_s(logbuf,
-                               L"[GenerativeIME] Blacklist: reading=%s word=%s\n",
-                               m_lastReading.c_str(), victim.c_str());
+                               L"[GenerativeIME] BlacklistBoundary: reading=%s ends=[%s]\n",
+                               fullReading.c_str(), joined.c_str());
                     OutputDebugStringW(logbuf);
                 }
-                // Also record the boundary so even if a future analyzer
-                // run produces a different joined string with the same
-                // shape, Phase B still gets bypassed.
-                if (m_pLearning)
+                // Leave Phase B for now; the user will retype (or hit Esc)
+                // and the next conversion will avoid this boundary shape.
+                if (m_pCandWnd) m_pCandWnd->Hide();
+                LeaveBunsetsuMode();
+                if (pic) RequestEditSession(pic, EditAction::EndCancel, L"");
+                m_romajiBuffer.clear();
+                m_compositionConverted = FALSE;
+                m_lastReading.clear();
+            }
+            else
+            {
+                // Single-candidate mode: opt-out the highlighted entry AND
+                // the SplitMecab boundary that produced it. Recording both
+                // means a re-type of the same composite reading skips Phase
+                // B (boundary blacklist hits) AND skips this exact joined
+                // candidate (candidate blacklist hits) so the Ollama
+                // fallback's answer gets a clean shot at the top slot.
+                int sel = m_pCandWnd->GetSelectedIndex();
+                auto cur = m_pCandWnd->GetCandidates();
+                if (sel >= 0 && sel < static_cast<int>(cur.size()) && !m_lastReading.empty())
                 {
-                    if (auto* mc = MecabAnalyzer::GetGlobal();
-                        mc && mc->IsReady())
+                    std::wstring victim = cur[sel];
+                    if (m_pLearning && !victim.empty())
                     {
-                        auto* sk = SkkDictionary::GetGlobal();
-                        auto parts = bunsetsu::SplitMecab(m_lastReading, *mc, sk);
-                        if (parts.size() >= 2)
+                        m_pLearning->Blacklist(m_lastReading, victim);
+                        wchar_t logbuf[200];
+                        swprintf_s(logbuf,
+                                   L"[GenerativeIME] Blacklist: reading=%s word=%s\n",
+                                   m_lastReading.c_str(), victim.c_str());
+                        OutputDebugStringW(logbuf);
+                    }
+                    // Also record the boundary so even if a future analyzer
+                    // run produces a different joined string with the same
+                    // shape, Phase B still gets bypassed.
+                    if (m_pLearning)
+                    {
+                        if (auto* mc = MecabAnalyzer::GetGlobal();
+                            mc && mc->IsReady())
                         {
-                            std::vector<size_t> endOffsets;
-                            size_t cum = 0;
-                            for (const auto& p : parts)
+                            auto* sk = SkkDictionary::GetGlobal();
+                            auto parts = bunsetsu::SplitMecab(m_lastReading, *mc, sk);
+                            if (parts.size() >= 2)
                             {
-                                cum += p.reading.size();
-                                endOffsets.push_back(cum);
+                                std::vector<size_t> endOffsets;
+                                size_t cum = 0;
+                                for (const auto& p : parts)
+                                {
+                                    cum += p.reading.size();
+                                    endOffsets.push_back(cum);
+                                }
+                                if (!endOffsets.empty()) endOffsets.pop_back();
+                                m_pLearning->BlacklistBoundary(m_lastReading, endOffsets);
+                                wchar_t logbuf[260];
+                                std::wstring joined;
+                                for (size_t i = 0; i < endOffsets.size(); ++i)
+                                {
+                                    if (i) joined.push_back(L',');
+                                    joined += std::to_wstring(endOffsets[i]);
+                                }
+                                swprintf_s(logbuf,
+                                           L"[GenerativeIME] BlacklistBoundary (single): reading=%s ends=[%s]\n",
+                                           m_lastReading.c_str(), joined.c_str());
+                                OutputDebugStringW(logbuf);
                             }
-                            if (!endOffsets.empty()) endOffsets.pop_back();
-                            m_pLearning->BlacklistBoundary(m_lastReading, endOffsets);
-                            wchar_t logbuf[260];
-                            std::wstring joined;
-                            for (size_t i = 0; i < endOffsets.size(); ++i)
-                            {
-                                if (i) joined.push_back(L',');
-                                joined += std::to_wstring(endOffsets[i]);
-                            }
-                            swprintf_s(logbuf,
-                                       L"[GenerativeIME] BlacklistBoundary (single): reading=%s ends=[%s]\n",
-                                       m_lastReading.c_str(), joined.c_str());
-                            OutputDebugStringW(logbuf);
                         }
                     }
-                }
-                cur.erase(cur.begin() + sel);
-                // Keep the prediction reading list parallel to the shown
-                // candidates, or later navigation would map the wrong
-                // full reading to a pick.
-                if (m_predictionActive && sel < (int)m_predictionReadings.size())
-                    m_predictionReadings.erase(m_predictionReadings.begin() + sel);
-                if (cur.empty())
-                {
-                    m_pCandWnd->Hide();
-                    m_predictionActive = false;
-                    m_predictionReadings.clear();
-                }
-                else
-                {
-                    m_pCandWnd->SetCandidates(cur);
-                    if (m_predictionActive) NavigatePrediction(0, pic);
-                    else                    ApplyCandidateSelection(pic);
+                    cur.erase(cur.begin() + sel);
+                    // Keep the prediction reading list parallel to the shown
+                    // candidates, or later navigation would map the wrong
+                    // full reading to a pick.
+                    if (m_predictionActive && sel < static_cast<int>(m_predictionReadings.size()))
+                        m_predictionReadings.erase(m_predictionReadings.begin() + sel);
+                    if (cur.empty())
+                    {
+                        m_pCandWnd->Hide();
+                        m_predictionActive = false;
+                        m_predictionReadings.clear();
+                    }
+                    else
+                    {
+                        m_pCandWnd->SetCandidates(cur);
+                        if (m_predictionActive) NavigatePrediction(0, pic);
+                        else ApplyCandidateSelection(pic);
+                    }
                 }
             }
-        }
             *pfEaten = TRUE;
         }
     }
@@ -4821,13 +5026,14 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         // preceding base character on render. The IME just makes the
         // codepoint typeable — the combining semantics are up to the
         // font/shaper on the host side.
-        auto hexVal = [](wchar_t c) -> int {
-            if (c >= L'0' && c <= L'9') return (int)(c - L'0');
-            if (c >= L'a' && c <= L'f') return 10 + (int)(c - L'a');
-            if (c >= L'A' && c <= L'F') return 10 + (int)(c - L'A');
-            if (c >= 0xFF10 && c <= 0xFF19) return (int)(c - 0xFF10);   // '０'-'９'
-            if (c >= 0xFF41 && c <= 0xFF46) return 10 + (int)(c - 0xFF41); // 'ａ'-'ｆ'
-            if (c >= 0xFF21 && c <= 0xFF26) return 10 + (int)(c - 0xFF21); // 'Ａ'-'Ｆ'
+        auto hexVal = [](wchar_t c) -> int
+        {
+            if (c >= L'0' && c <= L'9') return c - L'0';
+            if (c >= L'a' && c <= L'f') return 10 + (c - L'a');
+            if (c >= L'A' && c <= L'F') return 10 + (c - L'A');
+            if (c >= 0xFF10 && c <= 0xFF19) return c - 0xFF10; // '０'-'９'
+            if (c >= 0xFF41 && c <= 0xFF46) return 10 + (c - 0xFF41); // 'ａ'-'ｆ'
+            if (c >= 0xFF21 && c <= 0xFF26) return 10 + (c - 0xFF21); // 'Ａ'-'Ｆ'
             return -1;
         };
         if (m_pComposition)
@@ -4843,17 +5049,22 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
             // back to that field so a second F5 tap flips「4EFB」back
             // to「任」.
             const std::wstring& src = !m_romajiBuffer.empty()
-                                    ? m_romajiBuffer
-                                    : m_fkeyConvertedText;
+                                          ? m_romajiBuffer
+                                          : m_fkeyConvertedText;
             const size_t n = src.size();
             if (n >= 4 && n <= 6)
             {
                 unsigned cp = 0;
                 bool ok = true;
-                for (size_t i = 0; i < n; ++i) {
+                for (size_t i = 0; i < n; ++i)
+                {
                     int v = hexVal(src[i]);
-                    if (v < 0) { ok = false; break; }
-                    cp = (cp << 4) | (unsigned)v;
+                    if (v < 0)
+                    {
+                        ok = false;
+                        break;
+                    }
+                    cp = (cp << 4) | static_cast<unsigned>(v);
                 }
                 // Valid Unicode scalar: 0..10FFFF minus the surrogate
                 // range D800..DFFF (those are code units, not scalar
@@ -4863,22 +5074,22 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
                     std::wstring text;
                     if (cp <= 0xFFFF)
                     {
-                        text.push_back((wchar_t)cp);
+                        text.push_back(static_cast<wchar_t>(cp));
                     }
                     else
                     {
                         // Supplementary plane → UTF-16 surrogate pair.
                         // U+1F600 → 0xD83D 0xDE00 = a 😀 emoji.
                         unsigned s = cp - 0x10000;
-                        text.push_back((wchar_t)(0xD800 | (s >> 10)));
-                        text.push_back((wchar_t)(0xDC00 | (s & 0x3FF)));
+                        text.push_back(static_cast<wchar_t>(0xD800 | (s >> 10)));
+                        text.push_back(static_cast<wchar_t>(0xDC00 | (s & 0x3FF)));
                     }
                     if (m_pCandWnd) m_pCandWnd->Hide();
                     if (pic) RequestEditSession(pic, EditAction::Update, text);
                     m_compositionConverted = TRUE;
-                    m_fkeyConvertedText    = text;
-                    m_lastReading          = src;
-                    m_predictionActive     = false;
+                    m_fkeyConvertedText = text;
+                    m_lastReading = src;
+                    m_predictionActive = false;
                     m_predictionReadings.clear();
                 }
             }
@@ -4913,23 +5124,28 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         std::wstring text;
         switch (wParam)
         {
-        case VK_F6:  text = hira; break;
-        case VK_F7:  text = ToFullKatakana(hira); break;
-        case VK_F8:  text = ToHalfKatakana(ToFullKatakana(hira)); break;
-        case VK_F9:  text = ToFullWidthAscii(m_romajiBuffer); break;
-        case VK_F10: text = m_romajiBuffer; break;
+        case VK_F6: text = hira;
+            break;
+        case VK_F7: text = ToFullKatakana(hira);
+            break;
+        case VK_F8: text = ToHalfKatakana(ToFullKatakana(hira));
+            break;
+        case VK_F9: text = ToFullWidthAscii(m_romajiBuffer);
+            break;
+        case VK_F10: text = m_romajiBuffer;
+            break;
         }
         if (m_pCandWnd) m_pCandWnd->Hide();
         if (pic && !text.empty()) RequestEditSession(pic, EditAction::Update, text);
-        m_compositionConverted    = TRUE;
-        m_fkeyConvertedText       = text;
-        m_lastReading             = hira;  // learning key for the F-key form
-        m_predictionActive        = false; // F-key form supersedes predictions
+        m_compositionConverted = TRUE;
+        m_fkeyConvertedText = text;
+        m_lastReading = hira; // learning key for the F-key form
+        m_predictionActive = false; // F-key form supersedes predictions
         m_predictionReadings.clear();
         *pfEaten = TRUE;
     }
     else if (wParam == VK_F4 && !m_pComposition && !m_lastCommittedText.empty()
-             && GetKeyState(VK_MENU) >= 0)
+        && GetKeyState(VK_MENU) >= 0)
     {
         // Repeat-paste (記号連打): re-insert the previous commit verbatim,
         // no composition round-trip. AppendCommittedText keeps the LLM
@@ -4943,8 +5159,8 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
     {
         // Number key: jump to that row of the current page (the rendered
         // index is 1-based per page, not per full candidate list).
-        int idx = m_pCandWnd->GetPageStart() + (int)(wParam - '1');
-        if (idx < (int)m_pCandWnd->Count())
+        int idx = m_pCandWnd->GetPageStart() + static_cast<int>(wParam - '1');
+        if (idx < static_cast<int>(m_pCandWnd->Count()))
         {
             m_pCandWnd->SelectIndex(idx);
             ApplyCandidateSelection(pic);
@@ -4971,7 +5187,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
                     for (const auto& b : m_bunsetsuList)
                     {
                         if (b.reading.empty() || b.candidates.empty()) continue;
-                        if (b.selected >= b.candidates.size())          continue;
+                        if (b.selected >= b.candidates.size()) continue;
                         m_pLearning->Record(b.reading, b.candidates[b.selected], ctx);
                         joinedReading += b.reading;
                         clauseReadings.push_back(b.reading);
@@ -5105,7 +5321,11 @@ STDMETHODIMP CTextService::OnCompositionTerminated(TfEditCookie /*ecWrite*/, ITf
 
 void CTextService::SetComposition(ITfComposition* pComposition)
 {
-    if (m_pComposition) { m_pComposition->Release(); m_pComposition = nullptr; }
+    if (m_pComposition)
+    {
+        m_pComposition->Release();
+        m_pComposition = nullptr;
+    }
     if (pComposition)
     {
         m_pComposition = pComposition;
@@ -5114,7 +5334,7 @@ void CTextService::SetComposition(ITfComposition* pComposition)
 }
 
 HRESULT CTextService::RequestEditSession(ITfContext* pContext, EditAction action, const std::wstring& text,
-                                        size_t caretOffsetFromEnd)
+                                         size_t caretOffsetFromEnd)
 {
     // 吸収した閉じ括弧はコンポジション表示に自動付加する。
     // EndCommit は m_text 空で「範囲そのまま確定」する運用があり、その場合の
@@ -5125,8 +5345,8 @@ HRESULT CTextService::RequestEditSession(ITfContext* pContext, EditAction action
     if (m_absorbedCloseBracket != 0)
     {
         bool appendHere = (action == EditAction::StartAndUpdate)
-                       || (action == EditAction::Update)
-                       || (action == EditAction::EndCommit && !text.empty());
+            || (action == EditAction::Update)
+            || (action == EditAction::EndCommit && !text.empty());
         if (appendHere)
         {
             effectiveText.push_back(m_absorbedCloseBracket);
@@ -5140,7 +5360,7 @@ HRESULT CTextService::RequestEditSession(ITfContext* pContext, EditAction action
         }
     }
 
-    CEditSession* pSession = new CEditSession(this, pContext, action, effectiveText);
+    auto pSession = new CEditSession(this, pContext, action, effectiveText);
 
     // When we're in Phase B AND the action is an Update of the live
     // composition, attach the current focused-bunsetsu offset so the edit
@@ -5181,7 +5401,7 @@ HRESULT CTextService::RequestEditSession(ITfContext* pContext, EditAction action
         hr = pContext->RequestEditSession(m_tfClientId, pSession, TF_ES_ASYNCDONTCARE | TF_ES_READWRITE, &hrSession);
         wchar_t buf[200];
         swprintf_s(buf, L"[GenerativeIME] RequestEditSession fell back to async hr=0x%08X session=0x%08X\n",
-                   (unsigned)hr, (unsigned)hrSession);
+                   static_cast<unsigned>(hr), static_cast<unsigned>(hrSession));
         OutputDebugStringW(buf);
     }
     pSession->Release();

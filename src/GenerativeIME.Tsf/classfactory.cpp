@@ -50,7 +50,7 @@ STDMETHODIMP CClassFactory::CreateInstance(IUnknown* pUnkOuter, REFIID riid, voi
 
     if (pUnkOuter != nullptr) return CLASS_E_NOAGGREGATION;
 
-    CTextService* pSvc = new (std::nothrow) CTextService();
+    auto pSvc = new(std::nothrow) CTextService();
     if (pSvc == nullptr) return E_OUTOFMEMORY;
 
     HRESULT hr = pSvc->QueryInterface(riid, ppvObj);
@@ -60,7 +60,9 @@ STDMETHODIMP CClassFactory::CreateInstance(IUnknown* pUnkOuter, REFIID riid, voi
 
 STDMETHODIMP CClassFactory::LockServer(BOOL fLock)
 {
-    if (fLock) InterlockedIncrement(&g_cRefDll);
-    else       InterlockedDecrement(&g_cRefDll);
+    if (fLock)
+        InterlockedIncrement(&g_cRefDll);
+    else
+        InterlockedDecrement(&g_cRefDll);
     return S_OK;
 }

@@ -10,18 +10,18 @@ namespace GenerativeIME.DictManager;
 
 public partial class MainWindow : Window
 {
-    private ObservableCollection<DictFile> _dicts = new();
-    private ObservableCollection<DictEntry> _entries = new();
     private DictFile? _current;
-    private string _header = "";
+    private ObservableCollection<DictFile> _dicts = new();
     private bool _dirty;
-    private bool _loading;   // suppress dirty-marking while (re)loading
+    private ObservableCollection<DictEntry> _entries = new();
+    private string _header = "";
+    private bool _loading; // suppress dirty-marking while (re)loading
 
     public MainWindow()
     {
         InitializeComponent();
         PathHint.Text = UserDictStore.DictDir();
-        ReloadDicts(selectFirst: true);
+        ReloadDicts(true);
     }
 
     private void ReloadDicts(bool selectFirst = false, string? selectPathName = null)
@@ -32,18 +32,26 @@ public partial class MainWindow : Window
         if (selectPathName != null)
         {
             var match = _dicts.FirstOrDefault(d => d.DisplayName == selectPathName);
-            if (match != null) DictList.SelectedItem = match;
+            if (match != null)
+            {
+                DictList.SelectedItem = match;
+            }
         }
         else if (selectFirst && _dicts.Count > 0)
         {
             DictList.SelectedItem = _dicts[0];
         }
+
         Status.Text = $"{_dicts.Count} 辞書";
     }
 
     private void DictList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_dirty && _current != null && !PromptDiscard()) return;
+        if (_dirty && _current != null && !PromptDiscard())
+        {
+            return;
+        }
+
         LoadSelected();
     }
 
@@ -55,17 +63,20 @@ public partial class MainWindow : Window
         if (_entries != null)
         {
             _entries.CollectionChanged -= Entries_CollectionChanged;
-            foreach (var en in _entries) en.PropertyChanged -= Entry_PropertyChanged;
+            foreach (var en in _entries)
+            {
+                en.PropertyChanged -= Entry_PropertyChanged;
+            }
         }
 
-        bool has = _current != null;
+        var has = _current != null;
         RenameBtn.IsEnabled = ExportBtn.IsEnabled = DeleteDictBtn.IsEnabled =
             AddRowBtn.IsEnabled = DelRowBtn.IsEnabled = EntryGrid.IsEnabled = has;
 
         if (!has)
         {
             EntriesTitle.Text = "辞書を選択してください";
-            _entries = new();
+            _entries = new ObservableCollection<DictEntry>();
             EntryGrid.ItemsSource = null;
             SetDirty(false);
             return;
@@ -80,10 +91,15 @@ public partial class MainWindow : Window
         {
             MessageBox.Show(this, $"読み込みに失敗しました:\n{ex.Message}", "エラー",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
-            _entries = new();
+            _entries = new ObservableCollection<DictEntry>();
         }
+
         _entries.CollectionChanged += Entries_CollectionChanged;
-        foreach (var en in _entries) en.PropertyChanged += Entry_PropertyChanged;
+        foreach (var en in _entries)
+        {
+            en.PropertyChanged += Entry_PropertyChanged;
+        }
+
         EntryGrid.ItemsSource = _entries;
         EntriesTitle.Text = _current!.DisplayName;
         _loading = false;
@@ -93,20 +109,41 @@ public partial class MainWindow : Window
     private void Entries_CollectionChanged(object? s, NotifyCollectionChangedEventArgs e)
     {
         if (e.NewItems != null)
-            foreach (DictEntry en in e.NewItems) en.PropertyChanged += Entry_PropertyChanged;
+        {
+            foreach (DictEntry en in e.NewItems)
+            {
+                en.PropertyChanged += Entry_PropertyChanged;
+            }
+        }
+
         if (e.OldItems != null)
-            foreach (DictEntry en in e.OldItems) en.PropertyChanged -= Entry_PropertyChanged;
-        if (!_loading) SetDirty(true);
+        {
+            foreach (DictEntry en in e.OldItems)
+            {
+                en.PropertyChanged -= Entry_PropertyChanged;
+            }
+        }
+
+        if (!_loading)
+        {
+            SetDirty(true);
+        }
     }
 
     private void Entry_PropertyChanged(object? s, PropertyChangedEventArgs e)
     {
-        if (!_loading) SetDirty(true);
+        if (!_loading)
+        {
+            SetDirty(true);
+        }
     }
 
     private void EntryGrid_CellEditEnding(object? sender, DataGridCellEditEndingEventArgs e)
     {
-        if (!_loading) SetDirty(true);
+        if (!_loading)
+        {
+            SetDirty(true);
+        }
     }
 
     private void SetDirty(bool dirty)
@@ -125,7 +162,11 @@ public partial class MainWindow : Window
 
     private void Save_Click(object sender, RoutedEventArgs e)
     {
-        if (_current == null) return;
+        if (_current == null)
+        {
+            return;
+        }
+
         EntryGrid.CommitEdit(DataGridEditingUnit.Row, true);
         try
         {
@@ -134,7 +175,7 @@ public partial class MainWindow : Window
                 x.Reading.Trim().Length > 0 && x.Candidates.Trim().Trim('/').Length > 0);
             SetDirty(false);
             Status.Text = $"保存しました — {_current.DisplayName}（{_current.EntryCount} 語）。"
-                        + "変更は次に開くアプリから有効になります。";
+                          + "変更は次に開くアプリから有効になります。";
         }
         catch (Exception ex)
         {
@@ -154,14 +195,25 @@ public partial class MainWindow : Window
     private void DelRow_Click(object sender, RoutedEventArgs e)
     {
         var sel = EntryGrid.SelectedItems.OfType<DictEntry>().ToList();
-        foreach (var en in sel) _entries.Remove(en);
-        if (sel.Count > 0) SetDirty(true);
+        foreach (var en in sel)
+        {
+            _entries.Remove(en);
+        }
+
+        if (sel.Count > 0)
+        {
+            SetDirty(true);
+        }
     }
 
     private void NewDict_Click(object sender, RoutedEventArgs e)
     {
         var name = InputDialog.Show(this, "新しい辞書", "辞書の名前:", "my-dictionary");
-        if (string.IsNullOrWhiteSpace(name)) return;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return;
+        }
+
         try
         {
             var f = UserDictStore.Create(name);
@@ -179,28 +231,44 @@ public partial class MainWindow : Window
         {
             Title = "辞書をインポート",
             Filter = "SKK 辞書 (*.utf8;*.txt)|*.utf8;*.txt|すべてのファイル (*.*)|*.*",
-            Multiselect = true,
+            Multiselect = true
         };
-        if (dlg.ShowDialog(this) != true) return;
+        if (dlg.ShowDialog(this) != true)
+        {
+            return;
+        }
+
         DictFile? last = null;
         foreach (var src in dlg.FileNames)
         {
-            try { last = UserDictStore.Import(src); }
+            try
+            {
+                last = UserDictStore.Import(src);
+            }
             catch (Exception ex)
             {
                 MessageBox.Show(this, $"{Path.GetFileName(src)} のインポートに失敗:\n{ex.Message}",
                     "エラー", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
+
         ReloadDicts(selectPathName: last?.DisplayName);
         Status.Text = "インポートしました。変更は次に開くアプリから有効になります。";
     }
 
     private void RenameDict_Click(object sender, RoutedEventArgs e)
     {
-        if (_current == null) return;
+        if (_current == null)
+        {
+            return;
+        }
+
         var name = InputDialog.Show(this, "辞書の名前を変更", "新しい名前:", _current.DisplayName);
-        if (string.IsNullOrWhiteSpace(name)) return;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return;
+        }
+
         try
         {
             // Mutates the existing DictFile (notifies DisplayName/FullPath), so
@@ -217,14 +285,22 @@ public partial class MainWindow : Window
 
     private void Export_Click(object sender, RoutedEventArgs e)
     {
-        if (_current == null) return;
+        if (_current == null)
+        {
+            return;
+        }
+
         var dlg = new SaveFileDialog
         {
             Title = "辞書をエクスポート",
             FileName = _current.DisplayName + ".utf8",
-            Filter = "SKK 辞書 (*.utf8)|*.utf8|すべてのファイル (*.*)|*.*",
+            Filter = "SKK 辞書 (*.utf8)|*.utf8|すべてのファイル (*.*)|*.*"
         };
-        if (dlg.ShowDialog(this) != true) return;
+        if (dlg.ShowDialog(this) != true)
+        {
+            return;
+        }
+
         try
         {
             UserDictStore.Export(_current, dlg.FileName);
@@ -238,17 +314,28 @@ public partial class MainWindow : Window
 
     private void DeleteDict_Click(object sender, RoutedEventArgs e)
     {
-        if (_current == null) return;
+        if (_current == null)
+        {
+            return;
+        }
+
         var r = MessageBox.Show(this,
             $"辞書「{_current.DisplayName}」を削除しますか？この操作は元に戻せません。",
             "辞書を削除", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
-        if (r != MessageBoxResult.OK) return;
+        if (r != MessageBoxResult.OK)
+        {
+            return;
+        }
+
         try
         {
             UserDictStore.Delete(_current);
             _dirty = false;
-            ReloadDicts(selectFirst: true);
-            if (_dicts.Count == 0) LoadSelected();
+            ReloadDicts(true);
+            if (_dicts.Count == 0)
+            {
+                LoadSelected();
+            }
         }
         catch (Exception ex)
         {
@@ -258,7 +345,12 @@ public partial class MainWindow : Window
 
     protected override void OnClosing(CancelEventArgs e)
     {
-        if (_dirty && !PromptDiscard()) { e.Cancel = true; return; }
+        if (_dirty && !PromptDiscard())
+        {
+            e.Cancel = true;
+            return;
+        }
+
         base.OnClosing(e);
     }
 }

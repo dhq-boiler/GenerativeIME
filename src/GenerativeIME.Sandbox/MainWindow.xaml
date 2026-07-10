@@ -3,7 +3,6 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:GenerativeIME.Sandbox"
         mc:Ignorable="d"
         Title="GenerativeIME Sandbox"
         Height="520" Width="820"
@@ -12,12 +11,12 @@
         <!-- Settings bar -->
         <Border DockPanel.Dock="Top" Background="#F5F5F5" Padding="8" BorderBrush="#DDD" BorderThickness="0,0,0,1">
             <StackPanel Orientation="Horizontal">
-                <TextBlock Text="モデル:" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                <TextBox x:Name="ModelBox" Width="180" Text="gemma4:12b" VerticalAlignment="Center"/>
-                <TextBlock Text="エンドポイント:" VerticalAlignment="Center" Margin="16,0,4,0"/>
-                <TextBox x:Name="EndpointBox" Width="180" Text="http://127.0.0.1:11434" VerticalAlignment="Center"/>
-                <TextBlock Text="候補数:" VerticalAlignment="Center" Margin="16,0,4,0"/>
-                <TextBox x:Name="MaxBox" Width="40" Text="8" VerticalAlignment="Center"/>
+                <TextBlock Text="モデル:" VerticalAlignment="Center" Margin="0,0,4,0" />
+                <TextBox x:Name="ModelBox" Width="180" Text="gemma4:12b" VerticalAlignment="Center" />
+                <TextBlock Text="エンドポイント:" VerticalAlignment="Center" Margin="16,0,4,0" />
+                <TextBox x:Name="EndpointBox" Width="180" Text="http://127.0.0.1:11434" VerticalAlignment="Center" />
+                <TextBlock Text="候補数:" VerticalAlignment="Center" Margin="16,0,4,0" />
+                <TextBox x:Name="MaxBox" Width="40" Text="8" VerticalAlignment="Center" />
             </StackPanel>
         </Border>
 
@@ -25,15 +24,15 @@
         <Border DockPanel.Dock="Bottom" Background="#FAFAFA" Padding="8" BorderBrush="#DDD" BorderThickness="0,1,0,0">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <StackPanel Orientation="Horizontal" Grid.Column="0">
-                    <TextBlock Text="未確定:" Margin="0,0,6,0"/>
-                    <TextBlock x:Name="CompText" FontWeight="Bold" TextDecorations="Underline"/>
-                    <TextBlock x:Name="RomajiText" Foreground="#888" Margin="6,0,0,0"/>
+                    <TextBlock Text="未確定:" Margin="0,0,6,0" />
+                    <TextBlock x:Name="CompText" FontWeight="Bold" TextDecorations="Underline" />
+                    <TextBlock x:Name="RomajiText" Foreground="#888" Margin="6,0,0,0" />
                 </StackPanel>
-                <TextBlock x:Name="StatusText" Grid.Column="1" Foreground="#666"/>
+                <TextBlock x:Name="StatusText" Grid.Column="1" Foreground="#666" />
             </Grid>
         </Border>
 
@@ -47,7 +46,7 @@
                      InputMethod.IsInputMethodEnabled="False"
                      Padding="12"
                      PreviewKeyDown="Editor_OnPreviewKeyDown"
-                     PreviewTextInput="Editor_OnPreviewTextInput"/>
+                     PreviewTextInput="Editor_OnPreviewTextInput" />
 
             <Popup x:Name="CandidatePopup"
                    Placement="Relative"
@@ -63,8 +62,8 @@
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="{Binding Index}" Width="20" Foreground="#888" Margin="0,0,8,0"/>
-                                    <TextBlock Text="{Binding Text}"/>
+                                    <TextBlock Text="{Binding Index}" Width="20" Foreground="#888" Margin="0,0,8,0" />
+                                    <TextBlock Text="{Binding Text}" />
                                 </StackPanel>
                             </DataTemplate>
                         </ListBox.ItemTemplate>

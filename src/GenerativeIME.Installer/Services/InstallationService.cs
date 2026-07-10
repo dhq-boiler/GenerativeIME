@@ -1,13 +1,9 @@
-using System;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
-using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
 using GenerativeIME.Installer.Models;
 
 namespace GenerativeIME.Installer.Services;
@@ -25,12 +21,16 @@ public sealed record InstallResult(bool Success, InstallationManifest? Manifest,
 public sealed class InstallationService : IInstallationService
 {
     private const string PayloadResourceName = "GenerativeIME.Installer.Embedded.payload.zip";
+
+    private const string StashSuffix = ".gimeoldstash-";
+    private const int MOVEFILE_REPLACE_EXISTING = 0x1;
+    private const int MOVEFILE_DELAY_UNTIL_REBOOT = 0x4;
     private static readonly TimeSpan KillWait = TimeSpan.FromSeconds(5);
+    private readonly IArpService _arp;
+    private readonly IFileLockResolver _fileLocks;
 
     private readonly IPathService _paths;
-    private readonly IArpService _arp;
     private readonly ITsfService _tsf;
-    private readonly IFileLockResolver _fileLocks;
 
     public InstallationService(IPathService paths, IArpService arp, ITsfService tsf, IFileLockResolver fileLocks)
     {
@@ -88,7 +88,7 @@ public sealed class InstallationService : IInstallationService
             var probe = new[]
             {
                 oldDll,
-                _paths.DictManagerExePath(installRoot),
+                _paths.DictManagerExePath(installRoot)
             }.Where(File.Exists).ToArray();
             if (probe.Length > 0)
             {
@@ -146,9 +146,9 @@ public sealed class InstallationService : IInstallationService
             var version = Assembly.GetExecutingAssembly().GetName().Version;
             var versionString = version is null ? "0.0.0" : $"{version.Major}.{version.Minor}.{version.Build}";
             var manifest = new InstallationManifest(
-                Version: versionString,
-                InstallRoot: installRoot,
-                InstalledAtUtc: DateTime.UtcNow);
+                versionString,
+                installRoot,
+                DateTime.UtcNow);
             await File.WriteAllTextAsync(_paths.ManifestPath(installRoot),
                 JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }),
                 ct);
@@ -186,11 +186,16 @@ public sealed class InstallationService : IInstallationService
         {
             try
             {
-                p.Kill(entireProcessTree: true);
+                p.Kill(true);
                 p.WaitForExit(3000);
             }
-            catch { }
-            finally { p.Dispose(); }
+            catch
+            {
+            }
+            finally
+            {
+                p.Dispose();
+            }
         }
     }
 
@@ -201,14 +206,14 @@ public sealed class InstallationService : IInstallationService
     // is allowed — see the fuller comments there.
     private static bool IsUnidicPath(string relativePath)
     {
-        if (string.IsNullOrEmpty(relativePath)) return false;
+        if (string.IsNullOrEmpty(relativePath))
+        {
+            return false;
+        }
+
         var normalized = relativePath.Replace('\\', '/');
         return normalized.StartsWith("unidic-lite/", StringComparison.OrdinalIgnoreCase);
     }
-
-    private const string StashSuffix = ".gimeoldstash-";
-    private const int MOVEFILE_REPLACE_EXISTING = 0x1;
-    private const int MOVEFILE_DELAY_UNTIL_REBOOT = 0x4;
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern bool MoveFileExW(string lpExistingFileName, string? lpNewFileName, int dwFlags);
@@ -242,12 +247,37 @@ public sealed class InstallationService : IInstallationService
     // then throws a clean SharingViolation if that path also fails.
     private static void RelocateIfLocked(string dst)
     {
-        if (!File.Exists(dst)) return;
-        try { File.SetAttributes(dst, FileAttributes.Normal); } catch { }
-        try { File.Delete(dst); return; } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        if (!File.Exists(dst))
+        {
+            return;
+        }
+
+        try
+        {
+            File.SetAttributes(dst, FileAttributes.Normal);
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            File.Delete(dst);
+            return;
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
 
         var dir = Path.GetDirectoryName(dst);
-        if (string.IsNullOrEmpty(dir)) return;
+        if (string.IsNullOrEmpty(dir))
+        {
+            return;
+        }
+
         var name = Path.GetFileName(dst);
 
         // Prune any prior stashes of THIS specific file first. Only stashes
@@ -257,10 +287,19 @@ public sealed class InstallationService : IInstallationService
         {
             foreach (var prior in Directory.EnumerateFiles(dir, name + StashSuffix + "*"))
             {
-                try { File.SetAttributes(prior, FileAttributes.Normal); File.Delete(prior); } catch { }
+                try
+                {
+                    File.SetAttributes(prior, FileAttributes.Normal);
+                    File.Delete(prior);
+                }
+                catch
+                {
+                }
             }
         }
-        catch { }
+        catch
+        {
+        }
 
         var stashName = name + StashSuffix + DateTime.UtcNow.Ticks.ToString("X");
         var stash = Path.Combine(dir, stashName);
@@ -286,20 +325,37 @@ public sealed class InstallationService : IInstallationService
     // Callable from UninstallationService too — same suffix, same rules.
     internal static void CleanupStashes(string folder)
     {
-        if (!Directory.Exists(folder)) return;
+        if (!Directory.Exists(folder))
+        {
+            return;
+        }
+
         try
         {
             foreach (var f in Directory.EnumerateFiles(folder, "*" + StashSuffix + "*", SearchOption.AllDirectories))
             {
-                try { File.SetAttributes(f, FileAttributes.Normal); File.Delete(f); } catch { }
+                try
+                {
+                    File.SetAttributes(f, FileAttributes.Normal);
+                    File.Delete(f);
+                }
+                catch
+                {
+                }
             }
         }
-        catch { }
+        catch
+        {
+        }
     }
 
     private static void WipeFolderContents(string folder)
     {
-        if (!Directory.Exists(folder)) return;
+        if (!Directory.Exists(folder))
+        {
+            return;
+        }
+
         // First drain any leftover stashes from previous installs. If the
         // process that had them mapped has since exited, this finally
         // reclaims the disk space.
@@ -311,11 +367,28 @@ public sealed class InstallationService : IInstallationService
             // We can't rely on the extract's own retry for this because two
             // Delete calls in a row against a mapped file just fail twice —
             // the mapping doesn't release from repeated poking.
-            try { File.SetAttributes(f, FileAttributes.Normal); } catch { }
-            try { File.Delete(f); }
-            catch (IOException)         { RelocateIfLocked(f); }
-            catch (UnauthorizedAccessException) { RelocateIfLocked(f); }
+            try
+            {
+                File.SetAttributes(f, FileAttributes.Normal);
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                File.Delete(f);
+            }
+            catch (IOException)
+            {
+                RelocateIfLocked(f);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                RelocateIfLocked(f);
+            }
         }
+
         foreach (var d in Directory.EnumerateDirectories(folder))
         {
             // Skip unidic-lite: static reference data (~200MB) that never
@@ -327,12 +400,23 @@ public sealed class InstallationService : IInstallationService
             // in the extract path skips overwrite when identical, so we
             // never need to release the memory-map at all.
             var name = Path.GetFileName(d);
-            if (string.Equals(name, "unidic-lite", StringComparison.OrdinalIgnoreCase)) continue;
-            try { Directory.Delete(d, recursive: true); } catch { }
+            if (string.Equals(name, "unidic-lite", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            try
+            {
+                Directory.Delete(d, true);
+            }
+            catch
+            {
+            }
         }
     }
 
-    private async Task ExtractPayloadAsync(string installRoot, IProgress<InstallProgress>? progress, CancellationToken ct)
+    private async Task ExtractPayloadAsync(string installRoot, IProgress<InstallProgress>? progress,
+        CancellationToken ct)
     {
         // Two sources, checked in order:
         //   1. Embedded resource GenerativeIME.Installer.Embedded.payload.zip
@@ -343,16 +427,24 @@ public sealed class InstallationService : IInstallationService
         using var embedded = asm.GetManifestResourceStream(PayloadResourceName);
         if (embedded is not null)
         {
-            using var zip = new ZipArchive(embedded, ZipArchiveMode.Read, leaveOpen: false);
+            using var zip = new ZipArchive(embedded, ZipArchiveMode.Read, false);
             var total = zip.Entries.Count;
             var done = 0;
             foreach (var entry in zip.Entries)
             {
                 ct.ThrowIfCancellationRequested();
-                if (string.IsNullOrEmpty(entry.Name)) { done++; continue; }
+                if (string.IsNullOrEmpty(entry.Name))
+                {
+                    done++;
+                    continue;
+                }
+
                 var dst = Path.GetFullPath(Path.Combine(installRoot, entry.FullName));
                 if (!dst.StartsWith(Path.GetFullPath(installRoot), StringComparison.OrdinalIgnoreCase))
+                {
                     throw new IOException($"ZIP entry escapes destination: {entry.FullName}");
+                }
+
                 Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
                 // Compare-by-size skip is limited to unidic-lite/*, which is
                 // static reference data (~200MB) that stays memory-mapped in
@@ -376,15 +468,17 @@ public sealed class InstallationService : IInstallationService
                     done++;
                     continue;
                 }
+
                 RelocateIfLocked(dst);
-                entry.ExtractToFile(dst, overwrite: true);
+                entry.ExtractToFile(dst, true);
                 done++;
                 if (progress is not null && total > 0)
                 {
-                    var pct = 0.30 + 0.45 * done / (double)total;
+                    var pct = 0.30 + 0.45 * done / total;
                     progress.Report(new InstallProgress($"展開中… ({done}/{total})", pct));
                 }
             }
+
             return;
         }
 
@@ -399,7 +493,8 @@ public sealed class InstallationService : IInstallationService
             "ペイロードが見つかりません (embedded resource / payload フォルダの両方が不在)。");
     }
 
-    private static async Task CopyDirectoryAsync(string src, string dst, IProgress<InstallProgress>? progress, CancellationToken ct)
+    private static async Task CopyDirectoryAsync(string src, string dst, IProgress<InstallProgress>? progress,
+        CancellationToken ct)
     {
         Directory.CreateDirectory(dst);
         var files = Directory.EnumerateFiles(src, "*", SearchOption.AllDirectories).ToArray();
@@ -427,9 +522,10 @@ public sealed class InstallationService : IInstallationService
                     done++;
                     if (progress is not null && total > 0)
                     {
-                        var pctSkip = 0.30 + 0.45 * done / (double)total;
+                        var pctSkip = 0.30 + 0.45 * done / total;
                         progress.Report(new InstallProgress($"スキップ (同一)… ({done}/{total})", pctSkip));
                     }
+
                     continue;
                 }
             }
@@ -437,11 +533,14 @@ public sealed class InstallationService : IInstallationService
             RelocateIfLocked(dstFile);
             await using (var s = File.OpenRead(srcFile))
             await using (var d = File.Create(dstFile))
+            {
                 await s.CopyToAsync(d, ct);
+            }
+
             done++;
             if (progress is not null && total > 0)
             {
-                var pct = 0.30 + 0.45 * done / (double)total;
+                var pct = 0.30 + 0.45 * done / total;
                 progress.Report(new InstallProgress($"コピー中… ({done}/{total})", pct));
             }
         }
@@ -452,12 +551,19 @@ public sealed class InstallationService : IInstallationService
         try
         {
             var src = GetSelfPath();
-            if (string.IsNullOrEmpty(src) || !File.Exists(src)) return null;
+            if (string.IsNullOrEmpty(src) || !File.Exists(src))
+            {
+                return null;
+            }
+
             var dst = _paths.InstallerSelfCopyPath(installRoot);
             // Skip if we're already at the destination (running from InstallRoot).
             if (string.Equals(Path.GetFullPath(src), Path.GetFullPath(dst), StringComparison.OrdinalIgnoreCase))
+            {
                 return dst;
-            File.Copy(src, dst, overwrite: true);
+            }
+
+            File.Copy(src, dst, true);
             return dst;
         }
         catch

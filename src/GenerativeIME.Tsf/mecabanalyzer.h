@@ -56,7 +56,7 @@ public:
 private:
     MecabAnalyzer() = default;
     ~MecabAnalyzer();
-    MecabAnalyzer(const MecabAnalyzer&)            = delete;
+    MecabAnalyzer(const MecabAnalyzer&) = delete;
     MecabAnalyzer& operator=(const MecabAnalyzer&) = delete;
 
     bool Init();
@@ -64,7 +64,7 @@ private:
     // We hold these as void* in the header to keep <mecab.h> out of the
     // public surface (it pulls in <iostream> and friends). The .cpp casts
     // back to the real types.
-    void* m_model  = nullptr;   // MeCab::Model*
-    void* m_tagger = nullptr;   // MeCab::Tagger*
-    bool  m_ready  = false;
+    void* m_model = nullptr; // MeCab::Model*
+    void* m_tagger = nullptr; // MeCab::Tagger*
+    bool m_ready = false;
 };

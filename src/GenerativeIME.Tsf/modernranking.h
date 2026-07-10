@@ -30,7 +30,8 @@
 
 namespace modernranking
 {
-    struct Entry {
+    struct Entry
+    {
         const wchar_t* reading;
         const wchar_t* preferred;
     };

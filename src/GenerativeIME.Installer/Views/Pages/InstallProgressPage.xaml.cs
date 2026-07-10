@@ -6,7 +6,10 @@ namespace GenerativeIME.Installer.Views.Pages;
 
 public partial class InstallProgressPage : UserControl
 {
-    public InstallProgressPage() => InitializeComponent();
+    public InstallProgressPage()
+    {
+        InitializeComponent();
+    }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {

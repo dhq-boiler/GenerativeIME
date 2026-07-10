@@ -13,9 +13,9 @@ class MecabAnalyzer;
 // top suggestion (or the literal kana if the splitter couldn't match it).
 struct Bunsetsu
 {
-    std::wstring              reading;
+    std::wstring reading;
     std::vector<std::wstring> candidates;
-    size_t                    selected = 0;
+    size_t selected = 0;
 
     // `selected` mirrors the candidate window's index, and async list swaps
     // (Ollama results landing mid-Phase-B) can leave it pointing past this

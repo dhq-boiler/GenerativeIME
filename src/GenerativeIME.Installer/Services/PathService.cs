@@ -1,4 +1,3 @@
-using System;
 using System.IO;
 
 namespace GenerativeIME.Installer.Services;
@@ -18,19 +17,29 @@ public sealed class PathService : IPathService
     public string DefaultInstallRoot =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "GenerativeIME");
 
-    public string ManifestPath(string installRoot) =>
-        Path.Combine(installRoot, "install-manifest.json");
+    public string ManifestPath(string installRoot)
+    {
+        return Path.Combine(installRoot, "install-manifest.json");
+    }
 
-    public string TsfDllPath(string installRoot) =>
-        Path.Combine(installRoot, "GenerativeIME.Tsf.dll");
+    public string TsfDllPath(string installRoot)
+    {
+        return Path.Combine(installRoot, "GenerativeIME.Tsf.dll");
+    }
 
-    public string DictManagerExePath(string installRoot) =>
-        Path.Combine(installRoot, "GenerativeIME.DictManager.exe");
+    public string DictManagerExePath(string installRoot)
+    {
+        return Path.Combine(installRoot, "GenerativeIME.DictManager.exe");
+    }
 
-    public string SeedHkcuPs1Path(string installRoot) =>
-        Path.Combine(installRoot, "SeedHkcu.ps1");
+    public string SeedHkcuPs1Path(string installRoot)
+    {
+        return Path.Combine(installRoot, "SeedHkcu.ps1");
+    }
 
     /// <summary>Where the installer copies itself for later uninstall (ARP UninstallString points here).</summary>
-    public string InstallerSelfCopyPath(string installRoot) =>
-        Path.Combine(installRoot, "GenerativeImeInstaller.exe");
+    public string InstallerSelfCopyPath(string installRoot)
+    {
+        return Path.Combine(installRoot, "GenerativeImeInstaller.exe");
+    }
 }

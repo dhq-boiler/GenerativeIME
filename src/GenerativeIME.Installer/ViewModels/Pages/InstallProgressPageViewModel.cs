@@ -1,6 +1,3 @@
-using System;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using GenerativeIME.Installer.Models;
@@ -10,13 +7,13 @@ namespace GenerativeIME.Installer.ViewModels.Pages;
 
 public sealed partial class InstallProgressPageViewModel : PageViewModelBase
 {
-    private readonly INavigationService _nav;
     private readonly InstallationContext _context;
-    private readonly IInstallationService _install;
     private readonly DonePageViewModel _done;
+    private readonly IInstallationService _install;
+    private readonly INavigationService _nav;
+    [ObservableProperty] private double _progressValue;
 
     [ObservableProperty] private string _statusText = "開始しています…";
-    [ObservableProperty] private double _progressValue = 0.0;
 
     public InstallProgressPageViewModel(
         INavigationService nav,

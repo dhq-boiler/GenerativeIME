@@ -1,7 +1,11 @@
+using System.Text;
+
 namespace GenerativeIME.Core;
 
 public static class RomajiToHiragana
 {
+    private const int MaxKey = 3;
+
     private static readonly Dictionary<string, string> Table = new(StringComparer.Ordinal)
     {
         ["a"] = "あ", ["i"] = "い", ["u"] = "う", ["e"] = "え", ["o"] = "お",
@@ -42,14 +46,12 @@ public static class RomajiToHiragana
         ["la"] = "ぁ", ["li"] = "ぃ", ["lu"] = "ぅ", ["le"] = "ぇ", ["lo"] = "ぉ",
         ["xa"] = "ぁ", ["xi"] = "ぃ", ["xu"] = "ぅ", ["xe"] = "ぇ", ["xo"] = "ぉ",
         ["ltu"] = "っ", ["xtu"] = "っ",
-        ["-"] = "ー",
+        ["-"] = "ー"
     };
-
-    private const int MaxKey = 3;
 
     public static (string Hiragana, string Remaining) Convert(string romaji)
     {
-        var hira = new System.Text.StringBuilder();
+        var hira = new StringBuilder();
         var i = 0;
         while (i < romaji.Length)
         {
@@ -68,7 +70,10 @@ public static class RomajiToHiragana
                 }
             }
 
-            if (matched) continue;
+            if (matched)
+            {
+                continue;
+            }
 
             // sokuon: same consonant twice (kk, tt, ss, …) → っ + remainder
             if (i + 1 < romaji.Length)
@@ -99,15 +104,22 @@ public static class RomajiToHiragana
             // unmatched → leftover for caller
             return (hira.ToString(), romaji.Substring(i));
         }
+
         return (hira.ToString(), string.Empty);
     }
 
     public static string FinalizeTrailingN(string romaji)
     {
-        if (romaji == "n") return "ん";
+        if (romaji == "n")
+        {
+            return "ん";
+        }
+
         return romaji;
     }
 
-    private static bool IsSokuonConsonant(char c) =>
-        c is not ('a' or 'i' or 'u' or 'e' or 'o' or 'n');
+    private static bool IsSokuonConsonant(char c)
+    {
+        return c is not ('a' or 'i' or 'u' or 'e' or 'o' or 'n');
+    }
 }

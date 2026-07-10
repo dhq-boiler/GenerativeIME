@@ -61,11 +61,11 @@ namespace masks
             {L"じーえる", L""}, {L"がーるずらぶ", L""},
             // === 性感染症 (STI) - chat-context softening (kanji surface
             //     for kanji entries, raw form for the katakana loanwords) ===
-            {L"ばいどく",       L"梅毒"},
-            {L"りんびょう",     L"淋病"},
+            {L"ばいどく", L"梅毒"},
+            {L"りんびょう", L"淋病"},
             {L"せいきへるぺす", L"性器ヘルペス"},
             {L"せんけいこんじろーま", L"尖圭コンジローマ"},
-            {L"ちつかんじだしょう",   L"膣カンジダ症"},
+            {L"ちつかんじだしょう", L"膣カンジダ症"},
             {L"くらみじあ", L""}, {L"かんじだ", L""},
             {L"へるぺす", L""}, {L"こんじろーま", L""}, {L"とりこもなす", L""},
             // === 解剖学的な部位 (mask the kanji form so 睾丸/亀頭/etc.
@@ -73,11 +73,11 @@ namespace masks
             //     converts the reading to. Bracketing everyday senses
             //     is fine because the masks land at the tail of the
             //     candidate list, not the top.) ===
-            {L"きとう",   L"亀頭"},
+            {L"きとう", L"亀頭"},
             {L"こうがん", L"睾丸"},
             {L"いんのう", L"陰嚢"},
             {L"いんかく", L"陰核"},
-            {L"えいん",   L"会陰"},
+            {L"えいん", L"会陰"},
             // === 胸部 ===
             {L"おっぱい", L""}, {L"おっぱいちゃん", L""}, {L"ちくび", L""},
             {L"ぱいぱい", L""}, {L"ぱいずり", L""}, {L"にゅうりん", L""},
@@ -102,10 +102,10 @@ namespace masks
             // おっぱいコキ / ボディコキ / 脇コキ / 太ももコキ etc. は
             // 実在しないので入れない。「パイズリ」が胸部側の相当語。
             // 手マンは fingering を指す独立語で、こちらも派生語なし。
-            {L"てこき",         L"手コキ"},
-            {L"しりこき",       L"尻コキ"},
-            {L"あしこき",       L"足コキ"},
-            {L"てまん",         L"手マン"},
+            {L"てこき", L"手コキ"},
+            {L"しりこき", L"尻コキ"},
+            {L"あしこき", L"足コキ"},
+            {L"てまん", L"手マン"},
             {L"かおめんきじょう", L"顔面騎乗"},
             {L"がんめんきじょうい", L"顔面騎乗位"},
             {L"たいめんきじょうい", L"対面騎乗位"},
@@ -113,63 +113,63 @@ namespace masks
             // 側位 / 立位 from the mask table because those are also
             // legitimate patient-positioning terms in nursing / medical
             // contexts and masking them would clutter non-adult chat.
-            {L"せいじょうい",   L"正常位"},
-            {L"だいしゅきほーるど", L""},  // カタカナ主体、reading をマスク対象に
-            {L"こうはいい",     L"後背位"},
-            {L"たちばっく",     L"立ちバック"},
-            {L"ねばっく",       L"寝バック"},
-            {L"きじょうい",     L"騎乗位"},
+            {L"せいじょうい", L"正常位"},
+            {L"だいしゅきほーるど", L""}, // カタカナ主体、reading をマスク対象に
+            {L"こうはいい", L"後背位"},
+            {L"たちばっく", L"立ちバック"},
+            {L"ねばっく", L"寝バック"},
+            {L"きじょうい", L"騎乗位"},
             {L"ぎゃくきじょうい", L"逆騎乗位"},
             {L"はいめんきじょうい", L"背面騎乗位"},
-            {L"たいめんそくい",   L"対面側位"},
-            {L"はいめんそくい",   L"背面側位"},
-            {L"たいめんざい",     L"対面座位"},
-            {L"はいめんざい",     L"背面座位"},
-            {L"たいめんりつい",   L"対面立位"},
-            {L"はいめんりつい",   L"背面立位"},
-            {L"しんちょうい",   L"伸長位"},
-            {L"くっきょくい",   L"屈曲位"},
-            {L"くっきゃくい",   L"屈脚位"},
-            {L"こうさい",       L"交差位"},
+            {L"たいめんそくい", L"対面側位"},
+            {L"はいめんそくい", L"背面側位"},
+            {L"たいめんざい", L"対面座位"},
+            {L"はいめんざい", L"背面座位"},
+            {L"たいめんりつい", L"対面立位"},
+            {L"はいめんりつい", L"背面立位"},
+            {L"しんちょうい", L"伸長位"},
+            {L"くっきょくい", L"屈曲位"},
+            {L"くっきゃくい", L"屈脚位"},
+            {L"こうさい", L"交差位"},
             // Kanji-surface targets so 中出し/種付け/淫乱 etc. stay
             // visually anchored in the masked variant.
-            {L"なかだし",   L"中出し"},
-            {L"たねつけ",   L"種付け"},
-            {L"いんらん",   L"淫乱"},
-            {L"しおふき",   L"潮吹き"},
+            {L"なかだし", L"中出し"},
+            {L"たねつけ", L"種付け"},
+            {L"いんらん", L"淫乱"},
+            {L"しおふき", L"潮吹き"},
             {L"せいかんたい", L"性感帯"},
-            {L"ねとられ",   L"寝取られ"},
-            {L"ねとり",     L"寝取り"},
-            {L"ねとらせ",   L"寝取らせ"},
+            {L"ねとられ", L"寝取られ"},
+            {L"ねとり", L"寝取り"},
+            {L"ねとらせ", L"寝取らせ"},
             {L"ちょうきょう", L"調教"},
-            {L"しばり",     L"縛り"},
-            {L"じらし",     L"焦らし"},
-            {L"おもらし",   L"お漏らし"},
+            {L"しばり", L"縛り"},
+            {L"じらし", L"焦らし"},
+            {L"おもらし", L"お漏らし"},
             {L"きんしんそうかん", L"近親相姦"},
-            {L"ろしゅつ",   L"露出"},
-            {L"なまはめ",   L"生ハメ"},
+            {L"ろしゅつ", L"露出"},
+            {L"なまはめ", L"生ハメ"},
             {L"すいみんかん", L"睡眠姦"},
             {L"じゅくじょ", L"熟女"},
             {L"しょくしゅ", L"触手"},
-            {L"どうてい",   L"童貞"},
-            {L"しょじょ",   L"処女"},
+            {L"どうてい", L"童貞"},
+            {L"しょじょ", L"処女"},
             {L"ぎゃくえん", L"逆援"},
             {L"ぎゃくれいぷ", L"逆レイプ"},
             {L"りょうじょく", L"凌辱"},
             {L"ぎゃくあなる", L"逆アナル"},
             {L"おもちゃぜめ", L"玩具責め"},
             // === 女性向け / BL kanji surface (visual anchor preserved) ===
-            {L"ふじょし",       L"腐女子"},
-            {L"ふだんし",       L"腐男子"},
-            {L"ゆめじょし",     L"夢女子"},
-            {L"そううけ",       L"総受け"},
-            {L"そうぜめ",       L"総攻め"},
-            {L"わんこぜめ",     L"ワンコ攻め"},
-            {L"おれさまぜめ",   L"俺様攻め"},
-            {L"できあいぜめ",   L"溺愛攻め"},
+            {L"ふじょし", L"腐女子"},
+            {L"ふだんし", L"腐男子"},
+            {L"ゆめじょし", L"夢女子"},
+            {L"そううけ", L"総受け"},
+            {L"そうぜめ", L"総攻め"},
+            {L"わんこぜめ", L"ワンコ攻め"},
+            {L"おれさまぜめ", L"俺様攻め"},
+            {L"できあいぜめ", L"溺愛攻め"},
             {L"しゅうちゃくぜめ", L"執着攻め"},
-            {L"どくせんぜめ",   L"独占攻め"},
-            {L"かんきんもの",   L"監禁もの"},
+            {L"どくせんぜめ", L"独占攻め"},
+            {L"かんきんもの", L"監禁もの"},
             // === 分泌物 ===
             {L"ざーめん", L""}, {L"せいえき", L""}, {L"ちんぽじる", L""},
             {L"あいえき", L""}, {L"ちつえき", L""}, {L"おしっこ", L""},
@@ -188,43 +188,43 @@ namespace masks
             //     anchor 松葉/抱き/立ち/etc. stays visible in the mask.
             //     The reading itself isn't masked - user gets a clean
             //     [kanji form + kanji-with-one-char-masked] progression.) ===
-            {L"ほんて",                L"本手"},
-            {L"ちゃうす",              L"茶臼"},
-            {L"さかさちゃうす",        L"逆さ茶臼"},
-            {L"すわりちゃうす",        L"座り茶臼"},
-            {L"ほかけちゃうす",        L"帆掛け茶臼"},
-            {L"まつばくずし",          L"松葉くずし"},
-            {L"たちまつば",            L"立ち松葉"},
-            {L"ちどり",                L"千鳥"},
-            {L"てまくら",              L"手枕"},
-            {L"だきじぞう",            L"抱き地蔵"},
-            {L"だきあげ",              L"抱き上げ"},
-            {L"だきしめ",              L"抱き締め"},
-            {L"しがらみ",              L"しがらみ"},
-            {L"みやま",                L"深山"},
-            {L"わけいり",              L"分け入り"},
-            {L"たちがなえ",            L"立ち鼎"},
-            {L"すわりがなえ",          L"座り鼎"},
-            {L"うぐいすのたにわたり",  L"鶯の谷渡り"},
-            {L"しゅもくぞり",          L"撞木反り"},
-            {L"いわしみず",            L"岩清水"},
-            {L"つばめがえし",          L"燕返し"},
-            {L"おしぐるま",            L"押し車"},
-            {L"あじろ",                L"網代"},
-            {L"でふね",                L"出船"},
-            {L"いりふね",              L"入船"},
-            {L"そりばし",              L"反り橋"},
-            {L"はなびし",              L"花菱"},
-            {L"たちはなびし",          L"立ち花菱"},
-            {L"ふかなさけ",            L"深情け"},
-            {L"しのび",                L"忍び"},
-            {L"うらばしご",            L"裏梯子"},
-            {L"くびひきれんぼ",        L"首引き恋慕"},
-            {L"にしきえのよう",        L"錦絵の陽"},
-            {L"つばくらお",            L"燕尾"},
-            {L"いすかのはし",          L"鶍の嘴"},
-            {L"うのくちばし",          L"鵜の嘴"},
-            {L"にだんがえし",          L"二段返し"},
+            {L"ほんて", L"本手"},
+            {L"ちゃうす", L"茶臼"},
+            {L"さかさちゃうす", L"逆さ茶臼"},
+            {L"すわりちゃうす", L"座り茶臼"},
+            {L"ほかけちゃうす", L"帆掛け茶臼"},
+            {L"まつばくずし", L"松葉くずし"},
+            {L"たちまつば", L"立ち松葉"},
+            {L"ちどり", L"千鳥"},
+            {L"てまくら", L"手枕"},
+            {L"だきじぞう", L"抱き地蔵"},
+            {L"だきあげ", L"抱き上げ"},
+            {L"だきしめ", L"抱き締め"},
+            {L"しがらみ", L"しがらみ"},
+            {L"みやま", L"深山"},
+            {L"わけいり", L"分け入り"},
+            {L"たちがなえ", L"立ち鼎"},
+            {L"すわりがなえ", L"座り鼎"},
+            {L"うぐいすのたにわたり", L"鶯の谷渡り"},
+            {L"しゅもくぞり", L"撞木反り"},
+            {L"いわしみず", L"岩清水"},
+            {L"つばめがえし", L"燕返し"},
+            {L"おしぐるま", L"押し車"},
+            {L"あじろ", L"網代"},
+            {L"でふね", L"出船"},
+            {L"いりふね", L"入船"},
+            {L"そりばし", L"反り橋"},
+            {L"はなびし", L"花菱"},
+            {L"たちはなびし", L"立ち花菱"},
+            {L"ふかなさけ", L"深情け"},
+            {L"しのび", L"忍び"},
+            {L"うらばしご", L"裏梯子"},
+            {L"くびひきれんぼ", L"首引き恋慕"},
+            {L"にしきえのよう", L"錦絵の陽"},
+            {L"つばくらお", L"燕尾"},
+            {L"いすかのはし", L"鶍の嘴"},
+            {L"うのくちばし", L"鵜の嘴"},
+            {L"にだんがえし", L"二段返し"},
         };
         return *m;
     }
@@ -236,9 +236,10 @@ namespace masks
     {
         std::wstring k;
         k.reserve(hira.size());
-        for (wchar_t c : hira) {
-            int u = (int)c;
-            if (u >= 0x3041 && u <= 0x3096) k.push_back((wchar_t)(u + 0x60));
+        for (wchar_t c : hira)
+        {
+            int u = c;
+            if (u >= 0x3041 && u <= 0x3096) k.push_back(static_cast<wchar_t>(u + 0x60));
             else k.push_back(c);
         }
         return k;
@@ -249,8 +250,8 @@ namespace masks
     // (U+FF0A) are common alternates users request in chat contexts.
     // Order matters - it's the order variants land in the candidate
     // window, so the primary appears first.
-    static constexpr wchar_t kMaskChars[] = { L'〇', L'●', L'＊' };
-    static constexpr size_t  kMaskCharCount = sizeof(kMaskChars) / sizeof(kMaskChars[0]);
+    static constexpr wchar_t kMaskChars[] = {L'〇', L'●', L'＊'};
+    static constexpr size_t kMaskCharCount = sizeof(kMaskChars) / sizeof(kMaskChars[0]);
 
     // Generate one-per-position mask variants of `s` for every mask
     // character in kMaskChars. All variants for the first mask char
@@ -260,16 +261,23 @@ namespace masks
     {
         std::vector<std::wstring> out;
         out.reserve(s.size() * kMaskCharCount);
-        for (size_t ci = 0; ci < kMaskCharCount; ++ci) {
+        for (size_t ci = 0; ci < kMaskCharCount; ++ci)
+        {
             wchar_t mc = kMaskChars[ci];
-            for (size_t i = 0; i < s.size(); ++i) {
+            for (size_t i = 0; i < s.size(); ++i)
+            {
                 // Skip masking a position already occupied by any of our
                 // mask chars (would be a no-op / duplicate) or by ASCII
                 // space (some kanji surfaces like「お っぱい」use it as a
                 // placeholder).
                 bool alreadyMask = false;
-                for (size_t k = 0; k < kMaskCharCount; ++k) {
-                    if (s[i] == kMaskChars[k]) { alreadyMask = true; break; }
+                for (size_t k = 0; k < kMaskCharCount; ++k)
+                {
+                    if (s[i] == kMaskChars[k])
+                    {
+                        alreadyMask = true;
+                        break;
+                    }
                 }
                 if (alreadyMask || s[i] == L' ') continue;
                 std::wstring m = s;
@@ -287,13 +295,15 @@ namespace masks
         if (it == m.end()) return {};
 
         const std::wstring& target = it->second;
-        if (target.empty()) {
+        if (target.empty())
+        {
             // Kana-only entry: mask the reading, then also offer masked
             // katakana forms since the user might prefer カタカナ in this
             // register (「チンポ」 / 「〇ンポ」…).
             auto out = MaskEachPosition(reading);
             std::wstring kata = HiraToKata(reading);
-            if (kata != reading) {
+            if (kata != reading)
+            {
                 for (auto& v : MaskEachPosition(kata))
                     out.push_back(std::move(v));
             }

@@ -12,8 +12,8 @@ public interface IArpService
 }
 
 /// <summary>
-/// HKLM Add/Remove Programs entry. Installer runs elevated so per-machine
-/// registration is fine and shows up under "Apps" for every user.
+///     HKLM Add/Remove Programs entry. Installer runs elevated so per-machine
+///     registration is fine and shows up under "Apps" for every user.
 /// </summary>
 public sealed class ArpService : IArpService
 {
@@ -23,23 +23,33 @@ public sealed class ArpService : IArpService
     public void Register(InstallationManifest manifest, string uninstallerExePath)
     {
         using var key = Registry.LocalMachine.CreateSubKey(SubKey);
-        if (key is null) return;
-        key.SetValue("DisplayName",     "GenerativeIME");
-        key.SetValue("DisplayVersion",  manifest.Version);
-        key.SetValue("Publisher",       "GenerativeIME");
+        if (key is null)
+        {
+            return;
+        }
+
+        key.SetValue("DisplayName", "GenerativeIME");
+        key.SetValue("DisplayVersion", manifest.Version);
+        key.SetValue("Publisher", "GenerativeIME");
         key.SetValue("InstallLocation", manifest.InstallRoot);
-        key.SetValue("InstallDate",     manifest.InstalledAtUtc.ToString("yyyyMMdd"));
+        key.SetValue("InstallDate", manifest.InstalledAtUtc.ToString("yyyyMMdd"));
         key.SetValue("UninstallString", $"\"{uninstallerExePath}\" --uninstall");
-        key.SetValue("DisplayIcon",     $"{uninstallerExePath},0");
+        key.SetValue("DisplayIcon", $"{uninstallerExePath},0");
         key.SetValue("NoModify", 1, RegistryValueKind.DWord);
         key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
-        key.SetValue("URLInfoAbout",    "https://github.com/dhq-boiler/GenerativeIME");
+        key.SetValue("URLInfoAbout", "https://github.com/dhq-boiler/GenerativeIME");
     }
 
     public void Unregister()
     {
-        try { Registry.LocalMachine.DeleteSubKeyTree(SubKey, throwOnMissingSubKey: false); }
-        catch { /* best effort */ }
+        try
+        {
+            Registry.LocalMachine.DeleteSubKeyTree(SubKey, false);
+        }
+        catch
+        {
+            /* best effort */
+        }
     }
 
     public string? ReadInstalledVersion()

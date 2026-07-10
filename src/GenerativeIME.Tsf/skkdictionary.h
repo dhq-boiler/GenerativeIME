@@ -24,7 +24,7 @@ public:
     // thread (load is mutex-protected).
     static SkkDictionary* GetGlobal();
 
-    bool   IsLoaded() const { return m_loaded; }
+    bool IsLoaded() const { return m_loaded; }
     size_t EntryCount() const { return m_entries.size(); }
 
     // Returns the candidates for `reading`, or an empty vector if the reading
@@ -34,7 +34,7 @@ public:
 
     struct PrefixMatch
     {
-        size_t                    length = 0;  // chars of `reading` consumed (0 = no match)
+        size_t length = 0; // chars of `reading` consumed (0 = no match)
         std::vector<std::wstring> candidates;
     };
 

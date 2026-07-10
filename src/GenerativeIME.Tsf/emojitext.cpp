@@ -6,10 +6,10 @@ namespace
     // deciding emoji-ness by themselves.
     bool IsEmojiJoiner(char32_t cp)
     {
-        return cp == 0x200D                        // ZWJ (🐕‍🦺)
-            || cp == 0xFE0F                        // VS16
-            || cp == 0x20E3                        // keycap
-            || (cp >= 0x1F3FB && cp <= 0x1F3FF);   // skin tones
+        return cp == 0x200D // ZWJ (🐕‍🦺)
+            || cp == 0xFE0F // VS16
+            || cp == 0x20E3 // keycap
+            || (cp >= 0x1F3FB && cp <= 0x1F3FF); // skin tones
     }
 
     // Blocks whose members are emoji (or render as emoji together with
@@ -19,15 +19,15 @@ namespace
     // 2605/2606 (★☆) — those must stay unlabeled.
     bool IsEmojiCp(char32_t cp)
     {
-        return (cp >= 0x1F000 && cp <= 0x1FAFF)    // pictographs, flags, …
-            || (cp >= 0x2600 && cp <= 0x27BF       // misc symbols + dingbats
-                && cp != 0x2605 && cp != 0x2606)   //   …minus text ★☆
-            || (cp >= 0x2B00 && cp <= 0x2BFF)      // ⭐ ⬛ ⭕
-            || cp == 0x203C || cp == 0x2049        // ‼ ⁉
-            || cp == 0x2122 || cp == 0x2139        // ™ ℹ
+        return (cp >= 0x1F000 && cp <= 0x1FAFF) // pictographs, flags, …
+            || (cp >= 0x2600 && cp <= 0x27BF // misc symbols + dingbats
+                && cp != 0x2605 && cp != 0x2606) //   …minus text ★☆
+            || (cp >= 0x2B00 && cp <= 0x2BFF) // ⭐ ⬛ ⭕
+            || cp == 0x203C || cp == 0x2049 // ‼ ⁉
+            || cp == 0x2122 || cp == 0x2139 // ™ ℹ
             || cp == 0x2934 || cp == 0x2935
             || cp == 0x231A || cp == 0x231B || cp == 0x2328
-            || (cp >= 0x23CF && cp <= 0x23FA)      // ⏏ ⏩ … ⏺
+            || (cp >= 0x23CF && cp <= 0x23FA) // ⏏ ⏩ … ⏺
             || cp == 0x24C2
             || cp == 0x3030 || cp == 0x303D
             || cp == 0x3297 || cp == 0x3299;
