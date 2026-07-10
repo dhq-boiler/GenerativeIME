@@ -2867,6 +2867,109 @@ TEST(skk_godan_companion_all_rows_top_is_verb)
     }
 }
 
+// 2026-07-10 misconversion log: reading「でない」only had kana/katakana
+// candidates because MeCab splits it into [で 接続詞 + ない 形容詞・無い]
+// and no whole-reading SKK entry pinned 出ない. Fix: godan direct entry
+// でない /出ない/でない/ + MergeMecabVerbForms IsShadowedAuxiliary gate
+// so ない doesn't build mecabTop 「で無い」above the SKK head. Guard both
+// the direct-entry ordering and the SplitMecab-via-MergeAdjacentBySkk
+// path (でないように splits [で,ない,よう,に] → [でない,よう,に]).
+TEST(skk_denai_top_is_denai_verb)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto cands = skk->Lookup(L"でない");
+    EXPECT_TRUE(!cands.empty());
+    if (cands.empty()) return;
+    EXPECT_EQ_W(cands[0], L"出ない");
+    EXPECT_TRUE(skk->HasDirectEntry(L"でない"));
+}
+
+TEST(split_mecab_denaiyouni_first_bunsetsu_offers_denai_verb)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto parts = bunsetsu::SplitMecab(L"でないように", *m, skk);
+    EXPECT_TRUE(!parts.empty());
+    if (parts.empty()) return;
+    EXPECT_EQ_W(parts[0].reading, L"でない");
+    EXPECT_TRUE(!parts[0].candidates.empty());
+    if (!parts[0].candidates.empty()) EXPECT_EQ_W(parts[0].candidates[0], L"出ない");
+}
+
+TEST(merge_mecab_verb_forms_denai_keeps_skk_head)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto hits = skk->Lookup(L"でない");
+    EXPECT_TRUE(!hits.empty());
+    if (hits.empty()) return;
+    auto merged = bunsetsu::MergeMecabVerbForms(L"でない", *m, hits);
+    EXPECT_TRUE(!merged.empty());
+    if (merged.empty()) return;
+    // The IsShadowedAuxiliary gate must keep 「で無い」out of the head —
+    // that's the「ない」形容詞 lemma leaking KanjifyByReading output over
+    // the SKK 出ない the godan entry contributes.
+    EXPECT_EQ_W(merged[0], L"出ない");
+    for (const auto& c : merged) EXPECT_TRUE(c != L"で無い");
+}
+
+// 2026-07-10 misconversion log: reading「1かげつ」only offered the raw
+// kana because MeCab shreds it into [1名詞 + かげ名詞・陰 + つ助詞] and
+// the whole-reading SKK lookup misses (dictionary key is「かげつ」). Fix:
+// SkkDictionary::Lookup / HasDirectEntry / modernranking::GetPreferred
+// all gained a digit-prefix fallback that strips leading ASCII digits,
+// looks up the kana tail, and re-prepends the prefix onto every result.
+TEST(skk_digit_prefix_counter_falls_back_to_tail_lookup)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto cands = skk->Lookup(L"1かげつ");
+    EXPECT_TRUE(!cands.empty());
+    if (cands.empty()) return;
+    // Every かげつ candidate must appear digit-prefixed. Order comes from
+    // SKK-JISYO.L (花月 leads at the raw Lookup layer — PromoteToTop then
+    // moves 1か月 to the head below).
+    bool anyKangetsu = false;
+    for (const auto& c : cands)
+    {
+        EXPECT_TRUE(!c.empty() && c[0] == L'1');
+        if (c == L"1ヶ月" || c == L"1か月" || c == L"1カ月") anyKangetsu = true;
+    }
+    EXPECT_TRUE(anyKangetsu);
+    EXPECT_TRUE(skk->HasDirectEntry(L"1かげつ"));
+}
+
+TEST(modernranking_digit_prefix_promotes_preferred_tail)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto cands = skk->Lookup(L"1かげつ");
+    EXPECT_TRUE(!cands.empty());
+    if (cands.empty()) return;
+    auto promoted = modernranking::PromoteToTop(L"1かげつ", cands);
+    EXPECT_TRUE(!promoted.empty());
+    if (promoted.empty()) return;
+    // modernranking has かげつ→か月; the digit-prefix branch turns that
+    // into 1か月 and pins it at slot 0 above SKK's 1花月.
+    EXPECT_EQ_W(promoted[0], L"1か月");
+}
+
+TEST(skk_digit_prefix_pure_kana_unaffected)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // No leading digit → the fallback must be inert. A wrongly-firing
+    // fallback here would push every かげつ candidate through the「try
+    // suffix again」path and drift the ordering.
+    auto cands = skk->Lookup(L"かげつ");
+    EXPECT_TRUE(!cands.empty());
+    if (cands.empty()) return;
+    EXPECT_EQ_W(cands[0], L"花月");
+}
+
 // ---------------------------------------------------------------------
 int main()
 {
