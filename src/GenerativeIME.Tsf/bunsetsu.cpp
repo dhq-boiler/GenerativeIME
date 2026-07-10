@@ -913,6 +913,15 @@ namespace bunsetsu
                 std::wstring k = IsArchaicShortVerbLemma(m.lemma)
                                      ? m.surface
                                      : KanjifyByReading(m.surface, m.lemma, m.lemmaReading);
+                // Shadow-auxiliary guard: ない/ます/です/なかっ/なく/… tagged
+                // as 形容詞・助動詞 by UniDic-Lite have KanjifyByReading
+                // outputs (無い/鱒/出す/無かっ/無く/…) that shadow the
+                // productive auxiliary. SplitMecab's isInflected branch
+                // already refuses to push those over the surface (line
+                // ~461); without the same gate here, "でない" builds
+                // mecabTop 「で無い」and pins it above the SKK hits
+                // [出ない, でない] the SKK direct entry contributes.
+                if (IsShadowedAuxiliary(m.surface)) k = m.surface;
                 // Modern-usage override for homophonic 音便 stems. UniDic-Lite
                 // picks a dictionary-correct but low-frequency lemma for some
                 // て/た forms — つかっ → lemma 浸かる, so the stitch yields 浸かっ

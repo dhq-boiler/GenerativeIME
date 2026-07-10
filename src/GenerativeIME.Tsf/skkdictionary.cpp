@@ -389,16 +389,58 @@ std::vector<std::wstring> SkkDictionary::LookupOkuri(const std::wstring& stemRea
     return it->second;
 }
 
+namespace
+{
+    // Split off a leading ASCII-digit prefix. Returns (digit_prefix_length,
+    // tail_reading). Handles the "1かげつ" / "3にん" / "10ふん" pattern that
+    // reaches the whole-reading path when the user types the digit inline
+    // rather than committing it separately: UniDic-Lite tokenizes such
+    // inputs as [1名詞 + かげ名詞 + つ助詞] (misparse of かげつ), so the
+    // MeCab bunsetsu path can't recover ヶ月/か月 either. Splitting off the
+    // digits and looking up the kana tail against SKK bypasses the whole
+    // MeCab detour.
+    size_t DigitPrefixLen(const std::wstring& s)
+    {
+        size_t d = 0;
+        while (d < s.size() && s[d] >= L'0' && s[d] <= L'9') ++d;
+        return d;
+    }
+}
+
 std::vector<std::wstring> SkkDictionary::Lookup(const std::wstring& reading) const
 {
     auto it = m_entries.find(reading);
-    if (it == m_entries.end()) return {};
-    return it->second;
+    if (it != m_entries.end()) return it->second;
+
+    // Digit-prefixed counter fallback (see DigitPrefixLen). Only kicks in
+    // when the tail (post-digits) has an entry AND at least one digit was
+    // present — never rewrites a pure-kana reading.
+    size_t d = DigitPrefixLen(reading);
+    if (d > 0 && d < reading.size())
+    {
+        auto tailIt = m_entries.find(reading.substr(d));
+        if (tailIt != m_entries.end())
+        {
+            std::wstring prefix = reading.substr(0, d);
+            std::vector<std::wstring> out;
+            out.reserve(tailIt->second.size());
+            for (const auto& c : tailIt->second) out.push_back(prefix + c);
+            return out;
+        }
+    }
+    return {};
 }
 
 bool SkkDictionary::HasDirectEntry(const std::wstring& reading) const
 {
-    return m_directReadings.contains(reading);
+    if (m_directReadings.contains(reading)) return true;
+    // Same digit-prefix fallback as Lookup — keeps ReadsAs-filter and
+    // "SKK explicit-entry" branches in agreement about which readings the
+    // dictionary is authoritative for.
+    size_t d = DigitPrefixLen(reading);
+    if (d > 0 && d < reading.size() && m_directReadings.contains(reading.substr(d)))
+        return true;
+    return false;
 }
 
 bool SkkDictionary::IsUserDictReading(const std::wstring& reading) const

@@ -1838,7 +1838,22 @@ namespace modernranking
     {
         const auto& m = Index();
         auto it = m.find(reading);
-        return (it != m.end()) ? it->second : std::wstring{};
+        if (it != m.end()) return it->second;
+
+        // Digit-prefixed counter fallback: "1かげつ" reaches here after
+        // SkkDictionary::Lookup's own digit-prefix branch prepends "1" onto
+        // each 花月/ヶ月/カ月/… candidate. Recover the modern preference
+        // (か月) from the tail and re-prepend the digit so PromoteToTop
+        // moves "1か月" — the candidate SkkDictionary just synthesized —
+        // to the head. Keeps the two digit-prefix branches in step.
+        size_t d = 0;
+        while (d < reading.size() && reading[d] >= L'0' && reading[d] <= L'9') ++d;
+        if (d > 0 && d < reading.size())
+        {
+            auto tailIt = m.find(reading.substr(d));
+            if (tailIt != m.end()) return reading.substr(0, d) + tailIt->second;
+        }
+        return {};
     }
 
     std::vector<std::wstring> PromoteToTop(const std::wstring& reading,
