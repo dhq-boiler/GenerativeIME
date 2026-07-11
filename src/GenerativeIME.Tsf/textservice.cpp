@@ -5439,12 +5439,55 @@ STDMETHODIMP CTextService::OnPreservedKey(ITfContext* /*pic*/, REFGUID rguid, BO
     return S_OK;
 }
 
-STDMETHODIMP CTextService::OnCompositionTerminated(TfEditCookie /*ecWrite*/, ITfComposition* /*pComposition*/)
+STDMETHODIMP CTextService::OnCompositionTerminated(TfEditCookie ecWrite, ITfComposition* pComposition)
 {
     // Called when the OS forcibly ends the composition (focus change, mouse click, etc.).
-    OutputDebugStringW(L"[GenerativeIME] OnCompositionTerminated\n");
+    {
+        wchar_t buf[200];
+        swprintf_s(buf,
+                   L"[GenerativeIME] OnCompositionTerminated buffer=[%s] converted=%d\n",
+                   m_romajiBuffer.c_str(), static_cast<int>(m_compositionConverted));
+        OutputDebugStringW(buf);
+    }
+
+    // Salvage-raw-partial-romaji recovery. Some hosts (Chromium contenteditable
+    // — x.com compose box, chat inputs, etc.) forcibly terminate our composition
+    // in response to a preceding EndCommit's DOM mutation: the "commit 何度 →
+    // start 'm' composition" pair that fires on the first alpha after a
+    // Space-converted candidate emits compositionend then compositionstart
+    // JavaScript events, whose page-side handlers mutate the DOM. TSFTextStore
+    // aborts our just-started 'm' composition in response, but leaves the raw
+    // 'm' text in the doc. Without recovery the next keystroke ('o') would see
+    // an empty buffer, land as 'お' in a fresh composition, and produce
+    // 「何度mお」 for what the user typed as "nandomo".
+    //
+    // When we detect the abort landed on a buffer that hasn't produced any kana
+    // yet (raw partial romaji only), remove the composition range's stranded
+    // ASCII from the doc via the ecWrite cookie AND preserve the buffer so the
+    // next keystroke properly extends the reading ('m' + 'o' → 'mo' → 'も').
+    // Buffers that already resolve to kana (converted or otherwise) belong to
+    // the user's committed intent — those we leave in the doc and clear our
+    // state as before.
+    bool preserveBuffer = false;
+    if (pComposition && !m_romajiBuffer.empty() && !m_compositionConverted)
+    {
+        auto r = romaji::Convert(m_romajiBuffer);
+        if (r.hira.empty() && !r.remaining.empty())
+        {
+            ITfRange* pRange = nullptr;
+            if (SUCCEEDED(pComposition->GetRange(&pRange)) && pRange)
+            {
+                pRange->SetText(ecWrite, 0, L"", 0);
+                pRange->Release();
+                preserveBuffer = true;
+                OutputDebugStringW(
+                    L"[GenerativeIME] Salvaged raw partial romaji from aborted composition\n");
+            }
+        }
+    }
+
     SetComposition(nullptr);
-    m_romajiBuffer.clear();
+    if (!preserveBuffer) m_romajiBuffer.clear();
     m_compositionConverted = FALSE;
     // Full state reset — mirror the VK_RETURN commit path. Previously only
     // the romaji buffer and the converted flag were cleared, so a forced
