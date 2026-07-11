@@ -3076,6 +3076,75 @@ TEST(skk_lookup_rosanzerusu_loanword)
     EXPECT_TRUE(has);
 }
 
+// WDAC iteration 2: candidate window UIA revealed that for かいさい the
+// runtime candidate list is [回際, 開催, 快哉, 皆済] — 回際 is prepended
+// even though SKK direct hits are [開催, 快哉, 皆済] and modernranking
+// promotes 開催. Locally MergeMecabVerbForms should return unchanged for
+// pure-noun readings; if MeCab-Lite tags one morpheme as 動詞/形容詞 the
+// mecabTop join lands at the head. These tests pin the invariant.
+static std::string Utf8FromW(const std::wstring& s)
+{
+    int n = WideCharToMultiByte(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0, nullptr, nullptr);
+    std::string out(n, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, s.data(), (int)s.size(), out.data(), n, nullptr, nullptr);
+    return out;
+}
+
+TEST(kaisai_mergemecab_returns_skkhits_unchanged)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto skkHits = skk->Lookup(L"かいさい");
+    auto morphs = m->Analyze(L"かいさい");
+    std::printf("  diag kaisai morphs=%zu:", morphs.size());
+    for (const auto& mo : morphs)
+    {
+        std::printf(" [surface=%s pos=%s lemma=%s]",
+                    Utf8FromW(mo.surface).c_str(),
+                    Utf8FromW(mo.pos).c_str(),
+                    Utf8FromW(mo.lemma).c_str());
+    }
+    std::printf("\n");
+    // Pass skk so the direct-entry short-circuit fires.
+    auto merged = bunsetsu::MergeMecabVerbForms(L"かいさい", *m, skkHits, skk);
+    std::printf("  diag kaisai skkHits=[");
+    for (const auto& h : skkHits) std::printf("%s ", Utf8FromW(h).c_str());
+    std::printf("]\n  diag kaisai merged=[");
+    for (const auto& h : merged) std::printf("%s ", Utf8FromW(h).c_str());
+    std::printf("]\n");
+    EXPECT_TRUE(!merged.empty());
+    if (merged.empty()) return;
+    EXPECT_EQ_W(merged[0], skkHits.empty() ? L"" : skkHits[0]);
+}
+
+TEST(toukyou_mergemecab_returns_skkhits_unchanged)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto skkHits = skk->Lookup(L"とうきょう");
+    auto morphs = m->Analyze(L"とうきょう");
+    std::printf("  diag toukyou morphs=%zu:", morphs.size());
+    for (const auto& mo : morphs)
+    {
+        std::printf(" [surface=%s pos=%s lemma=%s]",
+                    Utf8FromW(mo.surface).c_str(),
+                    Utf8FromW(mo.pos).c_str(),
+                    Utf8FromW(mo.lemma).c_str());
+    }
+    std::printf("\n");
+    auto merged = bunsetsu::MergeMecabVerbForms(L"とうきょう", *m, skkHits, skk);
+    std::printf("  diag toukyou skkHits=[");
+    for (const auto& h : skkHits) std::printf("%s ", Utf8FromW(h).c_str());
+    std::printf("]\n  diag toukyou merged=[");
+    for (const auto& h : merged) std::printf("%s ", Utf8FromW(h).c_str());
+    std::printf("]\n");
+    EXPECT_TRUE(!merged.empty());
+    if (merged.empty()) return;
+    EXPECT_EQ_W(merged[0], skkHits.empty() ? L"" : skkHits[0]);
+}
+
 // ---------------------------------------------------------------------
 int main()
 {

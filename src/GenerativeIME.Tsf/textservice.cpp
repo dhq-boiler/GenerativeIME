@@ -1206,7 +1206,7 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
                 if (auto* mecab = MecabAnalyzer::GetGlobal();
                     mecab && mecab->IsReady() && !skk->IsUserDictReading(reading))
                 {
-                    tail = bunsetsu::MergeMecabVerbForms(reading, *mecab, tail);
+                    tail = bunsetsu::MergeMecabVerbForms(reading, *mecab, tail, skk);
                 }
                 for (auto& c : tail) addUnique(std::move(c));
             }
@@ -1328,10 +1328,14 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
         // (a) MeCab conjugation reconstruction — handles adjectives / verbs
         //     that SKK stores as an okuri stem (ちいさい has no direct SKK
         //     entry, only ちいさi /小さ/; MergeMecabVerbForms glues that
-        //     back into the kanji 「小さい」).
+        //     back into the kanji 「小さい」). Pass SKK so the merge bows
+        //     out for readings with direct entries (かいさい ⇒ don't stitch
+        //     「回際」 over the SKK-authoritative 開催).
         if (auto* mecab = MecabAnalyzer::GetGlobal(); mecab && mecab->IsReady())
         {
-            auto mecabForms = bunsetsu::MergeMecabVerbForms(reading, *mecab, {});
+            auto* skk = SkkDictionary::GetGlobal();
+            auto mecabForms = bunsetsu::MergeMecabVerbForms(reading, *mecab, {},
+                                                           (skk && skk->IsLoaded()) ? skk : nullptr);
             for (auto& c : mecabForms)
             {
                 if (hasKanji(c) && std::find(kanjiHead.begin(), kanjiHead.end(), c) == kanjiHead.end())
@@ -1446,12 +1450,16 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
             // dictionary: that mapping is authoritative and must stay at the
             // head. Otherwise MeCab parses e.g. 「ふろった」 as a verb form
             // and prepends a spurious 「振ろった」 above the user's 「風呂った」.
+            // SKK-direct-entry protection is inside MergeMecabVerbForms when
+            // the SKK pointer is passed — see the comment there. User-dict
+            // guard stays here since it's about not fighting the user's own
+            // additions, orthogonal to the SKK-vs-MeCab authority question.
             if (auto* mecab = MecabAnalyzer::GetGlobal();
                 mecab && mecab->IsReady() && !skk->IsUserDictReading(reading))
             {
                 std::wstring prevTop = skkHits.front();
                 size_t beforeN = skkHits.size();
-                skkHits = bunsetsu::MergeMecabVerbForms(reading, *mecab, skkHits);
+                skkHits = bunsetsu::MergeMecabVerbForms(reading, *mecab, skkHits, skk);
                 if (skkHits.size() != beforeN || skkHits.front() != prevTop)
                 {
                     wchar_t logbuf[256];

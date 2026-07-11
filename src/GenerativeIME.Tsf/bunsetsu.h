@@ -105,12 +105,17 @@ namespace bunsetsu
     // helper runs MeCab on `reading` and, when the split contains a verb or
     // adjective, prepends the kanjified combined form to `skkCandidates`
     // (with dedup). Returns `skkCandidates` unchanged when MeCab declined,
-    // when no morpheme was inflected (pure-noun cases — let SKK win), or
-    // when MeCab couldn't produce a form different from the bare kana.
+    // when no morpheme was inflected (pure-noun cases — let SKK win), when
+    // MeCab couldn't produce a form different from the bare kana, or when
+    // `skkForDirectCheck` is non-null AND has a direct okuri-nashi entry
+    // for `reading` (the dict maintainer wrote it by hand, so their entries
+    // beat any MeCab noun-compound stitch — see the 「かいさい → 回際」
+    // regression from WDAC iteration 2).
     std::vector<std::wstring> MergeMecabVerbForms(
         const std::wstring& reading,
         const MecabAnalyzer& analyzer,
-        const std::vector<std::wstring>& skkCandidates);
+        const std::vector<std::wstring>& skkCandidates,
+        const SkkDictionary* skkForDirectCheck = nullptr);
 
     // Build a single Bunsetsu from `reading` without splitting it across
     // multiple clauses. Tries SKK first (whole-reading lookup for nouns

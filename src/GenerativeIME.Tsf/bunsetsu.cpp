@@ -845,8 +845,21 @@ namespace bunsetsu
     std::vector<std::wstring> MergeMecabVerbForms(
         const std::wstring& reading,
         const MecabAnalyzer& analyzer,
-        const std::vector<std::wstring>& skkCandidates)
+        const std::vector<std::wstring>& skkCandidates,
+        const SkkDictionary* skkForDirectCheck)
     {
+        // SKK direct-entry short-circuit. When the reading has a hand-
+        // written okuri-nashi entry, that entry is authoritative and MeCab's
+        // stitch will happily fabricate compounds ("回際" for かいさい —
+        // MeCab-Lite tags かい as 動詞 lemma=買う, then modernranking
+        // rewrites surface かい → 回, さい lemma=際 stitches to 際, and the
+        // "回際" fake lands at position 0 above the legitimate SKK direct
+        // hits [開催, 快哉, 皆済]). Same class of failure would hit any
+        // noun+noun compound whose halves each parse as a common verb 連用形
+        // or single-kanji noun. When SKK owns the reading, trust SKK.
+        if (skkForDirectCheck && skkForDirectCheck->HasDirectEntry(reading))
+            return skkCandidates;
+
         auto morphemes = analyzer.Analyze(reading);
         if (morphemes.empty()) return skkCandidates;
 
@@ -1040,7 +1053,7 @@ namespace bunsetsu
         {
             auto hits = skk->Lookup(reading);
             if (analyzer)
-                hits = MergeMecabVerbForms(reading, *analyzer, hits);
+                hits = MergeMecabVerbForms(reading, *analyzer, hits, skk);
             for (auto& c : hits)
             {
                 if (std::find(b.candidates.begin(), b.candidates.end(), c)
