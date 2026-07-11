@@ -333,6 +333,63 @@ Space すると単独文字候補が 2 件 (全角/半角) 出る。
 - 1-9 で直接ページ内相対位置選択 + コミット
 - ESC で候補窓と composition 両方閉じる
 
+## Cat P: 括弧ペア確定後のキャレット位置
+
+`370f8ca` で導入。括弧ペア (`「」『』（）〔〕【】［］｛｝〈〉《》〘〙〚〛` + ASCII 変種) を確定
+した瞬間、キャレットは閉じ括弧の直前 (=ペアの内側) に落ちる。実装は
+`textservice.cpp:BracketPairCaretBackShift` → `editsession.cpp:DoEnd` の
+`ShiftStart(-1)` + `Collapse(TF_ANCHOR_START)` + `SetSelection`。
+
+### P-1: `[` Space Enter → 「｜」 (｜ = キャレット)
+| Input | Space 押下後の候補窓 index=0 | Enter コミット後の caret 位置 |
+|---|---|---|
+| `[` Space Enter | 「」 | 「 と 」 の**間** |
+| `]` Space Enter | 」 (単体) or 「」 実測 | (単体なら末尾, ペアなら間) |
+| `(` Space Enter | （） | （ と ） の**間** |
+| `{` Space Enter | ｛｝ | ｛ と ｝ の**間** |
+| `<` Space Enter | 〈〉 | 〈 と 〉 の**間** |
+
+### P-2: 「」+ Space Enter (ペアそのものを reading にする)
+| Input | 候補窓 index=0 | Enter コミット後の caret |
+|---|---|---|
+| `「」` を composition に入れて Space Enter | 「」 (index=0 は typed のまま) | 間 |
+| `『』` を composition に入れて Space Enter | 『』 | 間 |
+| `（）` を composition に入れて Space Enter | （） | 間 |
+
+### P-3: 括弧内側でのタイピング吸収 (Trailing-」 absorb)
+`textservice.cpp:TryAbsorbCloseBracket` の逆方向テスト。
+
+| 前提 | 操作 | 期待 |
+|---|---|---|
+| 「」 を確定してキャレットが間にある状態 | `nihongo` タイプ | composition が 「にほんご」 と表示、キャレットは にほんご と 」 の間 |
+| 同上 | Enter | 「にほんご」 が確定、キャレットは 」 の直後 (=ペア末尾外) |
+| 同上 | ESC | composition 消失、「」 が復元、キャレットは 「 と 」 の間 |
+
+### P-4: ホスト別注意点
+- **notepad (Win11)**: `pRange->SetSelection` → `EndComposition` 順で caret 内側化が反映される想定。
+- **Chromium contenteditable (X.com 等)**: `EndComposition` 側で selection がリセットされ、caret が末尾に飛ぶ症状が報告されている (2026-07-11 dhq_boiler)。`77e4f84 "Force SetText on commit so 2-char pairs survive Chromium hosts"` の続きで、SetSelection 順序も見直しが必要な可能性。
+- **メモ帳 (Win11 新)**: DirectWrite 実装につき、UIA `TextPattern.SelectionStart` で観測できるはずだが `get_ui_tree` は `ValuePattern.valueCurrent` のみ返すので、**別途 send_key(HOME) → send_key(ENTER) → get_ui_tree(valueCurrent) の 2 行結果差**で「Enter が閉じ括弧の内側で押された」を裏取りするのが実務的。
+
+### P-5: 観測プロトコル (WDAC)
+notepad の `get_ui_tree.valueCurrent` はテキスト全体しか返さず、キャレット位置の直接観測は不可。以下いずれかで代用:
+
+1. **caret-test.html を Edge で開く** (推奨): `docs/e2e/caret-test.html` を GitHub Pages で公開し、
+   Edge に `https://dhq-boiler.github.io/GenerativeIME/e2e/caret-test.html` を navigate。
+   ページは `<input>` / `<textarea>` / `<div contenteditable>` の 3 面を提供し、各面の
+   `selectionStart` / `anchorOffset` をライブで `<output>` に反映する。
+   UIA では `<output>` が Text/Edit として拾えるので、E2E は
+   `get_ui_tree(controlTypes="Edit,Text")` で `input-sel` / `area-sel` / `ce-sel` の
+   valueCurrent を読み、`== "1"` を assert する。1 ページで OS-native (input/textarea) と
+   Chromium contenteditable (ce-div) の両ホストクラスをカバー。
+
+2. **notepad + リテラル打ち込み** (フォールバック): 括弧確定直後に `type_text("X")` して
+   valueCurrent を読む。`「X」` なら内側成功、`「」X` なら失敗。type_text は WM_CHAR 直挿しで
+   IME を経由しないので composition 状態に影響しない。
+
+3. **notepad + HOME → ENTER 差分** (レガシー): 括弧確定直後に `send_key(HOME)` →
+   `send_key(ENTER)` → `valueCurrent` を読む。`「\n」` なら内側、`「」\n` なら末尾。
+   送信キーが多くて壊れやすいので (1) が使える環境では非推奨。
+
 ---
 
 ## 実行計画（順序）

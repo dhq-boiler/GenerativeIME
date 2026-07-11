@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GenerativeIME — Caret & Composition Test Bench</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fff;
+    --fg: #111;
+    --muted: #666;
+    --panel: #f4f4f4;
+    --border: #ccc;
+    --accent: #06c;
+    --ok: #067d17;
+    --bad: #b00020;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121212;
+      --fg: #eee;
+      --muted: #999;
+      --panel: #1e1e1e;
+      --border: #333;
+      --accent: #4ea3ff;
+      --ok: #6ee089;
+      --bad: #ff6b6b;
+    }
+  }
+  html, body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: 'Segoe UI', 'BIZ UDPGothic', system-ui, sans-serif;
+    margin: 0;
+    padding: 16px;
+    font-size: 14px;
+  }
+  h1 { margin: 0 0 8px; font-size: 18px; }
+  h2 { margin: 0 0 6px; font-size: 14px; }
+  .subtitle { color: var(--muted); margin-bottom: 16px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+  }
+  .card {
+    border: 1px solid var(--border);
+    background: var(--panel);
+    border-radius: 6px;
+    padding: 12px;
+  }
+  .card label { display: block; font-weight: 600; margin-bottom: 4px; }
+  .field {
+    width: 100%;
+    box-sizing: border-box;
+    font: 16px 'Consolas', 'BIZ UDGothic', monospace;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--fg);
+    border-radius: 4px;
+  }
+  textarea.field { min-height: 72px; resize: vertical; }
+  div.field[contenteditable] { min-height: 72px; white-space: pre-wrap; }
+  .status {
+    margin-top: 6px;
+    font: 13px 'Consolas', monospace;
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    column-gap: 8px;
+    row-gap: 2px;
+  }
+  .status output { font-weight: 600; }
+  .log-card { grid-column: 1 / -1; }
+  #events {
+    margin: 0;
+    height: 220px;
+    overflow: auto;
+    font: 12px 'Consolas', monospace;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 8px;
+  }
+  .toolbar {
+    display: flex;
+    gap: 8px;
+    margin: 12px 0;
+    flex-wrap: wrap;
+  }
+  button {
+    font: inherit;
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--fg);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  code { font: 13px 'Consolas', monospace; color: var(--accent); }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+</style>
+</head>
+<body>
+<h1>GenerativeIME — Caret & Composition Test Bench</h1>
+<p class="subtitle">
+  IME 起動状態で各フィールドにフォーカスして入力すると、<code>selectionStart</code>
+  (input / textarea) または <code>getSelection().anchorOffset</code>
+  (contenteditable) が右側の <code>caret</code> 欄にライブ表示される。
+  E2E ハーネスは <code>get_ui_tree(controlTypes="Edit,Text")</code> でこれらを拾い、
+  括弧ペア確定後の caret 位置を assert する。
+</p>
+
+<div class="toolbar">
+  <button id="clear-btn" type="button" aria-label="全フィールドとログをクリア">Clear all</button>
+  <button id="focus-input" type="button">Focus &lt;input&gt;</button>
+  <button id="focus-area" type="button">Focus &lt;textarea&gt;</button>
+  <button id="focus-ce" type="button">Focus contenteditable</button>
+</div>
+
+<div class="grid">
+  <section class="card" aria-labelledby="lbl-input">
+    <label id="lbl-input" for="input-txt">&lt;input type="text"&gt; (OS-native)</label>
+    <input id="input-txt" class="field" type="text" autocomplete="off" spellcheck="false"
+           aria-describedby="input-hint">
+    <div class="status">
+      <span>value:</span><output id="input-val" for="input-txt" aria-live="polite"></output>
+      <span>caret:</span><output id="input-sel" for="input-txt" aria-live="polite">0</output>
+      <span>length:</span><output id="input-len" for="input-txt" aria-live="polite">0</output>
+    </div>
+    <p class="hint" id="input-hint">notepad 相当。TSF 経由で SetSelection がそのまま効く想定。</p>
+  </section>
+
+  <section class="card" aria-labelledby="lbl-area">
+    <label id="lbl-area" for="area-txt">&lt;textarea&gt; (OS-native, multiline)</label>
+    <textarea id="area-txt" class="field" autocomplete="off" spellcheck="false"
+              aria-describedby="area-hint"></textarea>
+    <div class="status">
+      <span>value:</span><output id="area-val" for="area-txt" aria-live="polite"></output>
+      <span>caret:</span><output id="area-sel" for="area-txt" aria-live="polite">0</output>
+      <span>length:</span><output id="area-len" for="area-txt" aria-live="polite">0</output>
+    </div>
+    <p class="hint" id="area-hint">改行込みのケース。caret index は文字列全体の 0-based offset。</p>
+  </section>
+
+  <section class="card" aria-labelledby="lbl-ce">
+    <label id="lbl-ce" for="ce-div">contenteditable (Chromium quirks 対象)</label>
+    <div id="ce-div" class="field" contenteditable="true" role="textbox"
+         spellcheck="false" aria-multiline="true" aria-describedby="ce-hint"></div>
+    <div class="status">
+      <span>textContent:</span><output id="ce-val" aria-live="polite"></output>
+      <span>caret:</span><output id="ce-sel" aria-live="polite">0</output>
+      <span>length:</span><output id="ce-len" aria-live="polite">0</output>
+    </div>
+    <p class="hint" id="ce-hint">
+      X.com / Slack 等の入力欄相当。<code>EndComposition</code> 後の
+      selection reset が疑われている系統。
+    </p>
+  </section>
+
+  <section class="card log-card" aria-labelledby="lbl-events">
+    <label id="lbl-events" for="events">Event log (composition / beforeinput / input / keydown)</label>
+    <pre id="events" role="log" aria-live="polite" tabindex="0"></pre>
+    <p class="hint">
+      各行: <code>[HH:MM:SS.mmm] target event key/data</code>。
+      IME の <code>compositionstart → update × N → end</code> シーケンスを追跡できる。
+    </p>
+  </section>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const $ = (id) => document.getElementById(id);
+  const stamp = () => {
+    const d = new Date();
+    const pad = (n, w = 2) => String(n).padStart(w, '0');
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+  };
+
+  const log = (target, ev) => {
+    const line = `[${stamp()}] ${target.padEnd(8)} ${ev.type.padEnd(18)} ${describe(ev)}`;
+    const pre = $('events');
+    pre.textContent += line + '\n';
+    pre.scrollTop = pre.scrollHeight;
+    // Cap to last 400 lines so a long session doesn't grow unbounded.
+    const lines = pre.textContent.split('\n');
+    if (lines.length > 400) pre.textContent = lines.slice(-400).join('\n');
+  };
+
+  const describe = (ev) => {
+    const parts = [];
+    if ('data' in ev && ev.data !== null) parts.push(`data=${JSON.stringify(ev.data)}`);
+    if ('inputType' in ev && ev.inputType) parts.push(`inputType=${ev.inputType}`);
+    if ('key' in ev && ev.key) parts.push(`key=${JSON.stringify(ev.key)}`);
+    if ('isComposing' in ev) parts.push(`isComposing=${ev.isComposing}`);
+    return parts.join(' ');
+  };
+
+  const wireField = (input, valOut, selOut, lenOut, label, ceRoot) => {
+    const readValue = () => ceRoot ? ceRoot.textContent : input.value;
+    const readCaret = () => {
+      if (ceRoot) {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0 || !ceRoot.contains(sel.anchorNode)) return 0;
+        // Sum character offsets from anchor back through preceding text nodes.
+        const range = document.createRange();
+        range.selectNodeContents(ceRoot);
+        range.setEnd(sel.anchorNode, sel.anchorOffset);
+        return range.toString().length;
+      }
+      return input.selectionStart ?? 0;
+    };
+    const sync = () => {
+      const val = readValue();
+      valOut.value = val;
+      selOut.value = String(readCaret());
+      lenOut.value = String(val.length);
+    };
+
+    const events = [
+      'input', 'beforeinput', 'keydown', 'keyup',
+      'compositionstart', 'compositionupdate', 'compositionend',
+      'select', 'selectionchange'
+    ];
+    events.forEach((type) => {
+      // selectionchange doesn't bubble reliably from focused element; attach
+      // it to document but scope by focus check inside the handler.
+      const target = (type === 'selectionchange') ? document : input;
+      target.addEventListener(type, (ev) => {
+        if (type === 'selectionchange') {
+          const active = document.activeElement;
+          if (active !== input && !(ceRoot && ceRoot.contains(active))) return;
+        }
+        log(label, ev);
+        sync();
+      });
+    });
+
+    input.addEventListener('focus', sync);
+    input.addEventListener('blur', sync);
+    sync();
+  };
+
+  wireField($('input-txt'), $('input-val'), $('input-sel'), $('input-len'), 'input', null);
+  wireField($('area-txt'),  $('area-val'),  $('area-sel'),  $('area-len'),  'area',  null);
+  wireField($('ce-div'),    $('ce-val'),    $('ce-sel'),    $('ce-len'),    'ce',    $('ce-div'));
+
+  $('clear-btn').addEventListener('click', () => {
+    $('input-txt').value = '';
+    $('area-txt').value  = '';
+    $('ce-div').textContent = '';
+    $('events').textContent = '';
+    document.querySelectorAll('.status output').forEach((o) => {
+      if (o.id.endsWith('-sel') || o.id.endsWith('-len')) o.value = '0';
+      else o.value = '';
+    });
+  });
+  $('focus-input').addEventListener('click', () => $('input-txt').focus());
+  $('focus-area').addEventListener('click',  () => $('area-txt').focus());
+  $('focus-ce').addEventListener('click',    () => $('ce-div').focus());
+})();
+</script>
+</body>
+</html>
