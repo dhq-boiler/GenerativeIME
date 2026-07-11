@@ -3009,6 +3009,74 @@ TEST(skk_digit_prefix_pure_kana_unaffected)
 }
 
 // ---------------------------------------------------------------------
+// WDAC iteration 1 regression: とうきょう/かいさい returned as Phase B
+// misparse (とう鏡 / 回際) even though both readings are direct SKK entries
+// AND explicit modernranking overrides. These tests pin the two lookup +
+// promote invariants so the fix can be validated before rebuilding the DLL.
+// ---------------------------------------------------------------------
+TEST(skk_lookup_toukyou_direct_hit)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto cands = skk->Lookup(L"とうきょう");
+    EXPECT_TRUE(!cands.empty());
+    bool has = false;
+    for (const auto& c : cands) if (c == L"東京") { has = true; break; }
+    EXPECT_TRUE(has);
+    EXPECT_TRUE(skk->HasDirectEntry(L"とうきょう"));
+}
+
+TEST(modernranking_toukyou_promotes_toukyou_to_top)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto cands = skk->Lookup(L"とうきょう");
+    if (cands.empty()) { std::printf("  SKIP (no cands)\n"); return; }
+    auto promoted = modernranking::PromoteToTop(L"とうきょう", cands);
+    EXPECT_TRUE(!promoted.empty());
+    if (promoted.empty()) return;
+    EXPECT_EQ_W(promoted[0], L"東京");
+}
+
+TEST(skk_lookup_kaisai_direct_hit)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto cands = skk->Lookup(L"かいさい");
+    EXPECT_TRUE(!cands.empty());
+    bool has = false;
+    for (const auto& c : cands) if (c == L"開催") { has = true; break; }
+    EXPECT_TRUE(has);
+    EXPECT_TRUE(skk->HasDirectEntry(L"かいさい"));
+}
+
+TEST(modernranking_kaisai_promotes_kaisai_to_top)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto cands = skk->Lookup(L"かいさい");
+    if (cands.empty()) { std::printf("  SKIP (no cands)\n"); return; }
+    auto promoted = modernranking::PromoteToTop(L"かいさい", cands);
+    EXPECT_TRUE(!promoted.empty());
+    if (promoted.empty()) return;
+    EXPECT_EQ_W(promoted[0], L"開催");
+}
+
+TEST(skk_lookup_rosanzerusu_loanword)
+{
+    // ロサンゼルス is a modern loanword. If neither SKK-JISYO.L nor the
+    // loanwords companion has it, the whole-reading path returns empty and
+    // MeCab splits ろ+さん+ぜ+るす → 路+三+ぜ+留守. Adding it to the
+    // loanwords dict is the intended fix.
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto cands = skk->Lookup(L"ろさんぜるす");
+    bool has = false;
+    for (const auto& c : cands) if (c == L"ロサンゼルス") { has = true; break; }
+    EXPECT_TRUE(has);
+}
+
+// ---------------------------------------------------------------------
 int main()
 {
     // UTF-8 stdout — without this the CMD code page mangles Japanese in
