@@ -242,6 +242,29 @@ void CCandidateWindow::SetCandidates(const std::vector<std::wstring>& candidates
     m_pageStart = 0;
     Resize();
     if (m_hwnd && IsWindowVisible(m_hwnd)) InvalidateRect(m_hwnd, nullptr, TRUE);
+    RefreshUiaTitle();
+}
+
+// Encode the current candidate list + selection into the window title so
+// E2E harnesses (WDAC's get_ui_tree, UI Automation clients) can read what
+// the popup is showing without having to OCR the D2D-rendered surface.
+// The custom-drawn HWND has no native UIA content otherwise. Format is
+// stable so tests can parse: "GIME_CANDS|<n>|<sel>|<c0>|<c1>|...". Bar is
+// a safe separator — SKK dict entries use / as their internal delimiter,
+// so no candidate string carries U+007C.
+void CCandidateWindow::RefreshUiaTitle()
+{
+    if (!m_hwnd) return;
+    std::wstring title = L"GIME_CANDS|";
+    title += std::to_wstring(m_candidates.size());
+    title += L"|";
+    title += std::to_wstring(m_selected);
+    for (const auto& c : m_candidates)
+    {
+        title.push_back(L'|');
+        title += c;
+    }
+    SetWindowTextW(m_hwnd, title.c_str());
 }
 
 void CCandidateWindow::Resize()
@@ -307,6 +330,7 @@ void CCandidateWindow::SelectNext()
         if (m_hwnd) InvalidateRect(m_hwnd, nullptr, TRUE);
     }
     else if (m_hwnd) InvalidateRect(m_hwnd, nullptr, FALSE);
+    RefreshUiaTitle();
 }
 
 void CCandidateWindow::SelectPrev()
@@ -319,6 +343,7 @@ void CCandidateWindow::SelectPrev()
         if (m_hwnd) InvalidateRect(m_hwnd, nullptr, TRUE);
     }
     else if (m_hwnd) InvalidateRect(m_hwnd, nullptr, FALSE);
+    RefreshUiaTitle();
 }
 
 void CCandidateWindow::SelectIndex(int index)
@@ -331,6 +356,7 @@ void CCandidateWindow::SelectIndex(int index)
         if (m_hwnd) InvalidateRect(m_hwnd, nullptr, TRUE);
     }
     else if (m_hwnd) InvalidateRect(m_hwnd, nullptr, FALSE);
+    RefreshUiaTitle();
 }
 
 void CCandidateWindow::PageNext()
@@ -341,6 +367,7 @@ void CCandidateWindow::PageNext()
     m_pageStart = nextStart;
     m_selected = m_pageStart;
     if (m_hwnd) InvalidateRect(m_hwnd, nullptr, TRUE);
+    RefreshUiaTitle();
 }
 
 void CCandidateWindow::PagePrev()
@@ -356,6 +383,7 @@ void CCandidateWindow::PagePrev()
     m_pageStart = prevStart;
     m_selected = m_pageStart;
     if (m_hwnd) InvalidateRect(m_hwnd, nullptr, TRUE);
+    RefreshUiaTitle();
 }
 
 std::wstring CCandidateWindow::GetSelected() const

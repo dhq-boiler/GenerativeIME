@@ -71,6 +71,10 @@ private:
     // emoji fallback runs measure correctly).
     float MeasureLineWidth(const std::wstring& text);
     float MeasureAnnotationWidth(const std::wstring& text);
+    // Push the current candidate list + selection into the HWND window title
+    // so UI Automation clients (WDAC E2E harness) can read what the popup is
+    // showing without OCR. Called from every selection / candidate mutation.
+    void RefreshUiaTitle();
 
     HWND m_hwnd;
     int m_rowHeight;
