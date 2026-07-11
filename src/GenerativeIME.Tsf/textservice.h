@@ -102,6 +102,16 @@ private:
     void SetImeOpenClose(BOOL on);
     bool ShouldEat(WPARAM wParam) const;
     void TryOllamaConvertAsync(ITfContext* pContext);
+    // Split a leading single-mora particle (は/を/へ/が/の/に/で/と/も) off the
+    // front of the composition when the tail is a recognized loanword or
+    // dictionary compound. Returns true when the split fired: the particle
+    // was committed to the doc, m_romajiBuffer / m_lastReading / composition
+    // have been rebuilt with the stem, and `reading` (the caller's local
+    // copy) has been updated so the SKK / MeCab / Phase B path that follows
+    // sees only the tail. Returns false otherwise (short buffer, no
+    // particle prefix, tail not a word, or the whole reading is a compound
+    // with its own SKK direct entry — にほんじん stays as 日本人).
+    bool TrySplitLeadingParticle(ITfContext* pContext, std::wstring& reading);
     void HandleOllamaDone(PendingOllamaRequest* pending);
     HRESULT InitMessageWindow();
     void UninitMessageWindow();

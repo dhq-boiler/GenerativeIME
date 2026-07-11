@@ -983,6 +983,65 @@ STDMETHODIMP CTextService::OnChange(REFGUID rguid)
     return S_OK;
 }
 
+bool CTextService::TrySplitLeadingParticle(ITfContext* pContext, std::wstring& reading)
+{
+    // Common single-mora topic / case / conjunction particles. Multi-mora
+    // particles (まで, から, など) are trickier to detect on the boundary
+    // and rarely show up in the sticky-buffer shape this heuristic solves,
+    // so we skip them.
+    static const std::wstring kParticles = L"はをへがのにでとも";
+    if (reading.size() < 5) return false;
+    if (kParticles.find(reading[0]) == std::wstring::npos) return false;
+
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) return false;
+
+    // Compound guard. When the whole reading has a direct SKK entry the
+    // user meant the compound, not particle + stem — にほんじん resolves
+    // via a direct 日本人 entry and MUST NOT be chopped to に + ほんじん.
+    if (skk->HasDirectEntry(reading)) return false;
+
+    // Chop the first 2 romaji chars of the buffer — every single-mora
+    // particle in kParticles is a hiragana whose romaji is exactly 2
+    // ASCII chars (ha/wo/he/ga/no/ni/de/to/mo). If somebody typed a
+    // shorter buffer the guard above already returned false via the
+    // reading.size() check.
+    if (m_romajiBuffer.size() < 3) return false;
+    std::wstring newBuffer = m_romajiBuffer.substr(2);
+    auto r = romaji::Convert(newBuffer);
+    std::wstring newReading = r.hira + romaji::FinalizeTrailingN(r.remaining);
+    if (newReading.size() < 3) return false;
+
+    // Recognition gate: the tail has to be a real word (SKK hit somewhere)
+    // so we don't split はんだん into は + んだん. Direct entry OR any
+    // Lookup hit passes — the loanword / geography companion dicts
+    // register their katakana as direct entries, so ロサンゼルス trips
+    // this. When the tail is unrecognized, leave the composition alone
+    // and let the caller's Phase B (or MeCab) handle it.
+    if (skk->Lookup(newReading).empty() && !skk->HasDirectEntry(newReading))
+        return false;
+
+    // Commit the particle. EndCommit with non-empty text REPLACES the
+    // current composition range with `particle` (see CEditSession::DoEnd)
+    // and closes the composition — the doc now has ...は with the tail
+    // wiped from the range.
+    std::wstring particle(1, reading[0]);
+    RequestEditSession(pContext, EditAction::EndCommit, particle);
+    AppendCommittedText(particle);
+
+    // Rebuild buffer state and open a fresh composition on the stem so the
+    // punct / SKK / MeCab paths that follow this call see only the tail.
+    m_romajiBuffer = std::move(newBuffer);
+    m_compositionConverted = FALSE;
+    m_lastReading.clear();
+    m_fkeyConvertedText.clear();
+    std::wstring display = DisplayForMode(m_romajiBuffer, m_imeMode);
+    RequestEditSession(pContext, EditAction::StartAndUpdate, display);
+
+    reading = std::move(newReading);
+    return true;
+}
+
 void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
 {
     if (!pContext || !m_hwndMsg) return;
@@ -1005,6 +1064,19 @@ void CTextService::TryOllamaConvertAsync(ITfContext* pContext)
     }
     if (reading.empty()) reading = m_lastReading;
     if (reading.empty()) return;
+
+    // Particle-stem split. WDAC iteration 3 exposed the implicit-commit
+    // regression 「ha + rosanzerusu」→ buffer harosanzerusu → composition
+    // はろさんぜるす → Phase B splits the whole thing as ろ+参+ぜ+留守
+    // even though ろさんぜるす has a direct SKK entry (ロサンゼルス). The
+    // user typed the previous phrase's particle は and chained the next
+    // word without pressing Enter — perfectly ordinary Japanese typing.
+    // Detect that shape and commit the particle alone before continuing.
+    if (TrySplitLeadingParticle(pContext, reading))
+    {
+        // reading + m_romajiBuffer + composition now cover only the stem.
+        // Fall through to the punct / symbol / SKK / MeCab paths below.
+    }
 
     // Punctuation pair fast path. If the composition currently shows a
     // single full/half-width punctuation char (typed via IsSymbolKey
