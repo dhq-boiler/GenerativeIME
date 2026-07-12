@@ -15,7 +15,6 @@ struct PendingOllamaRequest;
 struct PendingOllamaReorderRequest;
 struct PendingOllamaFallbackRequest;
 struct PendingAcronymRequest;
-struct PendingCaretCorrection;
 
 // Active "input mode" inside the IME. Off means IME is bypassing input entirely;
 // the other four shape how m_romajiBuffer renders in the composition.
@@ -117,19 +116,6 @@ private:
     HRESULT InitMessageWindow();
     void UninitMessageWindow();
     static LRESULT CALLBACK StaticWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
-
-    // Chromium `<div contenteditable>` bracket-caret workaround. Schedules a
-    // SetSelection edit session ~10ms after the commit so that Blink's
-    // Editing pipeline has finished its own selectionchange cleanup before
-    // we re-write the caret position. Text-control hosts (`<input>`,
-    // `<textarea>`, notepad) also get the scheduled session but its
-    // probe-check detects the caret is already correct and no-ops.
-    void EnqueueDeferredCaretCorrection(ITfContext* pContext,
-                                        size_t caretOffsetFromEnd,
-                                        wchar_t expectedTailChar);
-    // Called from WM_TIMER: looks up the queued PendingCaretCorrection by
-    // timer id, kills the one-shot timer, and fires CSetCaretSession.
-    void RunDeferredCaretCorrection(UINT_PTR timerId);
     void ShowLangBarMenu(int x, int y);
     void ApplyCandidateSelection(ITfContext* pContext);
     // Returns true iff the helper actually auto-committed a converted composition.
@@ -190,12 +176,6 @@ private:
     DWORD m_dwCookieOpenClose;
     DWORD m_dwCookieConvMode;
     HWND m_hwndMsg; // hidden HWND_MESSAGE window for worker-to-IME PostMessage
-
-    // Pending deferred caret corrections keyed by SetTimer id. The map keeps
-    // the PendingCaretCorrection alive across the ~10ms timer wait; the
-    // WM_TIMER handler pops the entry and fires CSetCaretSession sync.
-    std::unordered_map<UINT_PTR, PendingCaretCorrection*> m_pendingCaretCorrections;
-    UINT_PTR m_nextCaretTimerId = 0x8000;
     CCandidateWindow* m_pCandWnd; // popup listing Ollama candidates; null until Create succeeds
     LearningStore* m_pLearning; // persisted reading-to-favorite map
     std::wstring m_lastReading; // reading that produced the current candidate list, for Record() on commit

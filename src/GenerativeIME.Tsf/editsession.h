@@ -93,29 +93,19 @@ private:
     std::wstring m_cancelReplacement;
 };
 
-// Post-commit caret correction for Chromium contenteditable.
-// `<input>`/`<textarea>`/notepad correctly honor DoEnd's double-SetSelection
-// (pre + post EndComposition). Pure `<div contenteditable>` goes through
-// Blink's Editing/InputEvents pipeline which RESETS the selection to the
-// composition end AFTER TSF's edit session AND after any TF_ES_ASYNCDONTCARE
-// follow-up (verified via WDAC E2E on caret-test.html). So 「[」+Space+Enter
-// commits 「」 with caret at position 2 (past the close bracket) instead of 1
-// (between the pair), and the next keystroke lands as 「」X.
-//
-// This session is fired ~10ms after the sync commit via a SetTimer callback
-// scheduled from CTextService::EnqueueDeferredCaretCorrection. The delay
-// guarantees the JS event-loop tick that runs Blink's compositionend cleanup
-// has already fired, so our SetSelection is the last write.
-//
-// GUARD: we don't want to shift `<input>`/notepad — those already have the
-// caret at the correct position. We probe the character one back from the
-// current cursor: if it matches m_expectedTailChar (e.g. `」`), Chromium
-// slid past the closing bracket and we apply the shift; otherwise, no-op.
+// Post-commit caret correction. Chromium contenteditable resets the
+// selection to the composition's END after EndComposition fires, ignoring
+// the SetSelection we do in DoEnd — so 「[」+Space+Enter commits 「」 with
+// caret at position 2, and the next keystroke lands as 「」X instead of
+// 「X」. This session runs ASYNC after the EndCommit sync session, by
+// which point Chromium's compositionend cleanup is finished, and we
+// re-set the selection to the current position minus `offset` chars.
+// Notepad-class hosts get the same call as a no-op at the same offset,
+// so no regression.
 class CSetCaretSession : public ITfEditSession
 {
 public:
-    CSetCaretSession(ITfContext* pContext, size_t caretOffsetFromEnd,
-                     wchar_t expectedTailChar);
+    CSetCaretSession(ITfContext* pContext, size_t caretOffsetFromEnd);
 
     STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override;
     STDMETHODIMP_(ULONG) AddRef() override;
@@ -127,7 +117,6 @@ private:
     LONG m_cRef;
     ITfContext* m_pContext;
     size_t m_caretOffsetFromEnd;
-    wchar_t m_expectedTailChar;
 };
 
 // Read-only session that returns the screen rect of a substring of the
