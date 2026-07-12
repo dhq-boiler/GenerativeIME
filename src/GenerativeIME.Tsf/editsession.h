@@ -93,6 +93,32 @@ private:
     std::wstring m_cancelReplacement;
 };
 
+// Post-commit caret correction. Chromium contenteditable resets the
+// selection to the composition's END after EndComposition fires, ignoring
+// the SetSelection we do in DoEnd — so 「[」+Space+Enter commits 「」 with
+// caret at position 2, and the next keystroke lands as 「」X instead of
+// 「X」. This session runs ASYNC after the EndCommit sync session, by
+// which point Chromium's compositionend cleanup is finished, and we
+// re-set the selection to the current position minus `offset` chars.
+// Notepad-class hosts get the same call as a no-op at the same offset,
+// so no regression.
+class CSetCaretSession : public ITfEditSession
+{
+public:
+    CSetCaretSession(ITfContext* pContext, size_t caretOffsetFromEnd);
+
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppvObj) override;
+    STDMETHODIMP_(ULONG) AddRef() override;
+    STDMETHODIMP_(ULONG) Release() override;
+    STDMETHODIMP DoEditSession(TfEditCookie ec) override;
+
+private:
+    ~CSetCaretSession();
+    LONG m_cRef;
+    ITfContext* m_pContext;
+    size_t m_caretOffsetFromEnd;
+};
+
 // Read-only session that returns the screen rect of a substring of the
 // composition. Used to anchor the candidate window to the focused
 // bunsetsu's column rather than the composition's left edge.

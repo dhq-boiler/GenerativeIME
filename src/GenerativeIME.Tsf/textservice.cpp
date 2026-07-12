@@ -5675,5 +5675,21 @@ HRESULT CTextService::RequestEditSession(ITfContext* pContext, EditAction action
         OutputDebugStringW(buf);
     }
     pSession->Release();
+
+    // Chromium <div contenteditable> host caveat. `<input>` and `<textarea>`
+    // are Blink text controls that respect our DoEnd double-SetSelection
+    // (pre + post EndComposition) — bracket-inside caret works. Pure
+    // contenteditable goes through Blink's Editing/InputEvents pipeline
+    // which resets selection to composition end AFTER TSF's edit session
+    // completes AND after any TF_ES_ASYNCDONTCARE follow-up we queue
+    // (verified via WDAC E2E on caret-test.html #ce-div: async
+    // CSetCaretSession ran but valueCurrent stayed 「」あ). Deferred to a
+    // future iteration — a fix likely needs Blink-specific plumbing (e.g.
+    // InputEvent 'insertCompositionText' with selection hints, or a
+    // Windows-message-timer deferred SetSelection past the JS event loop
+    // tick). For now the async helper is registered but not fired to
+    // avoid regressing the working `<input>` path.
+    (void)action;
+    (void)effectiveCaret;
     return hr;
 }

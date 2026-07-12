@@ -551,3 +551,75 @@ HRESULT CEditSession::DoEnd(TfEditCookie ec, bool cancel)
     m_pService->SetComposition(nullptr);
     return S_OK;
 }
+
+// ---------------------------------------------------------------------------
+// CSetCaretSession — post-commit caret correction for Chromium contenteditable
+// ---------------------------------------------------------------------------
+
+CSetCaretSession::CSetCaretSession(ITfContext* pContext, size_t caretOffsetFromEnd)
+    : m_cRef(1), m_pContext(pContext), m_caretOffsetFromEnd(caretOffsetFromEnd)
+{
+    if (m_pContext) m_pContext->AddRef();
+}
+
+CSetCaretSession::~CSetCaretSession()
+{
+    if (m_pContext) m_pContext->Release();
+}
+
+STDMETHODIMP CSetCaretSession::QueryInterface(REFIID riid, void** ppvObj)
+{
+    if (!ppvObj) return E_INVALIDARG;
+    *ppvObj = nullptr;
+    if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfEditSession))
+    {
+        *ppvObj = static_cast<ITfEditSession*>(this);
+        AddRef();
+        return S_OK;
+    }
+    return E_NOINTERFACE;
+}
+
+STDMETHODIMP_(ULONG) CSetCaretSession::AddRef()
+{
+    return static_cast<ULONG>(InterlockedIncrement(&m_cRef));
+}
+
+STDMETHODIMP_(ULONG) CSetCaretSession::Release()
+{
+    LONG c = InterlockedDecrement(&m_cRef);
+    if (c == 0) delete this;
+    return static_cast<ULONG>(c);
+}
+
+STDMETHODIMP CSetCaretSession::DoEditSession(TfEditCookie ec)
+{
+    if (!m_pContext || m_caretOffsetFromEnd == 0) return S_OK;
+
+    // Read the current selection — Chromium's compositionend handler already
+    // ran (this session is queued AFTER the sync commit session), so the
+    // selection now reflects whatever Chromium landed it at, which is the
+    // end of the committed range.
+    TF_SELECTION sel = {};
+    ULONG fetched = 0;
+    HRESULT hr = m_pContext->GetSelection(ec, TF_DEFAULT_SELECTION, 1, &sel, &fetched);
+    if (FAILED(hr) || fetched == 0 || !sel.range) return hr;
+
+    // Shift the range's start back by N chars so start == desired caret,
+    // then collapse to that start. Same shape as DoEnd's bracket-inside
+    // math but applied to the CURRENT (post-EndComposition) selection
+    // instead of the composition range.
+    LONG shifted = 0;
+    sel.range->ShiftStart(ec, -static_cast<LONG>(m_caretOffsetFromEnd),
+                          &shifted, nullptr);
+    sel.range->Collapse(ec, TF_ANCHOR_START);
+
+    TF_SELECTION out = {};
+    out.range = sel.range;
+    out.style.ase = TF_AE_END;
+    out.style.fInterimChar = FALSE;
+    m_pContext->SetSelection(ec, 1, &out);
+
+    sel.range->Release();
+    return S_OK;
+}
