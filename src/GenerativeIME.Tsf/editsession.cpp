@@ -524,10 +524,30 @@ HRESULT CEditSession::DoEnd(TfEditCookie ec, bool cancel)
         sel.style.fInterimChar = FALSE;
         m_pContext->SetSelection(ec, 1, &sel);
 
+        // Chromium hosts (contenteditable / <input> via Blink) fire
+        // selectionchange inside EndComposition and read document state
+        // afterward — which overrides the SetSelection we just did and
+        // slides the caret past the closing bracket. WDAC E2E on
+        // caret-test.html confirmed the regression: typing 「[」+Space+Enter
+        // then a plain 'X' lands as 「」X instead of 「X」. Re-apply the
+        // selection AFTER EndComposition so Chromium's post-end handler
+        // sees our intended position last. pRange is a document range and
+        // survives composition close, so the same TF_SELECTION still
+        // points at the desired caret offset. Notepad-class hosts get the
+        // pre-end SetSelection above; both sees the same final index.
+        pComposition->EndComposition(ec);
+        if (!cancel && m_caretOffsetFromEnd > 0)
+        {
+            m_pContext->SetSelection(ec, 1, &sel);
+        }
+
         pRange->Release();
     }
+    else
+    {
+        pComposition->EndComposition(ec);
+    }
 
-    pComposition->EndComposition(ec);
     m_pService->SetComposition(nullptr);
     return S_OK;
 }
