@@ -17,14 +17,16 @@
 param(
     [string]$Model      = 'gemma4:12b',
     [string]$OllamaUrl  = 'http://localhost:11434',
-    [int]$TimeoutSec    = 180
+    [int]$TimeoutSec    = 180,
+    [string]$OutSuffix  = ''     # 並行実行や履歴保持用。'e4b' なら last_judge_bias.e4b.json
 )
 
 $ErrorActionPreference = 'Stop'
 
 $root    = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $inFile  = Join-Path $root '.claude\state\last_e2e_run.json'
-$outFile = Join-Path $root '.claude\state\last_judge_bias.json'
+$suffix  = if ([string]::IsNullOrEmpty($OutSuffix)) { '' } else { ".$OutSuffix" }
+$outFile = Join-Path $root ".claude\state\last_judge_bias${suffix}.json"
 
 $run    = Get-Content $inFile -Raw -Encoding UTF8 | ConvertFrom-Json
 $misses = @($run.corpus_misses)

@@ -1826,6 +1826,12 @@ namespace modernranking
     // (Ollama e4b, Ollama 12b order-swap STABLE, Claude Haiku order-swap STABLE).
     static const Entry kOverrideTable[] = {
         {L"しゃ", L"社"}, // corpus prefers 者 (3555x medical) but general JP prefers 社
+        {L"め", L"目"}, // 3-judge STABLE: 目 is natural, corpus favors 眼 due to medical bias
+        {L"いじょう", L"以上"}, // 2/3 STABLE Ollama, Haiku position-wobble; general JP prefers 以上
+        {L"かい", L"会"}, // e4b bias-safe STABLE picks 会; corpus 回 dominates via medical bias
+        {L"ち", L"地"}, // e4b+Haiku bias-safe STABLE; corpus favors 血 (medical)
+        {L"こう", L"高"}, // e4b+Haiku bias-safe STABLE; corpus favors 抗 (medical, anti-)
+        {L"かん", L"感"}, // e4b+Haiku bias-safe STABLE; corpus favors 管 (blood vessel etc.)
     };
 
     static const std::unordered_map<std::wstring, std::wstring>& Index()
