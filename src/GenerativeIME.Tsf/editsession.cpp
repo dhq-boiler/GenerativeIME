@@ -556,8 +556,10 @@ HRESULT CEditSession::DoEnd(TfEditCookie ec, bool cancel)
 // CSetCaretSession — post-commit caret correction for Chromium contenteditable
 // ---------------------------------------------------------------------------
 
-CSetCaretSession::CSetCaretSession(ITfContext* pContext, size_t caretOffsetFromEnd)
-    : m_cRef(1), m_pContext(pContext), m_caretOffsetFromEnd(caretOffsetFromEnd)
+CSetCaretSession::CSetCaretSession(ITfContext* pContext, size_t caretOffsetFromEnd,
+                                   wchar_t expectedTailChar)
+    : m_cRef(1), m_pContext(pContext), m_caretOffsetFromEnd(caretOffsetFromEnd),
+      m_expectedTailChar(expectedTailChar)
 {
     if (m_pContext) m_pContext->AddRef();
 }
@@ -596,29 +598,53 @@ STDMETHODIMP CSetCaretSession::DoEditSession(TfEditCookie ec)
 {
     if (!m_pContext || m_caretOffsetFromEnd == 0) return S_OK;
 
-    // Read the current selection — Chromium's compositionend handler already
-    // ran (this session is queued AFTER the sync commit session), so the
-    // selection now reflects whatever Chromium landed it at, which is the
-    // end of the committed range.
+    // Read the current selection — we're running ~10ms after the sync
+    // commit so any JS event-loop tick that Blink used to fix up its own
+    // selection has already fired. On text-control hosts, the selection is
+    // where DoEnd left it (correct). On Chromium contenteditable, the
+    // selection has slid past the closing bracket.
     TF_SELECTION sel = {};
     ULONG fetched = 0;
     HRESULT hr = m_pContext->GetSelection(ec, TF_DEFAULT_SELECTION, 1, &sel, &fetched);
     if (FAILED(hr) || fetched == 0 || !sel.range) return hr;
 
-    // Shift the range's start back by N chars so start == desired caret,
-    // then collapse to that start. Same shape as DoEnd's bracket-inside
-    // math but applied to the CURRENT (post-EndComposition) selection
-    // instead of the composition range.
-    LONG shifted = 0;
-    sel.range->ShiftStart(ec, -static_cast<LONG>(m_caretOffsetFromEnd),
-                          &shifted, nullptr);
-    sel.range->Collapse(ec, TF_ANCHOR_START);
+    // Guard: probe the char one back from the current cursor. If it matches
+    // the expected tail char (`」` etc.), we're in the wrong-position state
+    // (caret past the close bracket) and need to shift. Otherwise the caret
+    // is already in the correct position (this is the `<input>`/notepad
+    // case) and we no-op — critical to avoid regressing text-control hosts.
+    ITfRange* pProbe = nullptr;
+    bool needFix = false;
+    if (SUCCEEDED(sel.range->Clone(&pProbe)) && pProbe)
+    {
+        LONG shifted = 0;
+        HRESULT hrShift = pProbe->ShiftStart(ec, -1, &shifted, nullptr);
+        if (SUCCEEDED(hrShift) && shifted == -1)
+        {
+            wchar_t ch = 0;
+            ULONG got = 0;
+            if (SUCCEEDED(pProbe->GetText(ec, 0, &ch, 1, &got)) &&
+                got == 1 && ch == m_expectedTailChar)
+            {
+                needFix = true;
+            }
+        }
+        pProbe->Release();
+    }
 
-    TF_SELECTION out = {};
-    out.range = sel.range;
-    out.style.ase = TF_AE_END;
-    out.style.fInterimChar = FALSE;
-    m_pContext->SetSelection(ec, 1, &out);
+    if (needFix)
+    {
+        LONG shifted2 = 0;
+        sel.range->ShiftStart(ec, -static_cast<LONG>(m_caretOffsetFromEnd),
+                              &shifted2, nullptr);
+        sel.range->Collapse(ec, TF_ANCHOR_START);
+
+        TF_SELECTION out = {};
+        out.range = sel.range;
+        out.style.ase = TF_AE_END;
+        out.style.fInterimChar = FALSE;
+        m_pContext->SetSelection(ec, 1, &out);
+    }
 
     sel.range->Release();
     return S_OK;

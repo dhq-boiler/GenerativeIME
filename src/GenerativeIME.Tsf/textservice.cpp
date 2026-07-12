@@ -153,6 +153,29 @@ struct PendingAcronymRequest
     }
 };
 
+// Deferred bracket-caret correction for Chromium contenteditable hosts.
+// See CTextService::EnqueueDeferredCaretCorrection for the full flow.
+// Lifecycle: allocated by EnqueueDeferredCaretCorrection, stored in
+// CTextService::m_pendingCaretCorrections keyed by SetTimer id, freed by
+// RunDeferredCaretCorrection after the sync edit session fires.
+struct PendingCaretCorrection
+{
+    ITfContext* context; // AddRef'd on construction, Release'd on destruction
+    size_t caretOffsetFromEnd;
+    wchar_t expectedTailChar;
+
+    PendingCaretCorrection(ITfContext* c, size_t off, wchar_t ch)
+        : context(c), caretOffsetFromEnd(off), expectedTailChar(ch)
+    {
+        if (context) context->AddRef();
+    }
+
+    ~PendingCaretCorrection()
+    {
+        if (context) context->Release();
+    }
+};
+
 namespace
 {
     // Composition display = converted kana + still-untranslatable trailing romaji,
@@ -4081,6 +4104,12 @@ LRESULT CALLBACK CTextService::StaticWndProc(HWND hwnd, UINT msg, WPARAM wParam,
             self->ShowLangBarMenu(x, y);
             return 0;
         }
+        if (msg == WM_TIMER)
+        {
+            // Deferred caret correction — see EnqueueDeferredCaretCorrection.
+            self->RunDeferredCaretCorrection(static_cast<UINT_PTR>(wParam));
+            return 0;
+        }
         if (msg == WM_SET_IME_MODE)
         {
             // wParam encodes ImeMode (0=Off, 1=Hiragana, 2=FullKatakana,
@@ -4167,6 +4196,19 @@ HRESULT CTextService::InitMessageWindow()
 
 void CTextService::UninitMessageWindow()
 {
+    // Cancel any still-pending caret-correction timers before we tear down
+    // the window that would receive their WM_TIMER dispatch. If we drop them
+    // silently they'd leak the AddRef'd ITfContext.
+    if (m_hwndMsg)
+    {
+        for (auto& kv : m_pendingCaretCorrections)
+        {
+            KillTimer(m_hwndMsg, kv.first);
+            delete kv.second;
+        }
+    }
+    m_pendingCaretCorrections.clear();
+
     if (m_hwndMsg)
     {
         DestroyWindow(m_hwndMsg);
@@ -4174,6 +4216,69 @@ void CTextService::UninitMessageWindow()
     }
     // Intentionally do not UnregisterClass: another CTextService instance
     // may still be alive in the same process.
+}
+
+// Schedule a SetSelection edit session ~10ms in the future. Called at the
+// tail of RequestEditSession when we've just committed a bracket pair with
+// caret-inside intent, to work around Chromium contenteditable resetting
+// the selection past the closing bracket. On text-control hosts the
+// deferred session's probe-check causes a no-op, so this is safe to fire
+// unconditionally whenever caretOffsetFromEnd > 0 and the tail is a close
+// bracket.
+void CTextService::EnqueueDeferredCaretCorrection(ITfContext* pContext,
+                                                   size_t caretOffsetFromEnd,
+                                                   wchar_t expectedTailChar)
+{
+    if (!pContext || !m_hwndMsg || caretOffsetFromEnd == 0) return;
+
+    auto* pending = new PendingCaretCorrection(pContext, caretOffsetFromEnd,
+                                               expectedTailChar);
+    UINT_PTR id = m_nextCaretTimerId++;
+    // Wrap the counter into a safe range if we somehow burn through 32 bits
+    // (would take decades of typing). Zero is reserved by SetTimer semantics.
+    if (m_nextCaretTimerId == 0) m_nextCaretTimerId = 0x8000;
+
+    m_pendingCaretCorrections[id] = pending;
+    if (SetTimer(m_hwndMsg, id, 10, nullptr) == 0)
+    {
+        // SetTimer failed — release the pending entry so the ITfContext
+        // ref doesn't leak.
+        m_pendingCaretCorrections.erase(id);
+        delete pending;
+    }
+}
+
+// WM_TIMER handler. Looks up the queued correction, cancels the one-shot
+// timer, and fires CSetCaretSession sync. The guard inside CSetCaretSession
+// itself decides whether to shift or no-op based on the char before cursor.
+void CTextService::RunDeferredCaretCorrection(UINT_PTR timerId)
+{
+    auto it = m_pendingCaretCorrections.find(timerId);
+    if (it == m_pendingCaretCorrections.end())
+    {
+        // Not ours (WM_TIMER for a timer we don't own — shouldn't happen but
+        // kill it defensively so it doesn't fire again).
+        if (m_hwndMsg) KillTimer(m_hwndMsg, timerId);
+        return;
+    }
+
+    if (m_hwndMsg) KillTimer(m_hwndMsg, timerId);
+    PendingCaretCorrection* pending = it->second;
+    m_pendingCaretCorrections.erase(it);
+
+    if (pending && pending->context)
+    {
+        auto* pSession = new CSetCaretSession(pending->context,
+                                              pending->caretOffsetFromEnd,
+                                              pending->expectedTailChar);
+        HRESULT hrSession = S_OK;
+        pending->context->RequestEditSession(m_tfClientId, pSession,
+                                             TF_ES_SYNC | TF_ES_READWRITE,
+                                             &hrSession);
+        pSession->Release();
+    }
+
+    delete pending;
 }
 
 STDMETHODIMP CTextService::EnumDisplayAttributeInfo(IEnumTfDisplayAttributeInfo** ppEnum)
@@ -5676,20 +5781,20 @@ HRESULT CTextService::RequestEditSession(ITfContext* pContext, EditAction action
     }
     pSession->Release();
 
-    // Chromium <div contenteditable> host caveat. `<input>` and `<textarea>`
-    // are Blink text controls that respect our DoEnd double-SetSelection
-    // (pre + post EndComposition) — bracket-inside caret works. Pure
-    // contenteditable goes through Blink's Editing/InputEvents pipeline
-    // which resets selection to composition end AFTER TSF's edit session
-    // completes AND after any TF_ES_ASYNCDONTCARE follow-up we queue
-    // (verified via WDAC E2E on caret-test.html #ce-div: async
-    // CSetCaretSession ran but valueCurrent stayed 「」あ). Deferred to a
-    // future iteration — a fix likely needs Blink-specific plumbing (e.g.
-    // InputEvent 'insertCompositionText' with selection hints, or a
-    // Windows-message-timer deferred SetSelection past the JS event loop
-    // tick). For now the async helper is registered but not fired to
-    // avoid regressing the working `<input>` path.
-    (void)action;
-    (void)effectiveCaret;
+    // Chromium `<div contenteditable>` bracket-caret workaround. Blink's
+    // Editing pipeline resets the selection to composition end AFTER TSF's
+    // sync edit session AND after any TF_ES_ASYNCDONTCARE follow-up, so a
+    // sync/async re-SetSelection can't win the ordering race. Schedule a
+    // SetSelection past the JS event-loop tick via SetTimer(10ms) — by then
+    // Blink's selectionchange handler has run and our write is last. The
+    // deferred session probes the char before the current cursor: if it
+    // matches the close bracket we just committed, it applies the shift;
+    // otherwise (text-control hosts where the caret is already correct) it
+    // no-ops, so `<input>`/`<textarea>`/notepad don't regress.
+    if (action == EditAction::EndCommit && effectiveCaret > 0 &&
+        !effectiveText.empty() && IsCloseBracketChar(effectiveText.back()))
+    {
+        EnqueueDeferredCaretCorrection(pContext, effectiveCaret, effectiveText.back());
+    }
     return hr;
 }
