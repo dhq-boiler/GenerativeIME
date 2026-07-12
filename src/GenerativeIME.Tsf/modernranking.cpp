@@ -1819,13 +1819,27 @@ namespace modernranking
         {L"しょうぎょう", L"商業"}, // 100x
     };
 
+    // Hand-maintained overrides. Wins over kTable (Index() inserts these last).
+    // wikipedia-top.tsv is medically biased, so a few single-mora readings
+    // end up preferring domain-heavy kanji instead of the general-Japanese
+    // natural choice. Each entry must be justified by 3 independent judges
+    // (Ollama e4b, Ollama 12b order-swap STABLE, Claude Haiku order-swap STABLE).
+    static const Entry kOverrideTable[] = {
+        {L"しゃ", L"社"}, // corpus prefers 者 (3555x medical) but general JP prefers 社
+    };
+
     static const std::unordered_map<std::wstring, std::wstring>& Index()
     {
         static const auto* m = []()
         {
             auto* out = new std::unordered_map<std::wstring, std::wstring>();
-            out->reserve(sizeof(kTable) / sizeof(kTable[0]));
+            out->reserve(sizeof(kTable) / sizeof(kTable[0])
+                         + sizeof(kOverrideTable) / sizeof(kOverrideTable[0]));
             for (const auto& e : kTable)
+            {
+                (*out)[e.reading] = e.preferred;
+            }
+            for (const auto& e : kOverrideTable)
             {
                 (*out)[e.reading] = e.preferred;
             }
