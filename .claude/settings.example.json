@@ -1,0 +1,47 @@
+{
+  "$schema-comment": "オプトイン用の hook 雛形。有効にするには settings.local.json にコピーして使う。settings.local.json は .gitignore 済み。",
+
+  "hook-usage-notes": [
+    "この雛形は Stop hook で 'src/**/*.cpp か third_party/skk/*.utf8 を Edit したセッションを終える時' に E2E ループを 1 回回すことを想定している。",
+    "誤発火（無関係な会話ターンで build を走らせてしまう）を避けるため、Stop hook は状態ファイル .claude/state/dirty.flag が存在するときのみ走る。",
+    "PostToolUse hook で dirty.flag を立てる。src/**/*.cpp または tests/*.cpp または third_party/skk/*.utf8 の Write/Edit のみに反応させる。",
+    "hook の実行時間は build_tests.ps1 のフル build なので 30-60 秒かかる。急いでいるセッションでは無効化 (settings.local.json を消す) するか -SkipBuild フラグを検討。"
+  ],
+
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -Command \"if ($env:CLAUDE_TOOL_FILE_PATH -match 'src\\\\GenerativeIME\\.Tsf\\\\.*\\.cpp$|tests\\\\test_runner\\.cpp$|third_party\\\\skk\\\\.*\\.utf8$') { New-Item -ItemType File -Path '.claude/state/dirty.flag' -Force | Out-Null }\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -Command \"if (Test-Path '.claude/state/dirty.flag') { Remove-Item '.claude/state/dirty.flag' -Force; & '.\\scripts\\loop\\run_e2e_loop.ps1'; if ($LASTEXITCODE -ne 0) { Write-Host '[Stop hook] E2E ループが FAIL を報告。CLAUDE.md の停止条件を確認せよ' -ForegroundColor Red; exit 2 } }\""
+          }
+        ]
+      }
+    ]
+  },
+
+  "how-to-enable": [
+    "1. cp .claude/settings.example.json .claude/settings.local.json",
+    "2. settings.local.json から '$schema-comment' / 'hook-usage-notes' / 'how-to-enable' / 'safety' の JSON キーを削除（Claude Code の設定 schema に無いキーは警告になる可能性）",
+    "3. Claude Code を再起動して hook が読まれるのを確認",
+    "4. src/GenerativeIME.Tsf/*.cpp を触るセッションを終えるとき、自動でループが走る"
+  ],
+
+  "safety": [
+    "hook は user 権限で走る。既存の 'ビルドは自動許可' の許可の範囲内 (~/.claude/CLAUDE.md)。",
+    "ただし辞書マイニング (scripts/mine/*.ps1) は数十分〜数時間かかるので hook から呼ばないこと。CLAUDE.md に明記済み。",
+    "hook が誤発火で邪魔になったら settings.local.json を消せば即無効化。"
+  ]
+}

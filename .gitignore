@@ -94,3 +94,11 @@ src/GenerativeIME.Installer/Embedded/
 *.env.local
 secrets.json
 appsettings.*.local.json
+
+# =============================================================================
+# Claude Code loop-engineering runtime state
+# =============================================================================
+# scripts/loop/run_e2e_loop.ps1 が書き出す状態 JSON とログ。CLAUDE.md /
+# .claude/agents/ / .claude/settings.example.json は commit する。
+.claude/state/
+.claude/settings.local.json
