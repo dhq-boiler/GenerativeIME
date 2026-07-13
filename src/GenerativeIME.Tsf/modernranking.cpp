@@ -1832,6 +1832,7 @@ namespace modernranking
         {L"ち", L"地"}, // e4b+Haiku bias-safe STABLE; corpus favors 血 (medical)
         {L"こう", L"高"}, // e4b+Haiku bias-safe STABLE; corpus favors 抗 (medical, anti-)
         {L"かん", L"感"}, // e4b+Haiku bias-safe STABLE; corpus favors 管 (blood vessel etc.)
+        {L"とうがい", L"当該"}, // bad_candidates.log 2026-07-13T11:18:21 legal ctx (建物の売買において…) picked 頭蓋; 当該 is dominant in formal/legal writing
     };
 
     static const std::unordered_map<std::wstring, std::wstring>& Index()

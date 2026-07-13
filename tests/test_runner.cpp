@@ -3076,6 +3076,52 @@ TEST(skk_lookup_rosanzerusu_loanword)
     EXPECT_TRUE(has);
 }
 
+// bad_candidates.log 2026-07-13T11:18:21: 建物の売買 context selected
+// 頭蓋 for「とうがい」; the legal/formal reading 当該 is dominant in
+// written Japanese. Locked in via kOverrideTable in modernranking.cpp.
+TEST(modernranking_tougai_promotes_tougai_to_top)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto cands = skk->Lookup(L"とうがい");
+    if (cands.empty()) { std::printf("  SKIP (no cands)\n"); return; }
+    auto promoted = modernranking::PromoteToTop(L"とうがい", cands);
+    EXPECT_TRUE(!promoted.empty());
+    if (promoted.empty()) return;
+    EXPECT_EQ_W(promoted[0], L"当該");
+}
+
+// bad_candidates.log 2026-07-13T11:15:20 / T11:18:50:「とことなる」→
+//「と異る」/「ことなる」→ kana top. SKK-JISYO.L's okuri-ari
+// `ことなr /異/` expands as 五段 producing「異る」rather than the
+// modern-standard「異なる」. Head-priority override in the godan
+// companion pins the correct compound.
+TEST(skk_kotonaru_top_is_kotonaru_verb)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto cands = skk->Lookup(L"ことなる");
+    EXPECT_TRUE(!cands.empty());
+    if (cands.empty()) return;
+    EXPECT_EQ_W(cands[0], L"異なる");
+}
+
+// bad_candidates.log 2026-07-13T11:15:43 / T11:19:06:「したばあい」が
+// bunsetsu で「した/ばあい」に分割され「した」の top が「下」に固定
+// される問題。全読み直接エントリを godan companion に置くことで、
+// HasDirectEntry の direct-hit パスで bunsetsu 分割を回避し
+//「した場合」を top に据える。
+TEST(skk_shitabaai_top_is_shita_baai)
+{
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    auto cands = skk->Lookup(L"したばあい");
+    EXPECT_TRUE(!cands.empty());
+    if (cands.empty()) return;
+    EXPECT_EQ_W(cands[0], L"した場合");
+    EXPECT_TRUE(skk->HasDirectEntry(L"したばあい"));
+}
+
 // WDAC iteration 2: candidate window UIA revealed that for かいさい the
 // runtime candidate list is [回際, 開催, 快哉, 皆済] — 回際 is prepended
 // even though SKK direct hits are [開催, 快哉, 皆済] and modernranking
