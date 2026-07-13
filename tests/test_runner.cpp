@@ -3122,6 +3122,42 @@ TEST(skk_shitabaai_top_is_shita_baai)
     EXPECT_TRUE(skk->HasDirectEntry(L"したばあい"));
 }
 
+// bad_candidates.log 2026-07-13T11:15:43 / T11:19:06 Fix C — even if the
+// user shrinks bunsetsu focus to just「した」 (via Shift+←), the
+// isInflected → move-only promotion in bunsetsu.cpp must NOT pull 下 to
+// top. modernranking kTable has した→下 (277x noun), and without the
+// IsShadowedAuxiliary guard the SKK-provided 下 would sit at slot 0.
+// Same guard for しろ (kTable しろ→白 181x) which appears as する 命令形.
+TEST(split_mecab_shita_verb_top_not_promoted_to_shita_kanji)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // 変換した — high-frequency 動詞+した pattern. MeCab tags した as
+    // 動詞 (する past); without shadowing, 下 hijacks slot 0 of that
+    // bunsetsu. The full reading may split into multiple bunsetsu; check
+    // that NO bunsetsu has 下 at position 0.
+    auto parts = bunsetsu::SplitMecab(L"へんかんした", *m, skk);
+    EXPECT_TRUE(!parts.empty());
+    for (const auto& p : parts) {
+        if (!p.candidates.empty()) EXPECT_TRUE(p.candidates[0] != L"下");
+    }
+}
+
+TEST(split_mecab_shiro_imperative_top_not_promoted_to_shiro_kanji)
+{
+    auto* m = MecabAnalyzer::GetGlobal();
+    auto* skk = SkkDictionary::GetGlobal();
+    if (!m || !m->IsReady() || !skk || !skk->IsLoaded()) { std::printf("  SKIP\n"); return; }
+    // 勉強しろ — する 命令形. Without the guard, kTable's しろ→白
+    // pulled 白 into slot 0.
+    auto parts = bunsetsu::SplitMecab(L"べんきょうしろ", *m, skk);
+    EXPECT_TRUE(!parts.empty());
+    for (const auto& p : parts) {
+        if (!p.candidates.empty()) EXPECT_TRUE(p.candidates[0] != L"白");
+    }
+}
+
 // WDAC iteration 2: candidate window UIA revealed that for かいさい the
 // runtime candidate list is [回際, 開催, 快哉, 皆済] — 回際 is prepended
 // even though SKK direct hits are [開催, 快哉, 皆済] and modernranking

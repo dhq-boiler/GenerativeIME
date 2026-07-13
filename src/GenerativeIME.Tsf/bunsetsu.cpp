@@ -199,6 +199,14 @@ namespace bunsetsu
                 // Checked-and-clean at the same time (no entry / ReadsAs fails):
                 // だら, たり, だり, べき, らしい, でしょう, たかっ, たけれ, みたい.
                 L"たら", L"たい", L"なら", L"まい", L"たく", L"ましょう",
+                // 2026-07-13 (bad_candidates.log T11:15:43 / T11:19:06):
+                // する 系 inflected surfaces whose modernranking kTable entry
+                // hijacks the isInflected → move-only promotion. Both actually
+                // appear in kTable: した→下 (277x), しろ→白 (181x). The
+                // isInflected branch KanjifyByReading emits kana surface for
+                // 為る lemma, then move-only promotion pulls 下/白 up because
+                // SKK-JISYO.L lists them in the candidate slot. Shadow them.
+                L"した", L"しろ",
             };
             for (const auto& a : kList)
                 if (surface == a) return true;
