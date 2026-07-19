@@ -163,11 +163,20 @@ HRESULT SkkDictionary::Load(const std::wstring& path)
     // Optional: absence is not an error.
     if (!dir.empty())
     {
+        // Load order matters for TAIL merges: whichever companion runs first
+        // wins position 0 among readings that only exist in the companions
+        // (not in L). まうす has no L entry — the pre-2026-07-20 order put
+        // emoji before loanwords, so 「まうすかーそる」 stitched as
+        // 「🐁カーソル」 (bad_candidates.log 2026-07-16, 3 hits). Load
+        // loanwords first so pure-loanword readings default to their
+        // katakana spelling; emoji then rides at the tail as an alternate.
+        // Readings that DO exist in L are unaffected — L is parsed above,
+        // and its entries always outrank both companions here.
         static const wchar_t* kCompanions[] = {
             L"SKK-JISYO.propernouns.utf8",
             L"SKK-JISYO.geography.utf8",
-            L"SKK-JISYO.emoji.utf8",
             L"SKK-JISYO.loanwords.utf8",
+            L"SKK-JISYO.emoji.utf8",
         };
         for (const wchar_t* name : kCompanions)
             ParseFile(dir + name, deferredOkuri);
