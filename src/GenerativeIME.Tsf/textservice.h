@@ -192,7 +192,28 @@ private:
     // never grow unbounded across a long editing session.
     static constexpr size_t kRecentContextMax = 60;
     std::wstring m_recentContext;
-    void AppendCommittedText(const std::wstring& text);
+    // watchable=true (the default) arms the post-commit backspace watch: if the
+    // user immediately backspaces the whole committed run away, the same block
+    // Ctrl+F5 writes gets appended to misconversions.log. Non-conversion
+    // commits (particle auto-commit, 全角英数 single-char, F4 repeat-paste)
+    // pass watchable=false — those aren't ranking/dictionary problems and
+    // logging them would drown the file in noise.
+    void AppendCommittedText(const std::wstring& text, bool watchable = true);
+
+    // Suffix of the last committed conversion still standing in the document.
+    // Non-empty during the "watch for backspace-erase" window; every VK_BACK
+    // that verifiably deletes the matching tail char pops from here. When it
+    // reaches empty, the whole commit is gone — we log a misconversion entry
+    // (same body as Ctrl+F5) and stop watching. Cleared eagerly on any commit
+    // that supersedes this one, and by verification-mismatch (caret moved).
+    std::wstring m_backspaceWatchBuffer;
+    // Verify + delete one wchar directly to the left of the caret. Returns
+    // true iff the char equalled `expected` AND the delete succeeded — the
+    // caller then treats this as one consumed backspace against the watch
+    // buffer. Returns false when the host moved the caret / edited between
+    // our commit and now (the peeked char doesn't match), which the caller
+    // interprets as "user is doing something else, drop the watch".
+    bool TryConsumeCommittedTailChar(ITfContext* pContext, wchar_t expected);
 
     // The most recent single commit, verbatim. F4 (with the IME on and no
     // composition open) re-inserts it, so symbol/emoji spam like ‼️‼️‼️

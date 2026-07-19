@@ -1027,7 +1027,7 @@ bool CTextService::TrySplitLeadingParticle(ITfContext* pContext, std::wstring& r
     // wiped from the range.
     std::wstring particle(1, reading[0]);
     RequestEditSession(pContext, EditAction::EndCommit, particle);
-    AppendCommittedText(particle);
+    AppendCommittedText(particle, /*watchable=*/false);
 
     // Rebuild buffer state and open a fresh composition on the stem so the
     // punct / SKK / MeCab paths that follow this call see only the tail.
@@ -3495,7 +3495,7 @@ void CTextService::ResizeFocusedBunsetsu(int delta, ITfContext* pContext)
     RepaintBunsetsu(pContext);
 }
 
-void CTextService::AppendCommittedText(const std::wstring& text)
+void CTextService::AppendCommittedText(const std::wstring& text, bool watchable)
 {
     if (text.empty()) return;
     // Every commit path funnels through here, which makes it the one spot
@@ -3505,6 +3505,25 @@ void CTextService::AppendCommittedText(const std::wstring& text)
     if (m_recentContext.size() > kRecentContextMax)
     {
         m_recentContext.erase(0, m_recentContext.size() - kRecentContextMax);
+    }
+    // Arm the backspace-erase watch. Surrogate pairs get skipped: the host's
+    // backspace behavior over a surrogate is inconsistent (some delete two
+    // wchar, some delete one visible glyph = two wchar as one press), and
+    // a partial match would either false-negative or corrupt the doc via
+    // our verified-delete path.
+    if (watchable)
+    {
+        bool hasSurrogate = false;
+        for (wchar_t c : text)
+        {
+            if (c >= 0xD800 && c <= 0xDFFF) { hasSurrogate = true; break; }
+        }
+        m_backspaceWatchBuffer = hasSurrogate ? std::wstring() : text;
+    }
+    else
+    {
+        // Any prior watch is stale now (something else got committed on top).
+        m_backspaceWatchBuffer.clear();
     }
 }
 
@@ -4044,6 +4063,101 @@ bool CTextService::ToggleCodepointInPlace(ITfContext* pContext)
     return true;
 }
 
+bool CTextService::TryConsumeCommittedTailChar(ITfContext* pContext, wchar_t expected)
+{
+    if (!pContext) return false;
+
+    class DeleteTailSession : public ITfEditSession
+    {
+        LONG m_cRef = 1;
+        ITfContext* m_ctx;
+        wchar_t m_expected;
+    public:
+        bool m_ok = false;
+        DeleteTailSession(ITfContext* c, wchar_t e) : m_ctx(c), m_expected(e) {}
+
+        STDMETHODIMP QueryInterface(REFIID r, void** pp) override
+        {
+            if (!pp) return E_POINTER;
+            if (IsEqualIID(r, IID_IUnknown) || IsEqualIID(r, IID_ITfEditSession))
+            {
+                *pp = static_cast<ITfEditSession*>(this);
+                AddRef();
+                return S_OK;
+            }
+            *pp = nullptr;
+            return E_NOINTERFACE;
+        }
+        STDMETHODIMP_(ULONG) AddRef() override { return InterlockedIncrement(&m_cRef); }
+        STDMETHODIMP_(ULONG) Release() override
+        {
+            LONG c = InterlockedDecrement(&m_cRef);
+            if (c == 0) delete this;
+            return c;
+        }
+
+        STDMETHODIMP DoEditSession(TfEditCookie ec) override
+        {
+            TF_SELECTION sel = {};
+            ULONG fetched = 0;
+            if (FAILED(m_ctx->GetSelection(ec, TF_DEFAULT_SELECTION, 1, &sel, &fetched))
+                || fetched == 0 || !sel.range)
+                return S_OK;
+
+            ITfRange* pRange = nullptr;
+            sel.range->Clone(&pRange);
+            sel.range->Release();
+            if (!pRange) return S_OK;
+
+            // 1 wchar back only. Callers guarantee `expected` is BMP (surrogate
+            // commits skip the watch upstream), so a single ShiftStart is
+            // sufficient to peek the tail char.
+            LONG shifted = 0;
+            pRange->ShiftStart(ec, -1, &shifted, nullptr);
+            if (shifted != -1)
+            {
+                pRange->Release();
+                return S_OK;
+            }
+
+            wchar_t ch = 0;
+            ULONG got = 0;
+            pRange->GetText(ec, 0, &ch, 1, &got);
+            if (got != 1 || ch != m_expected)
+            {
+                // Caret was moved / the doc was edited between our commit and
+                // this backspace, or the tail char doesn't match. Bail without
+                // touching anything — caller will drop the watch and let the
+                // host handle the key.
+                pRange->Release();
+                return S_OK;
+            }
+
+            HRESULT hr = pRange->SetText(ec, 0, nullptr, 0);
+            if (SUCCEEDED(hr))
+            {
+                pRange->Collapse(ec, TF_ANCHOR_END);
+                TF_SELECTION newSel = {};
+                newSel.range = pRange;
+                newSel.style.ase = TF_AE_END;
+                newSel.style.fInterimChar = FALSE;
+                m_ctx->SetSelection(ec, 1, &newSel);
+                m_ok = true;
+            }
+            pRange->Release();
+            return S_OK;
+        }
+    };
+
+    auto* s = new DeleteTailSession(pContext, expected);
+    HRESULT hrSess = S_OK;
+    HRESULT hr = pContext->RequestEditSession(m_tfClientId, s,
+                                              TF_ES_SYNC | TF_ES_READWRITE, &hrSess);
+    bool ok = s->m_ok;
+    s->Release();
+    return SUCCEEDED(hr) && SUCCEEDED(hrSess) && ok;
+}
+
 LRESULT CALLBACK CTextService::StaticWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     if (msg == WM_NCCREATE)
@@ -4377,6 +4491,14 @@ bool CTextService::ShouldEat(WPARAM wParam) const
         if (m_imeMode == ImeMode::Hiragana || m_imeMode == ImeMode::FullKatakana) return true;
     }
     if (wParam == VK_BACK && !m_romajiBuffer.empty()) return true;
+    // Post-commit backspace watch: with no live composition and no romaji
+    // buffer, VK_BACK normally falls through to the host. When the watch is
+    // armed we claim it so OnKeyDown can verify the tail char, perform the
+    // delete ourselves, and — once the whole commit has been erased — log
+    // the same misconversion block Ctrl+F5 writes.
+    if (wParam == VK_BACK && !m_pComposition && m_romajiBuffer.empty()
+        && !m_backspaceWatchBuffer.empty())
+        return true;
     if ((wParam == VK_RETURN || wParam == VK_ESCAPE || wParam == VK_SPACE) && m_pComposition) return true;
     if (m_pCandWnd && m_pCandWnd->IsVisible())
     {
@@ -4520,7 +4642,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         {
             std::wstring full = ToFullWidthAscii(std::wstring(1, ch));
             if (pic) RequestEditSession(pic, EditAction::InsertDirect, full);
-            AppendCommittedText(full);
+            AppendCommittedText(full, /*watchable=*/false);
             *pfEaten = TRUE;
             return S_OK;
         }
@@ -4692,6 +4814,45 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
             UpdatePrediction(pic);
         }
         *pfEaten = TRUE;
+    }
+    else if (wParam == VK_BACK && !m_pComposition && m_romajiBuffer.empty()
+        && !m_backspaceWatchBuffer.empty())
+    {
+        // Post-commit backspace watch (armed by AppendCommittedText). If the
+        // char to the left of the caret matches the tail of the committed
+        // run, we delete it ourselves and pop the watch buffer. When the
+        // buffer drains empty the entire commit has been backspaced away —
+        // treat that as "user rejected the conversion" and append the same
+        // block Ctrl+F5 writes to misconversions.log, then trim the deleted
+        // run out of m_recentContext so the LLM prompt for the NEXT
+        // composition doesn't include phantom text.
+        wchar_t expected = m_backspaceWatchBuffer.back();
+        bool consumed = TryConsumeCommittedTailChar(pic, expected);
+        if (!consumed)
+        {
+            // Verification failed — caret was moved or the doc was edited
+            // between commit and now. Drop the watch and hand the key back
+            // to the host so it can delete whatever is actually there.
+            m_backspaceWatchBuffer.clear();
+            *pfEaten = FALSE;
+            return S_OK;
+        }
+        m_backspaceWatchBuffer.pop_back();
+        *pfEaten = TRUE;
+        if (m_backspaceWatchBuffer.empty())
+        {
+            // LogMisconversionAttempt reads m_recentContext WITH the deleted
+            // run still present at its tail — that's the useful state for
+            // the log analyzer (shows what the user was doing at the moment
+            // of confusion). Only trim after the write.
+            LogMisconversionAttempt();
+            size_t n = m_lastCommittedText.length();
+            if (m_recentContext.size() >= n)
+                m_recentContext.erase(m_recentContext.size() - n);
+            else
+                m_recentContext.clear();
+            AppendDebugLine(L"[GenerativeIME] backspace erased commit -> logged misconversion");
+        }
     }
     else if (wParam == VK_RETURN && m_pComposition)
     {
@@ -4892,6 +5053,14 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         //     form (ひらがな / 全角カナ / 半角カナ / ローマ字).
         if (InBunsetsuMode())
         {
+            // 無変換 as bad-candidate signal: same rejection semantics as
+            // Ctrl+Shift+F5. User pressed 無変換 to escape the conversion —
+            // whatever the window is showing right now is a bad set. Log
+            // BEFORE the revert (below overwrites m_pCandWnd's contents /
+            // Phase B state via RepaintBunsetsu) so the log captures the
+            // rejected candidates verbatim.
+            LogBadCandidateAttempt();
+
             // Phase B (multi-bunsetsu): revert ONLY the focused clause to its
             // bare reading and keep every other clause intact. The old code
             // called LeaveBunsetsuMode()+Update(m_lastReading), but in Phase B
@@ -4916,6 +5085,11 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         }
         else if (m_pCandWnd && m_pCandWnd->IsVisible() && !m_lastReading.empty())
         {
+            // Prediction popup 無変換 = "cycle kana form" (falls through to the
+            // else below); skip logging for that path. Only genuine post-Space
+            // candidate windows are treated as rejection.
+            if (!m_predictionActive) LogBadCandidateAttempt();
+
             m_pCandWnd->Hide();
             if (pic) RequestEditSession(pic, EditAction::Update, m_lastReading);
             m_compositionConverted = TRUE;
@@ -5372,7 +5546,7 @@ STDMETHODIMP CTextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPar
         // context buffer in sync (m_lastCommittedText is overwritten with
         // the same string, so repeats keep repeating).
         if (pic) RequestEditSession(pic, EditAction::InsertDirect, m_lastCommittedText);
-        AppendCommittedText(m_lastCommittedText);
+        AppendCommittedText(m_lastCommittedText, /*watchable=*/false);
         *pfEaten = TRUE;
     }
     else if (wParam >= '1' && wParam <= '9' && m_pCandWnd && m_pCandWnd->IsVisible())
